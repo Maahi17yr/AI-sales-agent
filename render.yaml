@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: naija-bites-demo-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python -m rag.ingest
+    startCommand: python -m uvicorn agui_server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /ping
+    envVars:
+      - key: NAIJA_BITES_ENV
+        value: demo
+      - key: NAIJA_BITES_DATA_DIR
+        value: /tmp/naija-bites
+      - key: NAIJA_BITES_FRONTEND_ORIGIN
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_CALLBACK_URL
+        sync: false
+      - key: BEDROCK_MODEL_ID
+        sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false

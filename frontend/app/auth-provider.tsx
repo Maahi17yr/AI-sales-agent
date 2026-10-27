@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { ChefHat, LoaderCircle, ShieldCheck, UtensilsCrossed } from 'lucide-react';
 
-const API = process.env.NEXT_PUBLIC_AGUI_URL || 'http://127.0.0.1:8000';
+const API = process.env.NEXT_PUBLIC_AGUI_URL || '/api/backend';
 
 export type Customer = { id: number; name: string; email: string; phone?: string | null };
 

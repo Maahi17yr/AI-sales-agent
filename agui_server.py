@@ -2,7 +2,7 @@
 """
 Naija Bites AG-UI backend.
 
-Local development only.
+Local development and explicitly configured public DEMO mode.
 
 Features:
 - AI chat endpoint
@@ -15,8 +15,8 @@ Run:
 python -m uvicorn agui_server:app --host 127.0.0.1 --port 8000
 
 IMPORTANT:
-This uses one fictional customer session.
-Do not deploy publicly without real authentication.
+Public demo mode requires explicit configuration and authenticated customer sessions.
+Paystack remains in TEST mode. Free-tier storage is ephemeral.
 """
 
 import json
@@ -85,16 +85,22 @@ class LoginRequest(BaseModel):
 
 AUTH_COOKIE_NAME = "naija_bites_session"
 AUTH_COOKIE_MAX_AGE = auth_service.SESSION_DAYS * 24 * 60 * 60
-AUTH_ALLOWED_ORIGINS = {
+DEPLOYMENT_MODE = os.getenv("NAIJA_BITES_ENV", "development").strip().lower()
+DEMO_FRONTEND_ORIGIN = os.getenv("NAIJA_BITES_FRONTEND_ORIGIN", "").strip().rstrip("/")
+LOCAL_ORIGINS = {
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 }
+AUTH_ALLOWED_ORIGINS = (
+    {DEMO_FRONTEND_ORIGIN} if DEPLOYMENT_MODE == "demo"
+    else LOCAL_ORIGINS
+)
 
 
 def _auth_cookie_secure() -> bool:
-    return os.getenv("NAIJA_BITES_ENV", "development").strip().lower() == "production"
+    return DEPLOYMENT_MODE == "demo"
 
 
 def _set_auth_cookie(response: JSONResponse, token: str) -> None:
@@ -187,16 +193,29 @@ def _create_local_dev_session() -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    # Fail closed until real customer authentication and session isolation exist.
-    # A shared fictional customer must never be exposed as a public service.
-    if os.getenv("NAIJA_BITES_ENV", "development").strip().lower() == "production":
-        raise RuntimeError(
-            "Production startup blocked: replace the shared development "
-            "customer/session with authenticated, isolated customer sessions."
-        )
-
-    print("Naija Bites backend initialized with authenticated customer sessions.")
-
+    if DEPLOYMENT_MODE not in {"development", "demo"}:
+        raise RuntimeError("Unsupported environment: only development or demo is enabled.")
+    if DEPLOYMENT_MODE == "demo":
+        if not DEMO_FRONTEND_ORIGIN.startswith("https://"):
+            raise RuntimeError("Demo requires HTTPS NAIJA_BITES_FRONTEND_ORIGIN.")
+        if not os.getenv("PAYSTACK_SECRET_KEY", "").startswith("sk_test_"):
+            raise RuntimeError("Demo requires a Paystack TEST secret key.")
+        if not os.getenv("PAYSTACK_CALLBACK_URL", "").startswith(DEMO_FRONTEND_ORIGIN + "/"):
+            raise RuntimeError("Demo Paystack callback must use the configured frontend HTTPS origin.")
+        if not os.getenv("BEDROCK_MODEL_ID"):
+            raise RuntimeError("Demo requires BEDROCK_MODEL_ID.")
+        # Create only missing schema/catalogue; never overwrite existing orders or stock.
+        from database.models import create_tables
+        from database.seed import seed_products, seed_delivery_zones
+        from database.customization_schema import create_customization_tables
+        from database.seed_customizations import seed_customizations
+        create_tables()
+        with get_connection() as conn:
+            seed_products(conn)
+            seed_delivery_zones(conn)
+        create_customization_tables()
+        seed_customizations()
+    print(f"Naija Bites backend initialized in {DEPLOYMENT_MODE} mode.")
     yield
 
 
@@ -219,10 +238,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
 
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=sorted(AUTH_ALLOWED_ORIGINS),
 
     allow_credentials=True,
 
@@ -252,7 +268,8 @@ async def localhost_only(
     """
 
     if (
-        request.client
+        DEPLOYMENT_MODE == "development"
+        and request.client
         and request.client.host
         not in {"127.0.0.1", "::1"}
     ):
@@ -341,7 +358,7 @@ async def ping():
 
     return {
         "status": "ok",
-        "mode": "authenticated-local-development",
+        "mode": "authenticated-demo" if DEPLOYMENT_MODE == "demo" else "authenticated-local-development",
         "checkout_enabled": True,
     }
 
@@ -598,8 +615,7 @@ async def get_dev_customer(request: Request):
         conn.close()
 
 
-# LOCAL DEVELOPMENT ONLY: uses the same fixed fictional customer as checkout.
-# Production must authenticate the caller and bind session_id server-side.
+# Customer identity is always resolved from the authenticated cookie.
 @app.get("/memory/pending")
 async def memory_pending(request: Request):
     from memory import preferences
@@ -619,7 +635,7 @@ async def memory_decision(decision: PreferenceDecision, request: Request):
     return {"success": True, **result}
 
 
-# PAYSTACK TEST MODE: this backend is localhost-only and uses a fictional customer.
+# Paystack TEST mode only; the customer is authenticated and scoped to their session.
 @app.post("/payments/initialize")
 def initialize_payment(payload: PaymentInitialize, request: Request):
     try:

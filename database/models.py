@@ -1,13 +1,18 @@
 
 import sqlite3
 from pathlib import Path
+import os
 
-# Database location
-DB_PATH = Path(__file__).resolve().parent / "smallchops.db"
+# Optional storage root for hosted demo. Render free instances do not provide
+# durable disk storage: /tmp data can disappear on restart/redeploy.
+_DATA_DIR = os.getenv("NAIJA_BITES_DATA_DIR", "").strip()
+DB_PATH = (Path(_DATA_DIR).expanduser() / "smallchops.db"
+           if _DATA_DIR else Path(__file__).resolve().parent / "smallchops.db")
 
 
 def get_connection():
     """Create and return a SQLite database connection."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")

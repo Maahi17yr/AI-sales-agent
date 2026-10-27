@@ -92,7 +92,7 @@ type ConfirmationResponse = {
 
 const API =
   process.env.NEXT_PUBLIC_AGUI_URL ||
-  'http://127.0.0.1:8000';
+  '/api/backend';
 
 const uid = () => crypto.randomUUID();
 
