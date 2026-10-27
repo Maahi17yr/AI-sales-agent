@@ -2,6 +2,10 @@
 import hashlib
 import secrets
 import sqlite3
+try:
+    from psycopg.errors import UniqueViolation
+except ImportError:  # SQLite-only local development
+    UniqueViolation = sqlite3.IntegrityError
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
@@ -39,7 +43,7 @@ def register_customer(name, email, password):
                 "INSERT INTO customers(name,email,password_hash) VALUES(?,?,?)",
                 (name.strip(), email, password_hash),
             )
-        except sqlite3.IntegrityError as exc:
+        except (sqlite3.IntegrityError, UniqueViolation) as exc:
             raise ValueError("Email already registered.") from exc
         customer_id = cursor.lastrowid
     return {"id": customer_id, "name": name.strip(), "email": email}

@@ -196,6 +196,8 @@ async def lifespan(app: FastAPI):
     if DEPLOYMENT_MODE not in {"development", "demo"}:
         raise RuntimeError("Unsupported environment: only development or demo is enabled.")
     if DEPLOYMENT_MODE == "demo":
+        if not os.getenv("DATABASE_URL", "").strip():
+            raise RuntimeError("Demo requires DATABASE_URL for durable PostgreSQL storage.")
         if not DEMO_FRONTEND_ORIGIN.startswith("https://"):
             raise RuntimeError("Demo requires HTTPS NAIJA_BITES_FRONTEND_ORIGIN.")
         if not os.getenv("PAYSTACK_SECRET_KEY", "").startswith("sk_test_"):

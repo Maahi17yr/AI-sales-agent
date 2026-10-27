@@ -2,6 +2,10 @@
 import hashlib
 import json
 import sqlite3
+try:
+    from psycopg import Error as PostgresError
+except ImportError:  # SQLite-only local development
+    PostgresError = sqlite3.Error
 from collections import Counter
 
 import config
@@ -190,7 +194,7 @@ class OrderService:
                     'subtotal': summary['subtotal'], 'delivery_fee': summary['delivery_fee'],
                     'discount': summary['discount'], 'total': summary['total'],
                     'currency': summary['currency'], 'message': 'Order created successfully.'}
-        except (ValueError, KeyError, TypeError, json.JSONDecodeError, sqlite3.Error) as error:
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError, sqlite3.Error, PostgresError) as error:
             conn.rollback()
             return {'success': False, 'message': str(error)}
         finally:
