@@ -179,12 +179,10 @@ export default function Home() {
     };
   }, []);
 
-  // Scroll to latest message.
-  // The effect must not return scrollIntoView().
+  // Keep the welcome experience visible until the first message is sent.
   useEffect(() => {
-    bottom.current?.scrollIntoView({
-      behavior: 'smooth',
-    });
+    if (messages.length === 1 && !activity) return;
+    bottom.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, activity]);
 
   // Keep the review card in sync with the trusted backend state.
@@ -596,7 +594,7 @@ export default function Home() {
   }, [apiFetch]);
 
   return (
-    <main className="site-shell">
+    <main className={`site-shell ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''}`}>
       {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && <div className="demo-notice" role="note">Public demo only · Paystack test payments · No real orders or deliveries. Use fictional details.</div>}
       <aside className="side-panel">
         <div className="identity">
@@ -604,29 +602,53 @@ export default function Home() {
           <div><strong>Naija Bites<span className="brand-dot">.</span></strong><small>Good food, good mood.</small></div>
         </div>
         <div className="side-divider" />
-        <div className="side-caption">YOUR SPACE</div>
+        <div className="side-caption">YOUR TABLE</div>
         <button className="side-link selected" onClick={reset} disabled={busy || confirming}><MessageCircle size={18}/> Food chat <ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" onClick={() => void send('Show me the menu')} disabled={busy || confirming || !threadId}><UtensilsCrossed size={18}/> Explore menu <ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" onClick={() => void send('Show me my cart')} disabled={busy || confirming || !threadId}><ShoppingBag size={18}/> My cart <ArrowRight size={16} className="side-link-arrow"/></button>
         <div className="account-panel"><span className="account-label">SIGNED IN AS</span><strong>{customer.name}</strong><span className="account-email">{customer.email}</span><button className="account-logout" type="button" onClick={() => void logout()}><LogOut size={15}/> Sign out</button></div>
-        <div className="side-help"><div className="side-help-icon"><Sparkles size={20}/></div><strong>Hungry? We’ve got you.</strong><p>Find something tasty and order in just a few messages.</p></div>
+        <div className="side-help"><div className="side-help-icon"><Sparkles size={20}/></div><span className="side-help-eyebrow">YOUR PERSONAL FOOD GUIDE</span><strong>Good food, zero stress.</strong><p>Tell us what you’re craving. We’ll help you find the right bite.</p><button type="button" className="side-help-action" onClick={() => void send("Help me choose something delicious")} disabled={busy || confirming || !threadId}>Get inspired <ArrowRight size={15}/></button></div>
         <div className="sidebar-foot"><span className={`connect-dot ${online ? 'up' : ''}`}/><span>{online === null ? 'Connecting…' : online ? 'Ready to take your order' : 'Connection unavailable'}</span></div>
       </aside>
       <section className="chat-layout">
         <header className="chat-header">
           <div className="mobile-brand"><span className="identity-mark small"><UtensilsCrossed size={18}/></span></div>
           <div className="agent-avatar"><ChefHat size={24}/><span className="avatar-online"/></div>
-          <div className="agent-title"><h1>Naija Bites</h1><p><span className="live-dot"/> Your food assistant</p></div>
+          <div className="agent-title"><h1>Your food companion <span className="header-sparkle">✳</span></h1><p><span className="live-dot"/> Naija Bites AI · Here to help you order</p></div>
           <button className="mobile-logout" type="button" onClick={() => void logout()} aria-label="Sign out" title="Sign out"><LogOut size={17}/></button>
           <button className="new-chat" onClick={reset} disabled={busy || confirming} title="Start a fresh conversation"><RefreshCw size={16}/><span>New chat</span></button>
         </header>
         <div className="conversation" id="conversation">
           <div className="conversation-inner">
-            <div className="date-divider"><span>Today</span></div>
-            {messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}>
+            {messages.length === 1 ? (
+              <section className="welcome-hero" aria-label="Welcome to Naija Bites">
+                <div className="hero-copy">
+                  <span className="hero-eyebrow"><Sparkles size={15}/> THE NAIJA BITES EXPERIENCE</span>
+                  <h2>Craving something <em>really good?</em></h2>
+                  <p>From smoky jollof to your favourite comfort food, a delicious decision is just a conversation away.</p>
+                  <button className="hero-cta" type="button" onClick={() => void send('Show me the menu')} disabled={busy || confirming || !threadId}>Explore the menu <ArrowRight size={18}/></button>
+                  <div className="hero-footnote"><span className="hero-footnote-dot"/> Made for Nigerian cravings, powered by AI</div>
+                </div>
+                <div className="hero-visual" aria-hidden="true">
+                  <div className="hero-orbit orbit-one"/><div className="hero-orbit orbit-two"/>
+                  <div className="hero-food-plate"><span>🍛</span></div>
+                  <div className="hero-sticker sticker-top">Fresh ideas <Sparkles size={14}/></div>
+                  <div className="hero-sticker sticker-bottom">Good food. Good mood.</div>
+                </div>
+              </section>
+            ) : <div className="date-divider"><span>Today</span></div>}
+            {messages.filter(message => message.id !== 'welcome').map((message) => <div key={message.id} className={`message-row ${message.role}`}>
               {message.role === 'assistant' && <span className="message-avatar"><UtensilsCrossed size={15}/></span>}
               <div className="message-content"><div className="bubble"><MessageMarkup content={message.content}/></div><span className="message-meta">{message.role === 'assistant' ? 'Naija Bites' : 'You'}</span></div>
             </div>)}
+            {messages.length === 1 && <section className="welcome-shortcuts" aria-label="Ways to get started">
+              <div className="shortcuts-heading"><div><span className="shortcuts-eyebrow">NOT SURE WHERE TO START?</span><h3>What sounds good today?</h3></div><span>Pick a shortcut or type below</span></div>
+              <div className="shortcut-grid">
+                <button type="button" onClick={() => void send('Show me the menu')} disabled={busy || confirming || !threadId}><span className="shortcut-icon"><UtensilsCrossed size={21}/></span><strong>Browse the menu</strong><small>See what’s cooking</small><ArrowRight size={17} className="shortcut-arrow"/></button>
+                <button type="button" onClick={() => void send('What can I get for ₦5,000?')} disabled={busy || confirming || !threadId}><span className="shortcut-icon"><ShoppingBag size={21}/></span><strong>Eat on a budget</strong><small>Great food, your price</small><ArrowRight size={17} className="shortcut-arrow"/></button>
+                <button type="button" onClick={() => void send('Surprise me with a Nigerian food recommendation')} disabled={busy || confirming || !threadId}><span className="shortcut-icon"><Sparkles size={21}/></span><strong>Surprise me</strong><small>Find a new favourite</small><ArrowRight size={17} className="shortcut-arrow"/></button>
+              </div>
+            </section>}
             {busy && <div className="working-row"><span className="message-avatar"><UtensilsCrossed size={15}/></span><div className="working-bubble"><span className="typing-dots"><i/><i/><i/></span><span>{activity || 'Putting something together…'}</span></div></div>}
             {error && <div className="inline-alert" role="alert">{error}</div>}
             {checkout && reviewOpen && <section ref={checkoutCardRef} className="checkout-panel" aria-label="Review your order">
@@ -654,9 +676,9 @@ export default function Home() {
           </div>
         </div>
         <div className="composer-area">
-          {messages.length === 1 && <div className="suggestions">{['Show me the menu', 'What can I get for ₦5,000?', 'I want jollof rice'].map(q => <button key={q} type="button" onClick={() => void send(q)} disabled={busy || confirming || !threadId}>{q}<ArrowRight size={13}/></button>)}</div>}
-          <form className="composer" onSubmit={(e) => {e.preventDefault();void send();}}><input aria-label="Message Naija Bites" placeholder="What would you like to eat?" value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy || confirming}/><button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <ArrowRight size={21}/>}</button></form>
-          <div className="composer-caption">Made for cravings. Served with care.</div>
+          <div className="composer-intro"><Sparkles size={15}/> Ask me anything about your next meal</div>}
+          <form className="composer" onSubmit={(e) => {e.preventDefault();void send();}}><input aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy || confirming}/><button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <ArrowRight size={21}/>}</button></form>
+          <div className="composer-caption">A little chat, a lot of flavour. <span>✳</span> Naija Bites</div>
         </div>
       </section>
       {paymentMessage && (
