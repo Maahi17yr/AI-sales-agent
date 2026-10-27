@@ -2,6 +2,7 @@
 import hashlib
 import secrets
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
 from argon2 import PasswordHasher
@@ -32,7 +33,7 @@ def register_customer(name, email, password):
     if not isinstance(password, str) or not 12 <= len(password) <= 1024:
         raise ValueError("Password must contain at least 12 characters.")
     password_hash = _hasher.hash(password)
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         try:
             cursor = conn.execute(
                 "INSERT INTO customers(name,email,password_hash) VALUES(?,?,?)",
@@ -59,7 +60,7 @@ def login_customer(email, password):
     email = _email(email)
     if not isinstance(password, str):
         raise ValueError("Invalid email or password.")
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         row = conn.execute(
             "SELECT id, name, email, password_hash FROM customers WHERE email=?",
             (email,),
@@ -78,7 +79,7 @@ def authenticate_token(token):
     if not isinstance(token, str) or not token or len(token) > 256:
         return None
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         row = conn.execute("""SELECT c.id, c.name, c.email
             FROM auth_sessions s JOIN customers c ON c.id=s.customer_id
             WHERE s.token_hash=? AND s.expires_at>?""",
@@ -91,5 +92,5 @@ def logout_customer(token):
     if not isinstance(token, str) or not token:
         return False
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         return conn.execute("DELETE FROM auth_sessions WHERE token_hash=?", (token_hash,)).rowcount > 0
