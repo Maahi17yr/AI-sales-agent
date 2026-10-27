@@ -66,7 +66,13 @@ class PostgresConnection:
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        self.rollback() if exc_type is not None else self.commit()
+        try:
+            if exc_type is not None:
+                self.rollback()
+            else:
+                self.commit()
+        finally:
+            self._conn.close()
         return False
 
     def _begin(self):
