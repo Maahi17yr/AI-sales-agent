@@ -4,6 +4,7 @@ Run from project root: python -m database.migrate_auth
 Never runs automatically during application startup.
 """
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,8 +17,9 @@ def migrate(path=DB_PATH):
         raise FileNotFoundError(f"Existing database not found: {path}")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup = path.with_name(f"{path.stem}.pre-auth-{stamp}.backup.sqlite3")
-    with sqlite3.connect(path) as source, sqlite3.connect(backup) as target:
-        source.backup(target)
+    with closing(sqlite3.connect(path)) as source:
+        with closing(sqlite3.connect(backup)) as target:
+            source.backup(target)
     print(f"Backup created: {backup}")
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
