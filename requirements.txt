@@ -19,6 +19,9 @@ ag-ui-strands
 # Paystack HTTP API client
 httpx
 
+# Password hashing for customer authentication
+argon2-cffi
+
 # Environment variables from .env
 python-dotenv
 
