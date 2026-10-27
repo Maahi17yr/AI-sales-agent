@@ -41,7 +41,7 @@ from fastapi.responses import (
 )
 
 from pydantic import BaseModel, StrictBool
-from services import paystack_service
+from services import paystack_service, auth_service
 
 from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
@@ -69,6 +69,48 @@ from services.order_service import fingerprint
 # ------------------------------------------
 # REQUEST MODELS
 # ------------------------------------------
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+AUTH_COOKIE_NAME = "naija_bites_session"
+AUTH_COOKIE_MAX_AGE = auth_service.SESSION_DAYS * 24 * 60 * 60
+AUTH_ALLOWED_ORIGINS = {
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+}
+
+
+def _auth_cookie_secure() -> bool:
+    return os.getenv("NAIJA_BITES_ENV", "development").strip().lower() == "production"
+
+
+def _set_auth_cookie(response: JSONResponse, token: str) -> None:
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=token,
+        max_age=AUTH_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=_auth_cookie_secure(),
+        samesite="lax",
+        path="/",
+    )
+
+
+def _require_authenticated_customer(request: Request) -> dict:
+    customer = auth_service.authenticate_token(request.cookies.get(AUTH_COOKIE_NAME))
+    if customer is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    return customer
+
 
 class PaymentInitialize(BaseModel):
     order_id: int
@@ -175,7 +217,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",
     ],
 
-    allow_credentials=False,
+    allow_credentials=True,
 
     allow_methods=[
         "GET",
@@ -215,6 +257,72 @@ async def localhost_only(
         )
 
     return await call_next(request)
+
+
+# ------------------------------------------
+# CUSTOMER AUTHENTICATION (LOCAL TESTING)
+# ------------------------------------------
+
+@app.middleware("http")
+async def protect_auth_cookie_requests(request: Request, call_next):
+    # Browsers send Origin for cross-origin POSTs. Reject unknown origins
+    # before any authentication mutation; requests with no Origin (CLI)
+    # remain usable for local testing.
+    if request.url.path.startswith("/auth/") and request.method == "POST":
+        origin = request.headers.get("origin")
+        if origin is not None and origin not in AUTH_ALLOWED_ORIGINS:
+            return JSONResponse({"detail": "Origin not allowed."}, status_code=403)
+        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json" and request.url.path != "/auth/logout":
+            return JSONResponse({"detail": "JSON body required."}, status_code=415)
+    return await call_next(request)
+
+
+@app.post("/auth/register", status_code=201)
+def auth_register(payload: RegisterRequest):
+    try:
+        customer = auth_service.register_customer(
+            payload.name, payload.email, payload.password
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Registration does not automatically sign in.
+    return {"customer": customer}
+
+
+@app.post("/auth/login")
+def auth_login(payload: LoginRequest):
+    try:
+        result = auth_service.login_customer(payload.email, payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Invalid email or password.") from exc
+    response = JSONResponse({"customer": result["customer"]})
+    _set_auth_cookie(response, result["session_token"])
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.get("/auth/me")
+def auth_me(request: Request):
+    response = JSONResponse({"customer": _require_authenticated_customer(request)})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.post("/auth/logout")
+def auth_logout(request: Request):
+    token = request.cookies.get(AUTH_COOKIE_NAME)
+    if token:
+        auth_service.logout_customer(token)
+    response = JSONResponse({"success": True})
+    response.delete_cookie(
+        key=AUTH_COOKIE_NAME,
+        path="/",
+        secure=_auth_cookie_secure(),
+        httponly=True,
+        samesite="lax",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 # ------------------------------------------
