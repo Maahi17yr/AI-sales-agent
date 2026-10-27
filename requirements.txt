@@ -16,6 +16,9 @@ pydantic
 ag-ui-protocol
 ag-ui-strands
 
+# Paystack HTTP API client
+httpx
+
 # Environment variables from .env
 python-dotenv
 
