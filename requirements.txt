@@ -1,0 +1,23 @@
+# Naija Bites — Python backend dependencies
+# Install from the project root: python -m pip install -r requirements.txt
+
+# Strands Agents SDK (including Bedrock model integration)
+strands-agents
+
+# AWS SDK / Bedrock authentication
+boto3
+
+# FastAPI server and request validation
+fastapi
+uvicorn[standard]
+pydantic
+
+# AG-UI event protocol and Strands integration
+ag-ui-protocol
+ag-ui-strands
+
+# Environment variables from .env
+python-dotenv
+
+# SQLite, json, pathlib, unittest, and other standard-library modules
+# ship with Python and require no separate pip installation.

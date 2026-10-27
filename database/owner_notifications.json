@@ -1,0 +1,29 @@
+[
+    {
+        "notification_id": "613674a5-157b-4ffe-ad26-a5a27b18610f",
+        "category": "complaint",
+        "priority": "high",
+        "order_id": 1,
+        "message": "Customer says their jollof rice arrived cold.",
+        "status": "unread",
+        "created_at": "2026-10-24T18:38:23.931376+00:00"
+    },
+    {
+        "notification_id": "498bdcba-9926-480d-8559-4c608fd2495b",
+        "category": "refund_request",
+        "priority": "medium",
+        "order_id": 1,
+        "message": "Customer requests a refund for a missing item.",
+        "status": "unread",
+        "created_at": "2026-10-24T18:38:23.931376+00:00"
+    },
+    {
+        "notification_id": "ec9ddc91-a841-4c4d-92a4-70c08f95a7a0",
+        "category": "special_request",
+        "priority": "medium",
+        "order_id": null,
+        "message": "Customer requests catering for 100 guests.",
+        "status": "unread",
+        "created_at": "2026-10-24T18:38:23.947492+00:00"
+    }
+]

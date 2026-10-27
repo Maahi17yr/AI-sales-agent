@@ -1,0 +1,51 @@
+"""Checkout preparation and trusted application-only confirmation."""
+import json
+import sqlite3
+
+from database.models import get_connection
+from services.order_service import OrderService, fingerprint
+
+
+class CheckoutService:
+    def __init__(self, session_id):
+        self.session_id = session_id
+
+    def prepare_checkout(self, customer_name, phone, delivery_address, delivery_area):
+        details = (customer_name, phone, delivery_address, delivery_area)
+        if not all(isinstance(v, str) and v.strip() for v in details):
+            return {'success': False, 'message': 'All customer and delivery details are required.'}
+        fields = dict(zip(('customer_name', 'phone', 'delivery_address', 'delivery_area'),
+                          (v.strip() for v in details)))
+        conn = get_connection()
+        try:
+            conn.execute('BEGIN IMMEDIATE')
+            session = conn.execute('''SELECT customer_id, cart_data FROM conversation_sessions
+                                      WHERE session_id = ?''', (self.session_id,)).fetchone()
+            if not session:
+                raise ValueError('Customer session not found.')
+            summary, _, _, _ = OrderService._build_summary_in_transaction(conn, session, fields)
+            cart = json.loads(session['cart_data'])
+            cart['pending_checkout'] = {'summary': summary, 'fingerprint': fingerprint(summary)}
+            conn.execute('''UPDATE conversation_sessions
+                            SET cart_data = ?, awaiting_confirmation = 0,
+                                updated_at = CURRENT_TIMESTAMP WHERE session_id = ?''',
+                         (json.dumps(cart), self.session_id))
+            conn.commit()
+            return {'success': True, 'requires_confirmation': True,
+                    'order_created': False, 'summary': summary,
+                    'message': 'Please review and explicitly approve this order.'}
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError, sqlite3.Error) as error:
+            conn.rollback()
+            return {'success': False, 'message': str(error)}
+        finally:
+            conn.close()
+
+    def confirm_checkout(self, customer_approved=False, reviewed_fingerprint=None):
+        """APPLICATION-ONLY: call after a trusted UI/terminal confirmation event.
+
+        The application must retain the fingerprint returned from the exact summary
+        shown to the customer; never ask the LLM to supply this value.
+        """
+        if customer_approved is not True or not isinstance(reviewed_fingerprint, str):
+            return {'success': False, 'message': 'Explicit approval of the reviewed order is required.'}
+        return OrderService(self.session_id)._commit_approved_checkout(reviewed_fingerprint)
