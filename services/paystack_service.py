@@ -104,7 +104,7 @@ def verify(reference, session_id=None):
         if current is None:
             raise ValueError("Payment no longer exists.")
         if paid:
-            conn.execute("""UPDATE payments SET status='paid', paid_at=COALESCE(paid_at,CURRENT_TIMESTAMP)
+            conn.execute("""UPDATE payments SET status='paid', paid_at=COALESCE(paid_at,CURRENT_TIMESTAMP::text)
                 WHERE payment_reference=? AND status != 'paid'""", (reference,))
             conn.execute("""UPDATE orders SET status='confirmed'
                 WHERE id=? AND status='pending_payment'""", (row["order_id"],))

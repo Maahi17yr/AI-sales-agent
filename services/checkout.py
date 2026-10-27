@@ -1,6 +1,10 @@
 """Checkout preparation and trusted application-only confirmation."""
 import json
 import sqlite3
+try:
+    from psycopg import Error as PostgresError
+except ImportError:  # SQLite-only local development
+    PostgresError = sqlite3.Error
 
 from database.models import get_connection
 from services.order_service import OrderService, fingerprint
@@ -34,7 +38,7 @@ class CheckoutService:
             return {'success': True, 'requires_confirmation': True,
                     'order_created': False, 'summary': summary,
                     'message': 'Please review and explicitly approve this order.'}
-        except (ValueError, KeyError, TypeError, json.JSONDecodeError, sqlite3.Error) as error:
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError, sqlite3.Error, PostgresError) as error:
             conn.rollback()
             return {'success': False, 'message': str(error)}
         finally:
