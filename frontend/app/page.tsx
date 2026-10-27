@@ -3,6 +3,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { useAuth } from './auth-provider';
+
 import {
   ChefHat,
   Send,
@@ -21,6 +23,7 @@ import {
   X,
   MessageCircle,
   RefreshCw,
+  LogOut,
 } from 'lucide-react';
 
 // ------------------------------------------
@@ -113,6 +116,7 @@ function formatMoney(amount: number) {
 // ------------------------------------------
 
 export default function Home() {
+  const { customer, apiFetch, logout } = useAuth();
   const [messages, setMessages] = useState<Msg[]>([
     welcome,
   ]);
@@ -141,9 +145,16 @@ export default function Home() {
   const lastCheckoutFingerprint = useRef<string | null>(null);
   const abort = useRef<AbortController | null>(null);
 
+  // Stop an active agent stream when this authenticated view unmounts.
+  useEffect(() => () => { abort.current?.abort(); }, []);
+
   // ----------------------------------------
   // INITIALIZATION
   // ----------------------------------------
+
+  useEffect(() => {
+    setPaymentEmail(customer.email);
+  }, [customer.email]);
 
   useEffect(() => {
     setThreadId(uid());
@@ -189,7 +200,7 @@ export default function Home() {
       activeController = controller;
 
       try {
-        const response = await fetch(`${API}/checkout`, {
+        const response = await apiFetch('/checkout', {
           cache: 'no-store',
           signal: controller.signal,
         });
@@ -232,7 +243,7 @@ export default function Home() {
       window.clearInterval(interval);
       activeController?.abort();
     };
-  }, [busy, confirming]);
+  }, [busy, confirming, apiFetch]);
 
   // ----------------------------------------
   // RESET CHAT
@@ -305,7 +316,7 @@ export default function Home() {
           content: message.content,
         }));
 
-      const response = await fetch(`${API}/agent`, {
+      const response = await apiFetch('/agent', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -482,8 +493,8 @@ export default function Home() {
     setCheckoutResult('');
 
     try {
-      const response = await fetch(
-        `${API}/checkout/confirm`,
+      const response = await apiFetch(
+        '/checkout/confirm',
         {
           method: 'POST',
           headers: {
@@ -531,7 +542,7 @@ export default function Home() {
     setPaymentBusy(true);
     setCheckoutError('');
     try {
-      const response = await fetch(`${API}/payments/initialize`, {
+      const response = await apiFetch('/payments/initialize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order_id: paymentOrder, email: paymentEmail.trim() }),
@@ -554,7 +565,7 @@ export default function Home() {
       setPaymentMessage('Payment return received without a reference.');
       return;
     }
-    fetch(`${API}/payments/verify`, {
+    apiFetch('/payments/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reference }),
@@ -566,7 +577,7 @@ export default function Home() {
         : 'Payment is not yet confirmed. You can try verifying again later.');
     }).catch(err => setPaymentMessage(err instanceof Error ? err.message : 'Verification failed.'));
     window.history.replaceState({}, '', window.location.pathname);
-  }, []);
+  }, [apiFetch]);
 
   return (
     <main className="site-shell">
@@ -580,6 +591,7 @@ export default function Home() {
         <button className="side-link selected" onClick={reset} disabled={busy || confirming}><MessageCircle size={18}/> Food chat <ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" onClick={() => void send('Show me the menu')} disabled={busy || confirming || !threadId}><UtensilsCrossed size={18}/> Explore menu <ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" onClick={() => void send('Show me my cart')} disabled={busy || confirming || !threadId}><ShoppingBag size={18}/> My cart <ArrowRight size={16} className="side-link-arrow"/></button>
+        <div className="account-panel"><span className="account-label">SIGNED IN AS</span><strong>{customer.name}</strong><span className="account-email">{customer.email}</span><button className="account-logout" type="button" onClick={() => void logout()}><LogOut size={15}/> Sign out</button></div>
         <div className="side-help"><div className="side-help-icon"><Sparkles size={20}/></div><strong>Hungry? We’ve got you.</strong><p>Find something tasty and order in just a few messages.</p></div>
         <div className="sidebar-foot"><span className={`connect-dot ${online ? 'up' : ''}`}/><span>{online === null ? 'Connecting…' : online ? 'Ready to take your order' : 'Connection unavailable'}</span></div>
       </aside>
@@ -588,6 +600,7 @@ export default function Home() {
           <div className="mobile-brand"><span className="identity-mark small"><UtensilsCrossed size={18}/></span></div>
           <div className="agent-avatar"><ChefHat size={24}/><span className="avatar-online"/></div>
           <div className="agent-title"><h1>Naija Bites</h1><p><span className="live-dot"/> Your food assistant</p></div>
+          <button className="mobile-logout" type="button" onClick={() => void logout()} aria-label="Sign out" title="Sign out"><LogOut size={17}/></button>
           <button className="new-chat" onClick={reset} disabled={busy || confirming} title="Start a fresh conversation"><RefreshCw size={16}/><span>New chat</span></button>
         </header>
         <div className="conversation" id="conversation">
