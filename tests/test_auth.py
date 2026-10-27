@@ -1,5 +1,6 @@
 """Run: python -m unittest discover -s tests -p 'test_auth.py'"""
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,7 +20,7 @@ class AuthenticationTests(unittest.TestCase):
         self.patch_db.start()
         self.addCleanup(self.patch_db.stop)
         # Emulate legacy customers table to exercise the actual migration.
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn, conn:
             conn.execute("""CREATE TABLE customers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT,
@@ -30,6 +31,12 @@ class AuthenticationTests(unittest.TestCase):
                 id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers(id))""")
             conn.execute("INSERT INTO conversation_sessions(id,customer_id) VALUES(1,1)")
         migrate(self.db)
+
+    def test_connection_closes_after_context(self):
+        with closing(models.get_connection()) as conn, conn:
+            self.assertEqual(conn.execute("SELECT 1").fetchone()[0], 1)
+        with self.assertRaises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
 
     def test_registration_login_logout_and_isolation(self):
         a = auth_service.register_customer("Alice", "Alice@example.com", "correct-horse-password")
@@ -48,7 +55,7 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(auth_service.authenticate_token(login_b["session_token"])["id"], b["id"])
 
     def test_migration_preserves_legacy_customer(self):
-        with models.get_connection() as conn:
+        with closing(models.get_connection()) as conn, conn:
             old = conn.execute("SELECT id, phone FROM customers WHERE id=1").fetchone()
             ref = conn.execute("SELECT customer_id FROM conversation_sessions WHERE id=1").fetchone()
             self.assertEqual(old["phone"], "08000000000")
@@ -60,7 +67,7 @@ class AuthenticationTests(unittest.TestCase):
         auth_service.register_customer("Alice", "alice@example.com", "correct-horse-password")
         token = auth_service.login_customer("alice@example.com", "correct-horse-password")["session_token"]
         import hashlib
-        with models.get_connection() as conn:
+        with closing(models.get_connection()) as conn, conn:
             conn.execute("UPDATE auth_sessions SET expires_at=? WHERE token_hash=?",
                          ("2000-01-01T00:00:00+00:00", hashlib.sha256(token.encode()).hexdigest()))
         self.assertIsNone(auth_service.authenticate_token(token))
