@@ -11,6 +11,8 @@ services:
         value: demo
       - key: NAIJA_BITES_DATA_DIR
         value: /tmp/naija-bites
+      - key: DATABASE_URL
+        sync: false
       - key: NAIJA_BITES_FRONTEND_ORIGIN
         sync: false
       - key: PAYSTACK_SECRET_KEY

@@ -11,7 +11,13 @@ DB_PATH = (Path(_DATA_DIR).expanduser() / "smallchops.db"
 
 
 def get_connection():
-    """Create and return a SQLite database connection."""
+    """Connect to hosted PostgreSQL when configured, otherwise local SQLite."""
+    url = os.getenv("DATABASE_URL", "").strip()
+    if url:
+        if not url.startswith(("postgresql://", "postgres://")):
+            raise ValueError("DATABASE_URL must be a PostgreSQL URI.")
+        from database.postgres import PostgresConnection
+        return PostgresConnection(url)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -24,6 +30,8 @@ def create_tables():
     """Create the eight tables for customer operations."""
 
     with get_connection() as conn:
+        if os.getenv("DATABASE_URL", "").strip():
+            conn.execute("CREATE EXTENSION IF NOT EXISTS citext")
 
         # 1. PRODUCTS
         conn.execute("""

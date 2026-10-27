@@ -27,3 +27,5 @@ python-dotenv
 
 # SQLite, json, pathlib, unittest, and other standard-library modules
 # ship with Python and require no separate pip installation.
+# Hosted PostgreSQL (Neon or another PostgreSQL provider)
+psycopg[binary]>=3.2,<4
