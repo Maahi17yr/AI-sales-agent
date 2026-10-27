@@ -57,12 +57,26 @@ def create_tables():
             CREATE TABLE IF NOT EXISTS customers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT,
-                phone TEXT NOT NULL UNIQUE,
+                email TEXT UNIQUE COLLATE NOCASE,
+                password_hash TEXT,
+                phone TEXT UNIQUE,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
-        # 4. DELIVERY ZONES
+        # 4. AUTHENTICATION SESSIONS
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+            )
+        """)
+
+        # 5. DELIVERY ZONES
         conn.execute("""
             CREATE TABLE IF NOT EXISTS delivery_zones (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -205,7 +219,7 @@ def create_tables():
         """)
 
     print("Database initialized successfully!")
-    print("All 8 tables are ready.")
+    print("Core tables are ready.")
 
 
 def show_tables():
