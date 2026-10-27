@@ -124,6 +124,14 @@ def _create_local_dev_session() -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
+    # Fail closed until real customer authentication and session isolation exist.
+    # A shared fictional customer must never be exposed as a public service.
+    if os.getenv("NAIJA_BITES_ENV", "development").strip().lower() == "production":
+        raise RuntimeError(
+            "Production startup blocked: replace the shared development "
+            "customer/session with authenticated, isolated customer sessions."
+        )
+
     session_id = _create_local_dev_session()
 
     app.state.dev_session_id = session_id
