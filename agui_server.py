@@ -22,6 +22,7 @@ Do not deploy publicly without real authentication.
 import json
 import uuid
 import os
+import asyncio
 
 from contextlib import asynccontextmanager
 
@@ -60,6 +61,7 @@ load_dotenv()
 # ------------------------------------------
 
 from database.models import get_connection
+from database import repository
 from agent import make_agent
 
 from services.checkout import CheckoutService
@@ -112,6 +114,23 @@ def _require_authenticated_customer(request: Request) -> dict:
     if customer is None:
         raise HTTPException(status_code=401, detail="Authentication required.")
     return customer
+
+
+def _customer_session(request: Request) -> str:
+    """Resolve the trusted customer identity from the login cookie only."""
+    customer = _require_authenticated_customer(request)
+    session_id = f"customer-{customer['id']}"
+    repository.bind_session_customer(session_id, customer["id"])
+    return session_id
+
+
+_agent_locks: dict[str, asyncio.Lock] = {}
+
+
+def _agent_lock(session_id: str) -> asyncio.Lock:
+    if session_id not in _agent_locks:
+        _agent_locks[session_id] = asyncio.Lock()
+    return _agent_locks[session_id]
 
 
 class PaymentInitialize(BaseModel):
@@ -176,21 +195,7 @@ async def lifespan(app: FastAPI):
             "customer/session with authenticated, isolated customer sessions."
         )
 
-    session_id = _create_local_dev_session()
-
-    app.state.dev_session_id = session_id
-
-    agent = make_agent(session_id)
-
-    app.state.agui_agent = StrandsAgent(
-        agent=agent,
-        name="naija_bites",
-        description="Naija Bites food ordering assistant",
-    )
-
-    print("\nNaija Bites backend initialized.")
-    print("Local test session created.")
-    print("Checkout endpoints enabled.\n")
+    print("Naija Bites backend initialized with authenticated customer sessions.")
 
     yield
 
@@ -270,11 +275,11 @@ async def protect_auth_cookie_requests(request: Request, call_next):
     # Browsers send Origin for cross-origin POSTs. Reject unknown origins
     # before any authentication mutation; requests with no Origin (CLI)
     # remain usable for local testing.
-    if request.url.path.startswith("/auth/") and request.method == "POST":
+    if request.method == "POST" and request.url.path != "/payments/webhook":
         origin = request.headers.get("origin")
         if origin is not None and origin not in AUTH_ALLOWED_ORIGINS:
             return JSONResponse({"detail": "Origin not allowed."}, status_code=403)
-        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json" and request.url.path != "/auth/logout":
+        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json" and request.url.path not in {"/auth/logout", "/agent"}:
             return JSONResponse({"detail": "JSON body required."}, status_code=415)
     return await call_next(request)
 
@@ -336,7 +341,7 @@ async def ping():
 
     return {
         "status": "ok",
-        "mode": "single-user-local-development",
+        "mode": "authenticated-local-development",
         "checkout_enabled": True,
     }
 
@@ -357,18 +362,18 @@ async def run_agent(
     not supplied by the browser or AI.
     """
 
-    encoder = EventEncoder(
-        accept=request.headers.get("accept")
-    )
+    session_id = _customer_session(request)
+    encoder = EventEncoder(accept=request.headers.get("accept"))
 
     async def stream():
-
-        async for event in (
-            request.app.state.agui_agent.run(
-                input_data
+        async with _agent_lock(session_id):
+            agent = StrandsAgent(
+                agent=make_agent(session_id),
+                name="naija_bites",
+                description="Naija Bites food ordering assistant",
             )
-        ):
-            yield encoder.encode(event)
+            async for event in agent.run(input_data):
+                yield encoder.encode(event)
 
     return StreamingResponse(
         stream(),
@@ -452,7 +457,7 @@ async def get_checkout(request: Request):
     pending=False rather than a 404 error.
     """
 
-    session_id = request.app.state.dev_session_id
+    session_id = _customer_session(request)
 
     pending = read_pending_checkout(session_id)
 
@@ -512,7 +517,7 @@ async def confirm_checkout(
             ),
         )
 
-    session_id = request.app.state.dev_session_id
+    session_id = _customer_session(request)
 
     checkout_service = CheckoutService(
         session_id
@@ -555,7 +560,7 @@ async def get_dev_customer(request: Request):
     phone against the bound test customer.
     """
 
-    session_id = request.app.state.dev_session_id
+    session_id = _customer_session(request)
 
     conn = get_connection()
 
@@ -598,7 +603,7 @@ async def get_dev_customer(request: Request):
 @app.get("/memory/pending")
 async def memory_pending(request: Request):
     from memory import preferences
-    pending = preferences.get_pending_preference(request.app.state.dev_session_id)
+    pending = preferences.get_pending_preference(_customer_session(request))
     return {"success": True, "pending": pending is not None, "proposal": pending}
 
 
@@ -607,7 +612,7 @@ async def memory_decision(decision: PreferenceDecision, request: Request):
     from memory import preferences
     try:
         result = preferences.resolve_preference(
-            request.app.state.dev_session_id, decision.request_id, decision.approved
+            _customer_session(request), decision.request_id, decision.approved
         )
     except (ValueError, PermissionError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -619,7 +624,7 @@ async def memory_decision(decision: PreferenceDecision, request: Request):
 def initialize_payment(payload: PaymentInitialize, request: Request):
     try:
         return paystack_service.initialize(
-            payload.order_id, request.app.state.dev_session_id, payload.email
+            payload.order_id, _customer_session(request), payload.email
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -628,7 +633,7 @@ def initialize_payment(payload: PaymentInitialize, request: Request):
 @app.post("/payments/verify")
 def verify_payment(payload: PaymentVerify, request: Request):
     try:
-        return paystack_service.verify(payload.reference, request.app.state.dev_session_id)
+        return paystack_service.verify(payload.reference, _customer_session(request))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
