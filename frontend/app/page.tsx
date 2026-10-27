@@ -581,6 +581,7 @@ export default function Home() {
 
   return (
     <main className="site-shell">
+      {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && <div className="demo-notice" role="note">Public demo only · Paystack test payments · No real orders or deliveries. Use fictional details.</div>}
       <aside className="side-panel">
         <div className="identity">
           <span className="identity-mark"><UtensilsCrossed size={20} strokeWidth={2.2} /></span>

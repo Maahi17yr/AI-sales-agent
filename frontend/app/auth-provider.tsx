@@ -122,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (!customer) return (
     <main className="auth-shell">
       <section className="auth-card" aria-label="Naija Bites account">
+        {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && <p className="demo-notice" role="note">Demo only: no real orders or deliveries. Use a fictional identity and a unique test password.</p>}
         <div className="auth-brand"><span className="identity-mark"><UtensilsCrossed size={23}/></span><div><strong>Naija Bites<span className="brand-dot">.</span></strong><small>Good food, good mood.</small></div></div>
         <div className="auth-icon"><ChefHat size={26}/></div>
         <h1>{mode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
@@ -129,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         <form className="auth-form" onSubmit={submit}>
           {mode === 'register' && <label>Full name<input name="name" autoComplete="name" value={name} onChange={e => setName(e.target.value)} minLength={2} maxLength={120} required placeholder="Your name"/></label>}
           <label>Email address<input name="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com"/></label>
-          <label>Password<input name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={e => setPassword(e.target.value)} required minLength={mode === 'register' ? 8 : undefined} placeholder="Enter your password"/></label>
+          <label>Password<input name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={e => setPassword(e.target.value)} required minLength={mode === 'register' ? 12 : undefined} placeholder="Enter your password"/></label>
           {notice && <p className="auth-notice" role="alert">{notice}</p>}
           <button className="auth-submit" type="submit" disabled={submitting}>{submitting ? <LoaderCircle className="spin" size={18}/> : <ShieldCheck size={18}/>} {submitting ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}</button>
         </form>

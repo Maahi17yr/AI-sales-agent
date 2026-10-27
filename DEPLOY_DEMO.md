@@ -35,8 +35,9 @@ Work from `deployment-preparation`. Keep `main` unchanged. Do not commit `.env`,
 1. Import this GitHub repository and select branch `deployment-preparation`.
 2. Set **Root Directory** to `frontend` and framework to Next.js.
 3. Set server-side `NEXT_BACKEND_URL` to `https://YOUR-RENDER-SERVICE.onrender.com` (no trailing slash).
-4. **Do not set** `NEXT_PUBLIC_AGUI_URL` in Vercel. The browser must call relative `/api/backend/*` URLs through the Next.js rewrite; direct cross-site cookies are unreliable.
-5. Deploy, and copy the actual Vercel HTTPS domain to `NAIJA_BITES_FRONTEND_ORIGIN` and `PAYSTACK_CALLBACK_URL` on Render. Redeploy/restart Render after setting them.
+4. Set `NEXT_PUBLIC_DEMO_MODE=true` so the site visibly warns visitors this is not a real food service.
+5. **Do not set** `NEXT_PUBLIC_AGUI_URL` in Vercel. The browser must call relative `/api/backend/*` URLs through the Next.js rewrite; direct cross-site cookies are unreliable.
+6. Deploy, and copy the actual Vercel HTTPS domain to `NAIJA_BITES_FRONTEND_ORIGIN` and `PAYSTACK_CALLBACK_URL` on Render. Redeploy/restart Render after setting them.
 
 ## 4. Payment webhook (test mode)
 

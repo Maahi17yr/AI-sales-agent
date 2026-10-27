@@ -23,3 +23,6 @@
 .account-logout{margin-top:7px;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#59705b;display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600}
 .account-logout:hover,.mobile-logout:hover{background:#f3f7ef}.mobile-logout{display:none;border:1px solid var(--line);border-radius:11px;background:#fff;color:#526b52;padding:10px}
 @media(max-width:700px){.auth-card{padding:27px 23px}.mobile-logout{display:flex;align-items:center;justify-content:center;margin-left:4px}.new-chat{margin-left:auto}}
+
+/* Explicit public demo disclosure. */
+.demo-notice { background: #fff4d6; color: #6b4500; border: 1px solid #e9c779; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; margin: 10px; text-align: center; }
