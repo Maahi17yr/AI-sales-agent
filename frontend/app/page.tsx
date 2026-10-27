@@ -139,6 +139,7 @@ export default function Home() {
   const [paymentEmail, setPaymentEmail] = useState('');
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState('');
+  const [paymentToastSuccess, setPaymentToastSuccess] = useState(false);
 
   const bottom = useRef<HTMLDivElement>(null);
   const checkoutCardRef = useRef<HTMLElement>(null);
@@ -557,12 +558,22 @@ export default function Home() {
     }
   }
 
+  // A floating notification disappears three seconds after its message changes.
+  // Clearing the timer also prevents updates after this view unmounts.
+  useEffect(() => {
+    if (!paymentMessage) return;
+    const timeout = window.setTimeout(() => setPaymentMessage(''), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [paymentMessage]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('payment_return') !== '1') return;
     const reference = params.get('reference') || params.get('trxref');
     if (!reference) {
+      setPaymentToastSuccess(false);
       setPaymentMessage('Payment return received without a reference.');
+      window.history.replaceState({}, '', window.location.pathname);
       return;
     }
     apiFetch('/payments/verify', {
@@ -572,10 +583,15 @@ export default function Home() {
     }).then(async response => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Payment verification failed.');
-      setPaymentMessage(data.payment_status === 'paid'
+      const paid = data.payment_status === 'paid';
+      setPaymentToastSuccess(paid);
+      setPaymentMessage(paid
         ? `Payment verified! Order #${data.order_id} is confirmed.`
         : 'Payment is not yet confirmed. You can try verifying again later.');
-    }).catch(err => setPaymentMessage(err instanceof Error ? err.message : 'Verification failed.'));
+    }).catch(err => {
+      setPaymentToastSuccess(false);
+      setPaymentMessage(err instanceof Error ? err.message : 'Verification failed.');
+    });
     window.history.replaceState({}, '', window.location.pathname);
   }, [apiFetch]);
 
@@ -633,8 +649,7 @@ export default function Home() {
                 <button className="primary-action" onClick={() => void payNow()} disabled={paymentBusy || !paymentEmail.includes('@')}>{paymentBusy ? 'Opening Paystack…' : 'Pay Now (Test Mode)'}</button>
               </div>
             </section>}
-            {paymentMessage && <div className="checkout-success" role="status"><Check size={18}/><span>{paymentMessage}</span></div>}
-            {checkoutError && <div className="inline-alert" role="alert">{checkoutError}</div>}
+             {checkoutError && <div className="inline-alert" role="alert">{checkoutError}</div>}
             <div ref={bottom} />
           </div>
         </div>
@@ -644,6 +659,17 @@ export default function Home() {
           <div className="composer-caption">Made for cravings. Served with care.</div>
         </div>
       </section>
+      {paymentMessage && (
+        <div
+          className={`payment-toast ${paymentToastSuccess ? 'payment-toast--success' : 'payment-toast--warning'}`}
+          role={paymentToastSuccess ? 'status' : 'alert'}
+          aria-live={paymentToastSuccess ? 'polite' : 'assertive'}
+          aria-atomic="true"
+        >
+          {paymentToastSuccess ? <Check size={20} aria-hidden="true" /> : <ShieldCheck size={20} aria-hidden="true" />}
+          <span>{paymentMessage}</span>
+        </div>
+      )}
     </main>
   );
 }
