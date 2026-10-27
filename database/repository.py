@@ -537,3 +537,31 @@ def test_repository():
 
 if __name__ == "__main__":
     test_repository()
+
+
+# ==========================================
+# CUSTOMER ACCOUNT LOOKUP (AUTHENTICATION)
+# ==========================================
+
+def get_customer_by_email(email):
+    """Read a customer by email; do not return password hashes to API callers."""
+    if not isinstance(email, str) or not email.strip():
+        return None
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, name, email, phone, created_at FROM customers WHERE email = ?",
+            (email.strip().lower(),),
+        ).fetchone()
+    return to_dict(row)
+
+
+def get_customer_by_id(customer_id):
+    """Return a public-safe customer record."""
+    if type(customer_id) is not int or customer_id <= 0:
+        return None
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, name, email, phone, created_at FROM customers WHERE id = ?",
+            (customer_id,),
+        ).fetchone()
+    return to_dict(row)
