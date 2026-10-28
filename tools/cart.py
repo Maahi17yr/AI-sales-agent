@@ -8,30 +8,16 @@ from strands import tool
 from database import repository
 from services.cart import CartService
 from services.customization_service import CustomizationService
+from tools.product_matching import match_exact_orderable_product
 
 
 def resolve_orderable_product_by_name(product_name: str) -> dict:
-    """Resolve an exact catalogue name; never guess or substitute another meal."""
+    """Fetch current in-stock matches, then require an exact catalogue name."""
     if not isinstance(product_name, str) or not product_name.strip():
         return {"success": False, "message": "A product name is required."}
-
     name = " ".join(product_name.split())
     products = repository.get_orderable_products(query=name)
-    exact = [
-        product for product in products
-        if " ".join(product["name"].split()).casefold() == name.casefold()
-    ]
-    if not exact:
-        return {
-            "success": False,
-            "message": f"{name} is not available under that exact name. Search the menu and ask before substituting.",
-        }
-    if len(exact) != 1:
-        return {
-            "success": False,
-            "message": "Multiple catalogue products have that name. Please ask for clarification.",
-        }
-    return {"success": True, "product": exact[0]}
+    return match_exact_orderable_product(name, products)
 
 
 def make_cart_tools(session_id: str):
