@@ -159,7 +159,7 @@ export default function Home() {
   const [paymentMessage, setPaymentMessage] = useState('');
   const [paymentToastSuccess, setPaymentToastSuccess] = useState(false);
 
-  const bottom = useRef<HTMLDivElement>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
   const checkoutCardRef = useRef<HTMLElement>(null);
   const lastCheckoutFingerprint = useRef<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -244,10 +244,11 @@ export default function Home() {
     };
   }, []);
 
-  // Keep the welcome experience visible until the first message is sent.
+  // Scroll only the conversation, never the document or the message composer.
   useEffect(() => {
     if (messages.length === 1 && !activity) return;
-    bottom.current?.scrollIntoView({ behavior: 'smooth' });
+    const panel = conversationRef.current;
+    if (panel) panel.scrollTop = panel.scrollHeight;
   }, [messages, activity]);
 
   // Keep the review card in sync with the trusted backend state.
@@ -704,7 +705,7 @@ export default function Home() {
           <button className="mobile-logout" type="button" onClick={() => void logout()} aria-label="Sign out" title="Sign out"><LogOut size={17}/></button>
           <button className="new-chat" onClick={reset} disabled={busy || confirming} title="Start a fresh conversation"><RefreshCw size={16}/><span>New chat</span></button>
         </header>
-        <div className="conversation" id="conversation">
+        <div className="conversation" id="conversation" ref={conversationRef}>
           <div className="conversation-inner">
             {messages.length === 1 ? (
               <section className="welcome-hero" aria-label="Welcome to Naija Bites">
@@ -758,7 +759,7 @@ export default function Home() {
               </div>
             </section>}
              {checkoutError && <div className="inline-alert" role="alert">{checkoutError}</div>}
-            <div ref={bottom} />
+
           </div>
         </div>
         <div className="composer-area">
