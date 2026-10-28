@@ -24,6 +24,9 @@ import {
   MessageCircle,
   RefreshCw,
   LogOut,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 
 // ------------------------------------------
@@ -123,6 +126,8 @@ export default function Home() {
 
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [activity, setActivity] = useState('');
@@ -145,6 +150,16 @@ export default function Home() {
   const checkoutCardRef = useRef<HTMLElement>(null);
   const lastCheckoutFingerprint = useRef<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+
+  // Close the mobile navigation with Escape, without resetting the conversation.
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mobileMenuOpen]);
 
   // Stop an active agent stream when this authenticated view unmounts.
   useEffect(() => () => { abort.current?.abort(); }, []);
@@ -596,24 +611,38 @@ export default function Home() {
   }, [apiFetch]);
 
   return (
-    <main className="site-shell">
-      {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && <div className="demo-notice" role="note">Public demo only · Paystack test payments · No real orders or deliveries. Use fictional details.</div>}
-      <aside className="side-panel">
+    <main className={`site-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
+      {mobileMenuOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} />}
+      <aside className="side-panel" id="main-navigation" aria-label="Main navigation">
         <div className="identity">
+          <button type="button" className="sidebar-close-mobile" onClick={() => setMobileMenuOpen(false)} aria-label="Close navigation"><X size={20}/></button>
           <span className="identity-mark"><UtensilsCrossed size={20} strokeWidth={2.2} /></span>
-          <div><strong>Naija Bites<span className="brand-dot">.</span></strong><small>Good food, good mood.</small></div>
+          <div className="identity-copy"><strong>Naija Bites<span className="brand-dot">.</span></strong><small>Good food, good mood.</small></div>
         </div>
         <div className="side-divider" />
         <div className="side-caption">YOUR SPACE</div>
-        <button className="side-link selected" onClick={reset} disabled={busy || confirming}><MessageCircle size={18}/> Food chat <ArrowRight size={16} className="side-link-arrow"/></button>
-        <button className="side-link" onClick={() => void send('Show me the menu')} disabled={busy || confirming || !threadId}><UtensilsCrossed size={18}/> Explore menu <ArrowRight size={16} className="side-link-arrow"/></button>
-        <button className="side-link" onClick={() => void send('Show me my cart')} disabled={busy || confirming || !threadId}><ShoppingBag size={18}/> My cart <ArrowRight size={16} className="side-link-arrow"/></button>
+        <button className="side-link selected" title="Food chat" onClick={() => { setMobileMenuOpen(false); reset(); }} disabled={busy || confirming}><MessageCircle size={18}/><span className="side-link-text">Food chat</span><ArrowRight size={16} className="side-link-arrow"/></button>
+        <button className="side-link" title="Explore menu" onClick={() => { setMobileMenuOpen(false); void send('Show me the menu'); }} disabled={busy || confirming || !threadId}><UtensilsCrossed size={18}/><span className="side-link-text">Explore menu</span><ArrowRight size={16} className="side-link-arrow"/></button>
+        <button className="side-link" title="My cart" onClick={() => { setMobileMenuOpen(false); void send('Show me my cart'); }} disabled={busy || confirming || !threadId}><ShoppingBag size={18}/><span className="side-link-text">My cart</span><ArrowRight size={16} className="side-link-arrow"/></button>
         <div className="account-panel"><span className="account-label">SIGNED IN AS</span><strong>{customer.name}</strong><span className="account-email">{customer.email}</span><button className="account-logout" type="button" onClick={() => void logout()}><LogOut size={15}/> Sign out</button></div>
         <div className="side-help"><div className="side-help-icon"><Sparkles size={20}/></div><strong>Hungry? We’ve got you.</strong><p>Find something tasty and order in just a few messages.</p></div>
         <div className="sidebar-foot"><span className={`connect-dot ${online ? 'up' : ''}`}/><span>{online === null ? 'Connecting…' : online ? 'Ready to take your order' : 'Connection unavailable'}</span></div>
       </aside>
       <section className="chat-layout">
+        {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && (
+          <div className="demo-notice" role="note">Demo only · Paystack TEST payments · No real orders or deliveries. Use fictional details.</div>
+        )}
         <header className="chat-header">
+          <button type="button" className="sidebar-toggle" onClick={() => {
+            if (window.matchMedia('(max-width: 700px)').matches) {
+              setMobileMenuOpen(true);
+            } else {
+              setSidebarCollapsed((value) => !value);
+            }
+          }} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-controls="main-navigation" aria-expanded={!sidebarCollapsed} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            <span className="desktop-toggle-icon">{sidebarCollapsed ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</span>
+            <span className="mobile-toggle-icon"><Menu size={21}/></span>
+          </button>
           <div className="mobile-brand"><span className="identity-mark small"><UtensilsCrossed size={18}/></span></div>
           <div className="agent-avatar"><ChefHat size={24}/><span className="avatar-online"/></div>
           <div className="agent-title"><h1>Naija Bites</h1><p><span className="live-dot"/> Your food assistant</p></div>
