@@ -128,3 +128,10 @@
 @media(prefers-reduced-motion:reduce){
   .side-panel{transition:none}
 }
+
+/* Dedicated controls avoid ambiguous accessibility state across breakpoints. */
+.mobile-sidebar-toggle{display:none}
+@media(max-width:700px){
+  .desktop-sidebar-toggle{display:none}
+  .mobile-sidebar-toggle{display:grid}
+}
