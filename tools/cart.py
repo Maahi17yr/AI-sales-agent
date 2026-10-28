@@ -10,6 +10,30 @@ from services.cart import CartService
 from services.customization_service import CustomizationService
 
 
+def resolve_orderable_product_by_name(product_name: str) -> dict:
+    """Resolve an exact catalogue name; never guess or substitute another meal."""
+    if not isinstance(product_name, str) or not product_name.strip():
+        return {"success": False, "message": "A product name is required."}
+
+    name = " ".join(product_name.split())
+    products = repository.get_orderable_products(query=name)
+    exact = [
+        product for product in products
+        if " ".join(product["name"].split()).casefold() == name.casefold()
+    ]
+    if not exact:
+        return {
+            "success": False,
+            "message": f"{name} is not available under that exact name. Search the menu and ask before substituting.",
+        }
+    if len(exact) != 1:
+        return {
+            "success": False,
+            "message": "Multiple catalogue products have that name. Please ask for clarification.",
+        }
+    return {"success": True, "product": exact[0]}
+
+
 def make_cart_tools(session_id: str):
     """Called by trusted application code with its own session identifier."""
     if not isinstance(session_id, str) or not session_id.strip():
@@ -34,15 +58,19 @@ def make_cart_tools(session_id: str):
 
     @tool
     def add_to_cart(
-        product_id: int,
+        product_name: str,
         quantity: int = 1,
         remove: list[str] | None = None,
         add: dict[str, int] | None = None,
     ) -> dict:
-        """Add a standard or customized meal to the current customer's cart.
+        """Add a meal by its EXACT catalogue name, not by a guessed numeric ID.
+
+        Use the exact name the customer requested and verify it against search_menu.
+        Never substitute another soup or meal without the customer's permission.
+        If an addition fails or the result is uncertain, view_cart before retrying.
 
         Args:
-            product_id: Product ID from the catalogue.
+            product_name: Exact name of the requested catalogue product (e.g. 'Afang Soup').
             quantity: Number of identical plates to add.
             remove: Included ingredient names to remove, e.g. ['Boiled Egg'].
             add: Extra ingredient names and quantities per plate, e.g. {'Fried Plantain': 1}.
@@ -50,7 +78,32 @@ def make_cart_tools(session_id: str):
         cart = authorized_cart()
         if cart is None:
             return {"success": False, "message": "Customer session is not verified."}
-        return cart.add_item(product_id=product_id, quantity=quantity, remove=remove, add=add)
+        resolved = resolve_orderable_product_by_name(product_name)
+        if not resolved["success"]:
+            return resolved
+        product = resolved["product"]
+        result = cart.add_item(
+            product_id=product["id"], quantity=quantity, remove=remove, add=add
+        )
+        if not result.get("success"):
+            return result
+        actual_cart = cart.view_cart()
+        matching_quantity = sum(
+            item["quantity"] for item in actual_cart["items"]
+            if item["product_id"] == product["id"]
+        )
+        if matching_quantity < quantity:
+            return {
+                "success": False,
+                "message": "The requested item could not be verified in the cart. Please review the cart.",
+                "cart": actual_cart,
+            }
+        return {
+            "success": True,
+            "message": f"{product['name']} added to cart. Check the returned cart before telling the customer.",
+            "product_name": product["name"],
+            "cart": actual_cart,
+        }
 
     @tool
     def view_cart() -> dict:
