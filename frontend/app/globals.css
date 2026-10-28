@@ -169,3 +169,81 @@ html{scroll-behavior:smooth}body{background:#e8ede1}button{transition:background
 
 /* Keep the original Gill Sans MT typography across every Naija Bites screen. */
 html,body,button,input,textarea,select{font-family:var(--font)}
+
+
+/* Viewport-locked application shell: sidebar and messages scroll independently.
+   Keep authentication pages free to grow naturally on smaller screens. */
+body:has(.site-shell){overflow:hidden}
+.site-shell{
+  height:100dvh;
+  min-height:0;
+  max-height:100dvh;
+  overflow:hidden;
+  align-items:stretch;
+}
+.site-shell .side-panel{
+  height:100%;
+  min-height:0;
+  overflow-x:hidden;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+}
+.site-shell .chat-layout{
+  height:100%;
+  min-height:0;
+  max-height:100%;
+  overflow:hidden;
+  flex:1 1 0;
+}
+.site-shell .chat-header{flex-shrink:0}
+.site-shell .conversation{
+  flex:1 1 0;
+  min-height:0;
+  overflow-x:hidden;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+}
+.site-shell .composer-area{
+  position:relative;
+  z-index:1;
+  flex:0 0 auto;
+  padding-bottom:max(18px,env(safe-area-inset-bottom));
+}
+/* Messages begin near the sidebar, while the input remains centered and usable. */
+.site-shell .conversation-inner{
+  width:min(100%,1160px);
+  max-width:1160px;
+  margin:0;
+  padding:28px clamp(18px,2.7vw,42px) 48px;
+}
+.site-shell .message-content{max-width:min(80%,640px)}
+.site-shell .composer,.site-shell .composer-intro{max-width:1000px}
+.site-shell .suggestions{max-width:1000px}
+@media(max-width:1100px){
+  .site-shell .conversation-inner{padding:22px 24px 36px}
+  .site-shell .composer-area{padding-left:22px;padding-right:22px}
+  .site-shell .chat-header{padding-left:24px;padding-right:24px}
+}
+@media(max-width:700px){
+  .site-shell .side-panel,.site-shell.sidebar-collapsed .side-panel{
+    height:100dvh;
+    max-height:100dvh;
+    overflow-y:auto;
+    overscroll-behavior:contain;
+  }
+  .site-shell .conversation-inner{width:100%;padding:18px 14px 28px}
+  .site-shell .message-content{max-width:88%}
+  .site-shell .composer-area{
+    padding:10px 12px max(14px,env(safe-area-inset-bottom));
+  }
+  .site-shell .chat-header{padding:11px 14px}
+}
+@media(max-width:420px){
+  .site-shell .agent-title h1{font-size:14px}
+  .site-shell .agent-title p{font-size:10px}
+  .site-shell .chat-header{gap:7px}
+  .site-shell .new-chat{padding:9px}
+  .site-shell .message-content{max-width:90%}
+}
