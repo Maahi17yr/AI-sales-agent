@@ -65,3 +65,73 @@
 @media (prefers-reduced-motion: reduce) {
   .payment-toast { animation: none; }
 }
+
+
+/* Collapsible navigation: the demo disclosure belongs to the chat column,
+   never as a third flex child of the site shell. */
+.site-shell{width:100%;max-width:none}
+.side-panel{width:278px;transition:width .2s ease,padding .2s ease;overflow-x:hidden;min-width:0}
+.side-panel .identity{min-width:0}
+.side-panel .identity-copy{min-width:0;white-space:nowrap}
+.side-panel .side-link{white-space:nowrap}
+.side-panel .side-link>svg:first-child{flex-shrink:0}
+.sidebar-toggle{width:38px;height:38px;flex-shrink:0;display:grid;place-items:center;border:1px solid var(--line);border-radius:11px;background:#fff;color:#527052}
+.sidebar-toggle:hover{background:#edf5e8}
+.mobile-toggle-icon,.sidebar-close-mobile,.mobile-nav-backdrop{display:none}
+.sidebar-collapsed .side-panel{width:76px;padding:24px 12px}
+.sidebar-collapsed .side-panel .identity{justify-content:center}
+.sidebar-collapsed .side-panel .identity-copy,
+.sidebar-collapsed .side-panel .side-caption,
+.sidebar-collapsed .side-panel .side-link-text,
+.sidebar-collapsed .side-panel .side-link-arrow,
+.sidebar-collapsed .side-panel .account-panel,
+.sidebar-collapsed .side-panel .side-help,
+.sidebar-collapsed .side-panel .sidebar-foot{display:none}
+.sidebar-collapsed .side-panel .side-divider{margin:24px 0 18px}
+.sidebar-collapsed .side-panel .side-link{padding:14px 0;justify-content:center}
+.sidebar-collapsed .side-panel .identity-mark{width:44px;height:44px;flex-shrink:0}
+.chat-layout{min-width:0}
+.demo-notice{flex-shrink:0;margin:0;border:0;border-bottom:1px solid #ead9a6;border-radius:0;background:#fff7e3;color:#745b2e;padding:8px 16px;text-align:center;font-size:11px;line-height:1.35}
+@media(max-width:950px) and (min-width:701px){
+  .sidebar-collapsed .side-panel{width:70px;padding:20px 9px}
+}
+@media(max-width:700px){
+  .site-shell{overflow:hidden}
+  .side-panel,.sidebar-collapsed .side-panel{
+    display:flex;position:fixed;z-index:101;inset:0 auto 0 0;
+    width:min(300px,85vw);height:100dvh;padding:24px 20px;
+    transform:translateX(-105%);transition:transform .22s ease;
+    overflow-y:auto;overflow-x:hidden;box-shadow:12px 0 30px #1b332020
+  }
+  .mobile-nav-open .side-panel{transform:translateX(0)}
+  .sidebar-collapsed .side-panel .identity-copy,
+  .sidebar-collapsed .side-panel .side-caption,
+  .sidebar-collapsed .side-panel .side-link-text,
+  .sidebar-collapsed .side-panel .side-link-arrow,
+  .sidebar-collapsed .side-panel .account-panel,
+  .sidebar-collapsed .side-panel .side-help,
+  .sidebar-collapsed .side-panel .sidebar-foot{display:revert}
+  .sidebar-collapsed .side-panel .account-panel,
+  .sidebar-collapsed .side-panel .side-help{display:flex}
+  .sidebar-collapsed .side-panel .side-help{display:block}
+  .sidebar-collapsed .side-panel .side-link{padding:14px;justify-content:flex-start}
+  .sidebar-collapsed .side-panel .identity{justify-content:flex-start}
+  .sidebar-close-mobile{display:grid;place-items:center;position:absolute;right:13px;top:15px;width:36px;height:36px;border:0;border-radius:9px;background:#f2f7ec;color:#38543a}
+  .mobile-nav-open .mobile-nav-backdrop{display:block;position:fixed;inset:0;z-index:100;background:#1a302659;border:0;border-radius:0;padding:0}
+  .desktop-toggle-icon{display:none}
+  .mobile-toggle-icon{display:grid}
+  .sidebar-toggle{width:36px;height:36px}
+  .mobile-brand{display:none}
+  .chat-header{gap:9px}
+  .demo-notice{padding:7px 12px;font-size:10px}
+}
+@media(prefers-reduced-motion:reduce){
+  .side-panel{transition:none}
+}
+
+/* Dedicated controls avoid ambiguous accessibility state across breakpoints. */
+.mobile-sidebar-toggle{display:none}
+@media(max-width:700px){
+  .desktop-sidebar-toggle{display:none}
+  .mobile-sidebar-toggle{display:grid}
+}
