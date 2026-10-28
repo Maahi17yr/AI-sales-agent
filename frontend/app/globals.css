@@ -304,3 +304,28 @@ body:has(.site-shell){overflow:hidden}
   .site-shell .side-panel .chat-history{flex-basis:160px;min-height:160px}
   .site-shell .side-panel .side-help{margin-top:8px}
 }
+
+/* Use the chat column's available width rather than a narrow centered strip.
+   User messages align with the right gutter; composer spans the same gutters. */
+.site-shell .conversation-inner{
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding-left:clamp(16px,2vw,32px);
+  padding-right:clamp(16px,2vw,32px);
+}
+.site-shell .composer-area{
+  padding-left:clamp(16px,2vw,32px);
+  padding-right:clamp(16px,2vw,32px);
+}
+.site-shell .composer,
+.site-shell .composer-intro,
+.site-shell .suggestions,
+.site-shell .composer-caption{
+  width:100%;
+  max-width:none;
+}
+@media(max-width:700px){
+  .site-shell .conversation-inner{padding-left:14px;padding-right:14px}
+  .site-shell .composer-area{padding-left:12px;padding-right:12px}
+}
