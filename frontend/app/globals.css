@@ -247,3 +247,60 @@ body:has(.site-shell){overflow:hidden}
   .site-shell .new-chat{padding:9px}
   .site-shell .message-content{max-width:90%}
 }
+
+/* Sidebar priority: recent chats get the space; account and guide stay compact.
+   The sidebar itself remains scrollable on shorter displays. */
+.site-shell .side-panel{
+  overflow-y:auto;
+  scrollbar-gutter:stable;
+}
+.site-shell .side-panel .chat-history{
+  flex:1 0 160px;
+  min-height:160px;
+  margin:16px 0 10px;
+  overflow:hidden;
+}
+.site-shell .side-panel .chat-history-list{
+  flex:1 1 auto;
+  min-height:0;
+  max-height:none;
+  overflow-y:auto;
+  scrollbar-width:thin;
+  scrollbar-gutter:stable;
+}
+.site-shell .side-panel .account-panel{
+  flex:0 0 auto;
+  margin-top:8px;
+  padding:11px 13px;
+  gap:3px;
+}
+.site-shell .side-panel .account-logout{
+  margin-top:5px;
+  padding:8px 10px;
+}
+.site-shell .side-panel .side-help{
+  flex:0 0 auto;
+  margin-top:8px;
+  padding:12px 14px;
+  border-radius:16px;
+}
+.site-shell .side-panel .side-help-icon{
+  width:30px;
+  height:30px;
+  margin-bottom:8px;
+}
+.site-shell .side-panel .side-help-eyebrow{margin-bottom:5px}
+.site-shell .side-panel .side-help strong{font-size:15px;line-height:1.2}
+.site-shell .side-panel .side-help p{display:none}
+.site-shell .side-panel .side-help-action{margin-top:9px;padding:8px 10px}
+.site-shell .side-panel .sidebar-foot{flex:0 0 auto;padding:10px 4px 0}
+@media(max-height:740px) and (min-width:701px){
+  .site-shell .side-panel{padding-top:17px;padding-bottom:12px}
+  .site-shell .side-panel .side-divider{margin:17px 0 13px}
+  .site-shell .side-panel .chat-history{flex-basis:140px;min-height:140px}
+  .site-shell .side-panel .side-help{display:none}
+}
+@media(max-width:700px){
+  .site-shell .side-panel .chat-history{flex-basis:160px;min-height:160px}
+  .site-shell .side-panel .side-help{margin-top:8px}
+}
