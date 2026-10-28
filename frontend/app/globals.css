@@ -329,3 +329,10 @@ body:has(.site-shell){overflow:hidden}
   .site-shell .conversation-inner{padding-left:14px;padding-right:14px}
   .site-shell .composer-area{padding-left:12px;padding-right:12px}
 }
+
+/* The composer container provides the keyboard focus ring; don't draw a second
+   rectangular outline around the inner text field. */
+.site-shell .composer input:focus-visible{
+  outline:none;
+  box-shadow:none;
+}
