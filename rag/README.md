@@ -7,16 +7,12 @@ A standalone **SQLite FTS5 (keyword-search)** RAG retrieval package with **six f
 - `rag/ingest.py`: chunks sections and builds a searchable SQLite index.
 - `rag/retriever.py`: retrieves source-labelled sections.
 - `rag/tool.py`: optional `@tool` wrapper for Strands Agents (requires `strands-agents` in your existing environment).
-- `rag/test_retrieval.py`: command-line smoke test.
-- `tests/test_rag.py`: standard-library unit tests.
 
 ## Installation in your existing project
 Copy the **`rag` directory** into the same project root as `agent.py`. Keep `README.md` separately if helpful. From the project root:
 
 ```powershell
 python -m rag.ingest
-python -m rag.test_retrieval
-python -m unittest discover -s tests -v
 ```
 
 No `pip install` is needed for standalone indexing and retrieval. Strands integration uses your existing `strands-agents` dependency.
