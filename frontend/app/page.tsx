@@ -633,16 +633,10 @@ export default function Home() {
           <div className="demo-notice" role="note">Demo only · Paystack TEST payments · No real orders or deliveries. Use fictional details.</div>
         )}
         <header className="chat-header">
-          <button type="button" className="sidebar-toggle" onClick={() => {
-            if (window.matchMedia('(max-width: 700px)').matches) {
-              setMobileMenuOpen(true);
-            } else {
-              setSidebarCollapsed((value) => !value);
-            }
-          }} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-controls="main-navigation" aria-expanded={!sidebarCollapsed} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-            <span className="desktop-toggle-icon">{sidebarCollapsed ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</span>
-            <span className="mobile-toggle-icon"><Menu size={21}/></span>
+          <button type="button" className="sidebar-toggle desktop-sidebar-toggle" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-controls="main-navigation" aria-expanded={!sidebarCollapsed} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            {sidebarCollapsed ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}
           </button>
+          <button type="button" className="sidebar-toggle mobile-sidebar-toggle" onClick={() => setMobileMenuOpen(true)} aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileMenuOpen} title="Open navigation"><Menu size={21}/></button>
           <div className="mobile-brand"><span className="identity-mark small"><UtensilsCrossed size={18}/></span></div>
           <div className="agent-avatar"><ChefHat size={24}/><span className="avatar-online"/></div>
           <div className="agent-title"><h1>Naija Bites</h1><p><span className="live-dot"/> Your food assistant</p></div>
