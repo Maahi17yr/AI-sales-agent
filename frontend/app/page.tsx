@@ -41,6 +41,17 @@ type Msg = {
 
 type WireMsg = Msg;
 
+type SavedChat = { id: string; title: string; messages: Msg[]; updatedAt: number };
+const MAX_SAVED_CHATS = 30;
+const historyKey = (customerId: number) => `naija-bites-chat-history-v1-${customerId}`;
+const chatTitle = (items: Msg[]) => items.find(m => m.role === 'user')?.content.slice(0, 52).trim() || 'New chat';
+const upsertChat = (items: SavedChat[], id: string, messages: Msg[]): SavedChat[] => {
+  if (!messages.some(m => m.role === 'user')) return items;
+  const existing = items.find(c => c.id === id);
+  const updated: SavedChat = { id, title: chatTitle(messages), messages, updatedAt: Date.now() };
+  return [updated, ...items.filter(c => c.id !== id)].slice(0, MAX_SAVED_CHATS);
+};
+
 type CheckoutItem = {
   product_id: number;
   name: string;
@@ -132,6 +143,8 @@ export default function Home() {
   const [error, setError] = useState('');
   const [activity, setActivity] = useState('');
   const [threadId, setThreadId] = useState('');
+  const [savedChats, setSavedChats] = useState<SavedChat[]>([]);
+  const [historyReady, setHistoryReady] = useState(false);
 
   const [checkout, setCheckout] =
     useState<PendingCheckout | null>(null);
@@ -172,9 +185,46 @@ export default function Home() {
     setPaymentEmail(customer.email);
   }, [customer.email]);
 
+  // Restore this signed-in customer's conversations on this browser.
   useEffect(() => {
-    setThreadId(uid());
+    let restored: SavedChat[] = [];
+    try {
+      const raw = window.localStorage.getItem(historyKey(customer.id));
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) restored = parsed.filter((entry): entry is SavedChat =>
+        entry !== null && typeof entry === 'object' &&
+        typeof entry.id === 'string' && typeof entry.title === 'string' &&
+        typeof entry.updatedAt === 'number' && Array.isArray(entry.messages) &&
+        entry.messages.every((m: unknown) => m !== null && typeof m === 'object' &&
+          'id' in m && typeof m.id === 'string' &&
+          'role' in m && (m.role === 'user' || m.role === 'assistant') &&
+          'content' in m && typeof m.content === 'string')
+      ).slice(0, MAX_SAVED_CHATS);
+    } catch { /* Ignore unavailable or invalid local history. */ }
+    setSavedChats(restored);
+    if (restored.length) {
+      setThreadId(restored[0].id);
+      setMessages(restored[0].messages);
+    } else {
+      setThreadId(uid());
+      setMessages([welcome]);
+    }
+    setHistoryReady(true);
+  }, [customer.id]);
 
+  // Save the active conversation after each message, including streamed replies.
+  useEffect(() => {
+    if (!historyReady || !threadId) return;
+    setSavedChats(prev => upsertChat(prev, threadId, messages));
+  }, [historyReady, threadId, messages]);
+
+  useEffect(() => {
+    if (!historyReady) return;
+    try { window.localStorage.setItem(historyKey(customer.id), JSON.stringify(savedChats)); }
+    catch { /* Storage may be disabled or full; chat still works in this tab. */ }
+  }, [customer.id, historyReady, savedChats]);
+
+  useEffect(() => {
     const controller = new AbortController();
 
     fetch(`${API}/ping`, {
@@ -267,6 +317,7 @@ export default function Home() {
     if (busy || confirming) return;
 
     abort.current?.abort();
+    if (threadId) setSavedChats(prev => upsertChat(prev, threadId, messages));
 
     setMessages([welcome]);
     setDraft('');
@@ -280,6 +331,19 @@ export default function Home() {
     // A new chat does not clear the server-side cart.
     // Any pending checkout remains visible until
     // it is changed, confirmed, or cancelled.
+  }
+
+  function openChat(chat: SavedChat) {
+    if (busy || confirming || chat.id === threadId) return;
+    if (threadId) setSavedChats(prev => upsertChat(prev, threadId, messages));
+    setThreadId(chat.id);
+    setMessages(chat.messages);
+    setDraft('');
+    setError('');
+    setActivity('');
+    setCheckoutError('');
+    setCheckoutResult('');
+    setMobileMenuOpen(false);
   }
 
   // ----------------------------------------
@@ -619,9 +683,10 @@ export default function Home() {
         </div>
         <div className="side-divider" />
         <div className="side-caption">YOUR TABLE</div>
-        <button className="side-link selected" title="Food chat" onClick={() => { setMobileMenuOpen(false); reset(); }} disabled={busy || confirming}><MessageCircle size={18}/><span className="side-link-text">Food chat</span><ArrowRight size={16} className="side-link-arrow"/></button>
+        <button className="side-link selected" title="Food chat" onClick={() => { setMobileMenuOpen(false); document.getElementById('message-input')?.focus(); }}><MessageCircle size={18}/><span className="side-link-text">Food chat</span><ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" title="Explore menu" onClick={() => { setMobileMenuOpen(false); void send('Show me the menu'); }} disabled={busy || confirming || !threadId}><UtensilsCrossed size={18}/><span className="side-link-text">Explore menu</span><ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" title="My cart" onClick={() => { setMobileMenuOpen(false); void send('Show me my cart'); }} disabled={busy || confirming || !threadId}><ShoppingBag size={18}/><span className="side-link-text">My cart</span><ArrowRight size={16} className="side-link-arrow"/></button>
+        <div className="chat-history" aria-label="Recent conversations"><div className="chat-history-heading"><span className="side-caption">RECENT CHATS</span><span className="chat-history-count">{savedChats.length}</span></div>{savedChats.length ? <div className="chat-history-list">{savedChats.map(chat => <button key={chat.id} type="button" className={`chat-history-item ${threadId === chat.id ? 'active' : ''}`} title={chat.title} aria-current={threadId === chat.id ? 'page' : undefined} disabled={busy || confirming} onClick={() => openChat(chat)}><MessageCircle size={16}/><span>{chat.title}</span></button>)}</div> : <p className="chat-history-empty">Your conversations will appear here.</p>}</div>
         <div className="account-panel"><span className="account-label">SIGNED IN AS</span><strong>{customer.name}</strong><span className="account-email">{customer.email}</span><button className="account-logout" type="button" onClick={() => void logout()}><LogOut size={15}/> Sign out</button></div>
         <div className="side-help"><div className="side-help-icon"><Sparkles size={20}/></div><span className="side-help-eyebrow">YOUR PERSONAL FOOD GUIDE</span><strong>Good food, zero stress.</strong><p>Tell us what you’re craving. We’ll help you find the right bite.</p><button type="button" className="side-help-action" onClick={() => void send("Help me choose something delicious")} disabled={busy || confirming || !threadId}>Get inspired <ArrowRight size={15}/></button></div>
         <div className="sidebar-foot"><span className={`connect-dot ${online ? 'up' : ''}`}/><span>{online === null ? 'Connecting…' : online ? 'Ready to take your order' : 'Connection unavailable'}</span></div>
@@ -698,7 +763,7 @@ export default function Home() {
         </div>
         <div className="composer-area">
           <div className="composer-intro"><Sparkles size={15}/> Ask me anything about your next meal</div>
-          <form className="composer" onSubmit={(e) => {e.preventDefault();void send();}}><input aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy || confirming}/><button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <ArrowRight size={21}/>}</button></form>
+          <form className="composer" onSubmit={(e) => {e.preventDefault();void send();}}><input id="message-input" aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy || confirming}/><button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <ArrowRight size={21}/>}</button></form>
           <div className="composer-caption">A little chat, a lot of flavour. <span>✳</span> Naija Bites</div>
         </div>
       </section>
