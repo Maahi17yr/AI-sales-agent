@@ -24,3 +24,14 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
+
+# Generated conversation state (local runtime data)
+/memory/sessions/
+
+# Simulated owner notifications (generated at runtime)
+/database/owner_notifications.json
+
+# Local debugging, coverage, and log artifacts
+.coverage
+htmlcov/
+*.log
