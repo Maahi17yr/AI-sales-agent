@@ -6,7 +6,7 @@ IMPORTANT: Customized checkout must remain disabled until OrderService is upgrad
 import json
 from collections import Counter
 
-from database import repository
+from data.database import repository
 from database.models import get_connection
 from services.customization_service import CustomizationService
 
