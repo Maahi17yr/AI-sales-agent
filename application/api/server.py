@@ -156,6 +156,7 @@ class SaveChatRequest(BaseModel):
 class PaymentInitialize(BaseModel):
     order_id: int
     email: str
+    frontend_origin: str | None = None
 
 
 class PaymentVerify(BaseModel):
@@ -693,10 +694,13 @@ async def memory_decision(decision: PreferenceDecision, request: Request):
 # Paystack TEST mode only; the customer is authenticated and scoped to their session.
 @app.post("/payments/initialize")
 def initialize_payment(payload: PaymentInitialize, request: Request):
+    # A proxy may omit the browser Origin; accept only explicitly approved origins.
+    origin = payload.frontend_origin or request.headers.get("origin")
+    if origin is not None and origin not in AUTH_ALLOWED_ORIGINS:
+        raise HTTPException(status_code=403, detail="Payment return origin not allowed.")
     try:
         return paystack_service.initialize(
-            payload.order_id, _customer_session(request), payload.email,
-            request.headers.get("origin") if request.headers.get("origin") in AUTH_ALLOWED_ORIGINS else None
+            payload.order_id, _customer_session(request), payload.email, origin
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
