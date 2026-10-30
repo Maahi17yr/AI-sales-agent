@@ -3,7 +3,7 @@ import secrets
 import sqlite3
 
 from strands import tool
-from database.models import get_connection
+from data.database.models import get_connection
 
 
 @tool
