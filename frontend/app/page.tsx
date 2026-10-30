@@ -150,10 +150,19 @@ export default function Home() {
 
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [foodPanelOpen, setFoodPanelOpen] = useState(false);
   const [voicePanelOpen, setVoicePanelOpen] = useState(false);
+  // Desktop starts with the food menu visible; smaller screens use an opt-in drawer.
+  // Only change the default when crossing the desktop breakpoint, not on every resize.
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const syncPanel = () => setFoodPanelOpen(desktop.matches);
+    syncPanel();
+    desktop.addEventListener('change', syncPanel);
+    return () => desktop.removeEventListener('change', syncPanel);
+  }, []);
   const [online, setOnline] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [showTyping, setShowTyping] = useState(false);
@@ -899,7 +908,7 @@ export default function Home() {
           <div className="mobile-brand"><span className="identity-mark small"><UtensilsCrossed size={18}/></span></div>
           <div className="agent-avatar"><ChefHat size={24}/><span className="avatar-online"/></div>
           <div className="agent-title"><h1>Your food companion <span className="header-sparkle">✳</span></h1><p><span className="live-dot"/> Naija Bites AI · Here to help you order</p></div>
-          <button type="button" className="open-food-panel" onClick={() => setFoodPanelOpen(true)} aria-label="Open menu and order summary" aria-haspopup="dialog"><ShoppingBag size={18}/><span>Menu & order</span></button>
+          <button type="button" className="open-food-panel" onClick={() => setFoodPanelOpen(value => !value)} aria-label={foodPanelOpen ? 'Hide menu and order summary' : 'Show menu and order summary'} aria-controls="food-menu-panel" aria-expanded={foodPanelOpen}><ShoppingBag size={18}/><span>Menu & order</span></button>
           <button className="mobile-logout" type="button" onClick={() => void logout()} aria-label="Sign out" title="Sign out"><LogOut size={17}/></button>
           <button className="new-chat" onClick={reset} disabled={busy || confirming} title="Start a fresh conversation"><RefreshCw size={16}/><span>New chat</span></button>
         </header>
