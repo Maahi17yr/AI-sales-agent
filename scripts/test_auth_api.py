@@ -115,6 +115,24 @@ class AuthenticationAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(chats), 1)
         self.assertEqual(chats[0]["messages"], payload["messages"])
 
+    async def test_stale_tab_cannot_write_to_another_account(self):
+        await self.register()
+        await self.login()
+        first_id = (await self.client.get("/auth/me")).json()["customer"]["id"]
+        await self.client.post("/auth/logout")
+        second = "second.customer@example.test"
+        await self.register(email=second)
+        await self.login(email=second)
+        result = await self.client.put(
+            "/chats/b4d99882-1e9a-45b8-8b17-59ad66a4b303",
+            headers={"X-Naija-Bites-Expected-Customer": str(first_id)},
+            json={"title": "Wrong account", "messages": [
+                {"id": "m1", "role": "user", "content": "This belongs to account A"}
+            ]},
+        )
+        self.assertEqual(result.status_code, 409)
+        self.assertEqual((await self.client.get("/chats")).json()["chats"], [])
+
     async def test_chat_save_rejects_unknown_origin(self):
         await self.register()
         await self.login()
