@@ -109,6 +109,11 @@ const API = '/api/backend';
 
 const uid = () => crypto.randomUUID();
 
+// Only bypass Bedrock for an unambiguous greeting at the start of a chat.
+// Later greetings may be contextual and should reach the agent.
+const isSimpleGreeting = (text: string) =>
+  /^(hi|hello|hey|good morning|good afternoon|good evening)[!.? ]*$/i.test(text.trim());
+
 const welcome: Msg = {
   id: 'welcome',
   role: 'assistant',
@@ -438,6 +443,25 @@ export default function Home() {
 
     setMessages(next);
 
+    // Instant local reply: no AI call, no cart mutation and no invented menu data.
+    // Chat persistence continues through the existing messages effect.
+    if (messages.every((message) => message.id === 'welcome') && isSimpleGreeting(content)) {
+      setMessages([
+        ...next,
+        {
+          id: uid(),
+          role: 'assistant',
+          content: 'Hey there! 👋 Welcome to Naija Bites. What would you like to eat today?',
+        },
+      ]);
+      setBusy(false);
+      return;
+    }
+
+    const requestStartedAt = performance.now();
+    let headersReceivedAt: number | null = null;
+    let firstTokenAt: number | null = null;
+
     const assistantId = uid();
     let assistantText = '';
     let gotText = false;
@@ -472,6 +496,8 @@ export default function Home() {
         }),
         signal: controller.signal,
       });
+
+      headersReceivedAt = performance.now();
 
       if (!response.ok) {
         throw new Error(
@@ -518,6 +544,7 @@ export default function Home() {
           typeof evt.delta === 'string'
         ) {
           gotText = true;
+          if (firstTokenAt === null) firstTokenAt = performance.now();
           assistantText += evt.delta;
 
           const textSnapshot = assistantText;
@@ -597,6 +624,13 @@ export default function Home() {
           'No text response received. Check the backend logs.'
         );
       }
+
+      // Diagnostic timings (no message content or personal data logged).
+      console.info('[Naija Bites latency]', {
+        response_headers_ms: headersReceivedAt === null ? null : Math.round(headersReceivedAt - requestStartedAt),
+        first_token_ms: firstTokenAt === null ? null : Math.round(firstTokenAt - requestStartedAt),
+        total_ms: Math.round(performance.now() - requestStartedAt),
+      });
     } catch (err) {
       if (
         err instanceof Error &&
