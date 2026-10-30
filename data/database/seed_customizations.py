@@ -1,10 +1,10 @@
 """Seed approved meal customization rules without resetting existing data.
 
-Run: python -m database.seed_customizations
+Run: python -m data.database.seed_customizations
 This is an administrator-only setup script, not an AI tool.
 """
-from database.models import get_connection
-from database.customization_schema import create_customization_tables
+from data.database.models import get_connection
+from data.database.customization_schema import create_customization_tables
 
 # Meal components explicitly described in the existing product catalogue.
 # Only listed components can be removed. Removing a component has no refund.
