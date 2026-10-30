@@ -30,7 +30,7 @@ def search_knowledge_base(query: str, limit: int = 5) -> dict:
     if not isinstance(query, str) or not query.strip():
         return {"success": False, "results": [], "message": "Provide a question."}
     if not INDEX_PATH.exists():
-        return {"success": False, "results": [], "message": "Index missing. Run python -m rag.ingest."}
+        return {"success": False, "results": [], "message": "Index missing. Run python -m application.rag.ingest."}
     terms = _terms(query)
     if not terms:
         return {"success": True, "results": [], "message": "No searchable terms."}
