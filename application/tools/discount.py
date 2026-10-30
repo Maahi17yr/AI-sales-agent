@@ -1,6 +1,6 @@
 
 from strands import tool
-from services.discount_service import DiscountService
+from application.services.discount_service import DiscountService
 
 
 @tool
