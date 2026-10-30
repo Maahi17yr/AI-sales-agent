@@ -101,6 +101,63 @@ class CartService:
         return {"success": True, "message": f"{product['name']} added to cart.",
                 "cart": self.view_cart()}
 
+    def add_items(self, requests):
+        """Validate a whole basket and save it once, or leave the cart unchanged.
+
+        requests contains trusted catalogue IDs resolved by the tool layer.
+        This reduces agent/tool round-trips; it is not a stock reservation.
+        """
+        from copy import deepcopy
+
+        if not isinstance(requests, list) or not requests or len(requests) > 20:
+            return {"success": False, "message": "Provide between 1 and 20 items."}
+
+        items = deepcopy(self.get_cart())
+        for request in requests:
+            if not isinstance(request, dict):
+                return {"success": False, "message": "Invalid cart item."}
+            product_id = request.get("product_id")
+            quantity = request.get("quantity", 1)
+            remove = request.get("remove")
+            add = request.get("add")
+            if type(product_id) is not int or type(quantity) is not int or quantity <= 0:
+                return {"success": False, "message": "Invalid product or quantity."}
+            product = repository.get_product(product_id)
+            if not product or not product["available"]:
+                return {"success": False, "message": "Product unavailable."}
+            modifications = []
+            if remove or add:
+                quote = CustomizationService.quote(product_id, quantity, remove, add)
+                if not quote.get("success"):
+                    return quote
+                modifications = quote["modifications"]
+            key = self._mod_key(modifications)
+            existing = next(
+                (line for line in items
+                 if line["product_id"] == product_id
+                 and line.get("variant", "standard") == "standard"
+                 and self._mod_key(line.get("modifications", [])) == key),
+                None,
+            )
+            if existing:
+                existing["quantity"] += quantity
+            else:
+                items.append({
+                    "product_id": product_id, "variant": "standard",
+                    "quantity": quantity, "modifications": modifications,
+                })
+
+        error = self._check_all_stock(items)
+        if error:
+            return {"success": False, "message": error, "cart": self.view_cart()}
+
+        self._save_cart(items)
+        return {
+            "success": True,
+            "message": "All requested items added. The returned cart is authoritative.",
+            "cart": self.view_cart(),
+        }
+
     def update_quantity(self, product_id, quantity, variant="standard", modifications=None):
         if type(quantity) is not int or quantity < 0:
             return {"success": False, "message": "Invalid quantity."}

@@ -51,7 +51,8 @@ def make_cart_tools(session_id: str):
     ) -> dict:
         """Add a meal by its EXACT catalogue name, not by a guessed numeric ID.
 
-        Use the exact name the customer requested and verify it against search_menu.
+        Use the exact name the customer requested. This tool verifies it
+        against the live catalogue itself; no separate search is needed.
         Never substitute another soup or meal without the customer's permission.
         If an addition fails or the result is uncertain, view_cart before retrying.
 
@@ -90,6 +91,73 @@ def make_cart_tools(session_id: str):
             "product_name": product["name"],
             "cart": actual_cart,
         }
+
+    @tool
+    def add_items_to_cart(items: list[dict]) -> dict:
+        """Add multiple exact catalogue meals in ONE validated operation.
+
+        Prefer this tool when a customer requests two or more products.
+        Do not call search_menu first: this tool checks live catalogue names,
+        stock and cart totals itself. Never retry a successful cart mutation.
+        If it fails, the cart is unchanged; ask the customer to correct the
+        requested item rather than blindly retrying.
+
+        Args:
+            items: Requested meals, e.g.
+                [{"product_name": "Eba", "quantity": 1},
+                 {"product_name": "Afang Soup", "quantity": 1}].
+                Each entry may include "remove" (list of ingredients) and
+                "add" (extra ingredient quantities) for supported customizations.
+        """
+        import logging
+        import time
+
+        started = time.perf_counter()
+        try:
+            cart = authorized_cart()
+            if cart is None:
+                return {"success": False, "message": "Customer session is not verified."}
+            if not isinstance(items, list) or not items or len(items) > 20:
+                return {"success": False, "message": "Provide between 1 and 20 items."}
+
+            resolved_items = []
+            for item in items:
+                if not isinstance(item, dict):
+                    return {"success": False, "message": "Invalid cart item."}
+                name = item.get("product_name")
+                quantity = item.get("quantity", 1)
+                remove = item.get("remove")
+                add = item.get("add")
+                if not isinstance(name, str) or not name.strip():
+                    return {"success": False, "message": "Each item needs a product name."}
+                if type(quantity) is not int or quantity <= 0:
+                    return {"success": False, "message": "Each quantity must be a positive integer."}
+                if remove is not None and (
+                    not isinstance(remove, list)
+                    or not all(isinstance(value, str) for value in remove)
+                ):
+                    return {"success": False, "message": "Invalid ingredient removals."}
+                if add is not None and (
+                    not isinstance(add, dict)
+                    or not all(isinstance(k, str) and type(v) is int and v > 0
+                               for k, v in add.items())
+                ):
+                    return {"success": False, "message": "Invalid ingredient extras."}
+                matched = resolve_orderable_product_by_name(name)
+                if not matched.get("success"):
+                    return matched
+                resolved_items.append({
+                    "product_id": matched["product"]["id"],
+                    "quantity": quantity,
+                    "remove": remove,
+                    "add": add,
+                })
+
+            return cart.add_items(resolved_items)
+        finally:
+            logging.getLogger(__name__).info(
+                "add_items_to_cart elapsed_ms=%.1f", (time.perf_counter() - started) * 1000
+            )
 
     @tool
     def view_cart() -> dict:
@@ -134,5 +202,5 @@ def make_cart_tools(session_id: str):
             return {"success": False, "message": "Customer session is not verified."}
         return cart.clear_cart()
 
-    return [get_customization_options, add_to_cart, view_cart,
+    return [get_customization_options, add_to_cart, add_items_to_cart, view_cart,
             set_cart_line_quantity, clear_cart]
