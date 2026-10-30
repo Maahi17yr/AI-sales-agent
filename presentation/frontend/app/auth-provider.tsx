@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, Fragment, type FormEvent, type ReactNode } from 'react';
 import { ChefHat, LoaderCircle, ShieldCheck, UtensilsCrossed } from 'lucide-react';
 
 // Always use the same-origin Next.js proxy; FastAPI owns authentication.
@@ -52,14 +52,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const customerRef = useRef<Customer | null>(null);
+  useEffect(() => { customerRef.current = customer; }, [customer]);
+
+  const refreshSession = useCallback(async () => {
+    try {
+      const response = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
+      if (response.ok) {
+        const data: { customer: Customer } = await response.json();
+        customerRef.current = data.customer;
+        setCustomer(data.customer);
+      } else if (response.status === 401) {
+        customerRef.current = null;
+        setCustomer(null);
+      }
+    } catch { /* Keep current state on transient network failure. */ }
+  }, []);
+
+  // Tabs on the same origin share the session cookie. Recheck when another tab
+  // logs in/out, or when a tab regains focus after an external payment redirect.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'naija-bites-auth-change') void refreshSession();
+    };
+    const onFocus = () => { void refreshSession(); };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshSession();
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshSession]);
 
   const apiFetch = useCallback(async (path: string, options: RequestInit = {}) => {
+    // Do not send account-changing requests from a stale tab under another user's cookie.
+    if (options.method && !['GET', 'HEAD'].includes(options.method.toUpperCase())) {
+      const session = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
+      if (session.status === 401) {
+        customerRef.current = null;
+        setCustomer(null);
+        throw new Error('Your session has changed. Sign in again before continuing.');
+      }
+      if (!session.ok) throw new Error('Could not verify your session. Please try again.');
+      const data: { customer: Customer } = await session.json();
+      if (customerRef.current && data.customer.id !== customerRef.current.id) {
+        customerRef.current = data.customer;
+        setCustomer(data.customer);
+        throw new Error('The signed-in account changed in another tab. Please review your account before continuing.');
+      }
+    }
     const response = await fetch(`${API}${path}`, {
       ...options,
       credentials: 'include',
       cache: options.cache ?? 'no-store',
     });
     if (response.status === 401) {
+      customerRef.current = null;
       setCustomer(null);
       setNotice('Your session has expired. Please sign in again.');
     }
@@ -90,7 +143,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: 'POST', credentials: 'include', cache: 'no-store',
       });
       if (!response.ok) throw new Error(await detail(response));
+      customerRef.current = null;
       setCustomer(null);
+      window.localStorage.setItem('naija-bites-auth-change', String(Date.now()));
       setNotice('You have signed out.');
     } catch (error) {
       setNotice(connectionMessage(error));
@@ -120,7 +175,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!response.ok) throw new Error(await detail(response));
       const data: { customer: Customer } = await response.json();
       setPassword('');
+      customerRef.current = data.customer;
       setCustomer(data.customer);
+      window.localStorage.setItem('naija-bites-auth-change', String(Date.now()));
     } catch (error) {
       setNotice(connectionMessage(error));
     } finally {
@@ -152,5 +209,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     </main>
   );
 
-  return <AuthContext.Provider value={{ customer, apiFetch, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ customer, apiFetch, logout }}><Fragment key={customer.id}>{children}</Fragment></AuthContext.Provider>;
 }
