@@ -537,7 +537,7 @@ export default function Home() {
     setHistoryReady(false);
     try {
       await Promise.allSettled(Array.from(pendingHistoryWrites.current));
-      const response = await apiFetch('/chats', { method: 'DELETE' });
+      const response = await apiFetch('/chats', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       if (!response.ok) {
         if (response.status === 404 || response.status === 405) {
           throw new Error('Clear history is not available on the running backend yet. Update and restart the backend, then try again.');
