@@ -259,6 +259,25 @@ export default function Home() {
     catch { /* Storage may be disabled or full; chat still works in this tab. */ }
   }, [customer.id, historyReady, savedChats]);
 
+
+  // Persist the active conversation after the streaming response settles.
+  useEffect(() => {
+    if (!historyReady || !threadId) return;
+    const active = savedChats.find(chat => chat.id === threadId);
+    if (!active) return;
+    const timer = window.setTimeout(() => {
+      void apiFetch('/chats/' + encodeURIComponent(active.id), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: active.title, messages: active.messages }),
+      }).then(response => {
+        if (!response.ok) throw new Error('Cloud save failed');
+      }).catch(() => {
+        setError('Unable to sync this conversation. Please check your connection.');
+      });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [historyReady, savedChats, threadId, apiFetch]);
+
   useEffect(() => {
     const controller = new AbortController();
 
@@ -656,6 +675,14 @@ export default function Home() {
     setPaymentBusy(true);
     setCheckoutError('');
     try {
+      // Flush this conversation before navigating away to Paystack.
+      if (messages.some(message => message.role === 'user')) {
+        const saved = await apiFetch('/chats/' + encodeURIComponent(threadId), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: chatTitle(messages), messages }),
+        });
+        if (!saved.ok) throw new Error('Could not save your conversation. Payment was not started.');
+      }
       const response = await apiFetch('/payments/initialize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
