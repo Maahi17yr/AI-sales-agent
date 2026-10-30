@@ -1,5 +1,5 @@
 
-from database.models import get_connection
+from data.database.models import get_connection
 
 
 def reset_sessions():
