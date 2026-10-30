@@ -5,10 +5,10 @@ approve checkout or change inventory through these tools.
 """
 from strands import tool
 
-from database import repository
-from services.cart import CartService
-from services.customization_service import CustomizationService
-from tools.product_matching import match_exact_orderable_product
+from data.database import repository
+from application.services.cart import CartService
+from application.services.customization_service import CustomizationService
+from application.tools.product_matching import match_exact_orderable_product
 
 
 def resolve_orderable_product_by_name(product_name: str) -> dict:
