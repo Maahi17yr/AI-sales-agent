@@ -10,8 +10,8 @@ an order or mark a payment as successful.
 
 from strands import tool
 
-from database import repository
-from services.checkout import CheckoutService
+from data.database import repository
+from application.services.checkout import CheckoutService
 
 
 def make_order_tools(session_id: str):
@@ -77,7 +77,7 @@ def make_order_tools(session_id: str):
 
         # Session ownership comes from the trusted server-bound session.
         # The supplied phone is a delivery contact, not an authentication key.
-        from services.order_service import validate_delivery_phone
+        from application.services.order_service import validate_delivery_phone
         if not validate_delivery_phone(phone.strip()):
             print("[CHECKOUT DEBUG] REJECTED: invalid delivery phone", flush=True)
             return {"success": False, "message": "Enter a valid delivery phone number."}
