@@ -655,3 +655,36 @@ img, video { height: auto; }
   .voice-close, .voice-controls button { background: #35523c; color: #e5f2e0; border-color: #537359; }
   .voice-dialog .voice-status, .voice-eyebrow { color: #b8dba8; }
 }
+
+/* Desktop space management: an icon rail must actually occupy icon-rail width.
+   This overrides the more-specific 1440px sidebar width declared earlier. */
+@media (min-width: 1440px) {
+  .site-shell.sidebar-collapsed .side-panel {
+    width: 4.75rem;
+    flex: 0 0 4.75rem;
+    padding: 1.5rem .65rem;
+  }
+  .site-shell.sidebar-collapsed .side-panel .identity-mark { width: 2.75rem; height: 2.75rem; }
+  .site-shell.sidebar-collapsed .side-panel .chat-history-item { justify-content: center; }
+  /* Keep the menu comfortable without consuming a third of a wide screen. */
+  .site-shell .food-panel {
+    width: clamp(23rem, 28vw, 30rem);
+    flex-basis: clamp(23rem, 28vw, 30rem);
+  }
+  .site-shell .meal-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+/* A user-controlled desktop menu, not a permanently pinned column. */
+@media (min-width: 1024px) {
+  .site-shell .food-panel:not(.food-panel-open) { display: none; }
+  .site-shell .food-panel-close { display: grid; }
+  .site-shell .open-food-panel[aria-expanded="true"] {
+    background: #dcebd5;
+    border-color: #aac7a2;
+  }
+}
+@media (max-width: 700px) {
+  /* Compact desktop navigation must not collapse the contents of the mobile drawer. */
+  .site-shell.sidebar-collapsed .side-panel .chat-history-heading { display: flex; }
+  .site-shell.sidebar-collapsed .side-panel .chat-history-item span { display: block; }
+  .site-shell.sidebar-collapsed .side-panel .chat-history-empty { display: block; }
+}
