@@ -51,7 +51,8 @@ def make_cart_tools(session_id: str):
     ) -> dict:
         """Add a meal by its EXACT catalogue name, not by a guessed numeric ID.
 
-        Use the exact name the customer requested and verify it against search_menu.
+        Use the exact name the customer requested. This tool verifies it
+        against the live catalogue itself; no separate search is needed.
         Never substitute another soup or meal without the customer's permission.
         If an addition fails or the result is uncertain, view_cart before retrying.
 
