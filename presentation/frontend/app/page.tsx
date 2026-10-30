@@ -691,7 +691,7 @@ export default function Home() {
       const response = await apiFetch('/payments/initialize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: paymentOrder, email: paymentEmail.trim() }),
+        body: JSON.stringify({ order_id: paymentOrder, email: paymentEmail.trim(), frontend_origin: window.location.origin }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Could not start payment.');
