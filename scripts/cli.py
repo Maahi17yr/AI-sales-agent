@@ -8,9 +8,9 @@ import uuid
 
 from dotenv import load_dotenv
 
-from database import repository
-from database.models import get_connection
-from services.checkout import CheckoutService
+from data.database import repository
+from data.database.models import get_connection
+from application.services.checkout import CheckoutService
 
 
 def show_pending_review(session_id):
@@ -66,7 +66,7 @@ def main():
     print("Created a new local test session automatically.")
 
     # Import after loading .env so Bedrock settings are available.
-    from agent import make_agent
+    from application.intelligence.agent import make_agent
     agent = make_agent(session_id)
     print('Naija Bites local chat ready. Commands: /review, /quit')
     while True:
