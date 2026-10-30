@@ -41,7 +41,10 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-from pydantic import BaseModel, StrictBool
+from pydantic import BaseModel, StrictBool, Field
+from typing import Literal
+from uuid import UUID
+import time
 from application.services import paystack_service, auth_service
 
 from ag_ui.core import RunAgentInput
@@ -137,6 +140,17 @@ def _agent_lock(session_id: str) -> asyncio.Lock:
     if session_id not in _agent_locks:
         _agent_locks[session_id] = asyncio.Lock()
     return _agent_locks[session_id]
+
+
+class ChatMessage(BaseModel):
+    id: str = Field(min_length=1, max_length=100)
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=20000)
+
+
+class SaveChatRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    messages: list[ChatMessage] = Field(min_length=1, max_length=300)
 
 
 class PaymentInitialize(BaseModel):
@@ -294,7 +308,7 @@ async def protect_auth_cookie_requests(request: Request, call_next):
     # Browsers send Origin for cross-origin POSTs. Reject unknown origins
     # before any authentication mutation; requests with no Origin (CLI)
     # remain usable for local testing.
-    if request.method == "POST" and request.url.path != "/payments/webhook":
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.url.path != "/payments/webhook":
         origin = request.headers.get("origin")
         if origin is not None and origin not in AUTH_ALLOWED_ORIGINS:
             return JSONResponse({"detail": "Origin not allowed."}, status_code=403)
@@ -323,6 +337,45 @@ def auth_login(payload: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid email or password.") from exc
     response = JSONResponse({"customer": result["customer"]})
     _set_auth_cookie(response, result["session_token"])
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+# Conversation storage is always scoped by the authenticated cookie.
+@app.get("/chats")
+def list_customer_chats(request: Request):
+    customer_id = _require_authenticated_customer(request)["id"]
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT chat_id, title, messages, updated_at
+            FROM customer_chats WHERE customer_id = ?
+            ORDER BY updated_at DESC LIMIT 30
+        """, (customer_id,)).fetchall()
+    response = JSONResponse({"chats": [
+        {"id": row["chat_id"], "title": row["title"],
+         "messages": json.loads(row["messages"]), "updatedAt": row["updated_at"]}
+        for row in rows
+    ]})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.put("/chats/{chat_id}")
+def save_customer_chat(chat_id: UUID, payload: SaveChatRequest, request: Request):
+    customer_id = _require_authenticated_customer(request)["id"]
+    messages = [message.model_dump() for message in payload.messages]
+    if not any(message["role"] == "user" for message in messages):
+        raise HTTPException(status_code=400, detail="A user message is required.")
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO customer_chats (customer_id, chat_id, title, messages, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(customer_id, chat_id) DO UPDATE SET
+                title=excluded.title, messages=excluded.messages,
+                updated_at=excluded.updated_at
+        """, (customer_id, str(chat_id), payload.title, json.dumps(messages),
+              int(time.time() * 1000)))
+    response = JSONResponse({"saved": True})
     response.headers["Cache-Control"] = "no-store"
     return response
 
