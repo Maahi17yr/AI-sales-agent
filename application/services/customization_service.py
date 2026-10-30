@@ -1,6 +1,6 @@
 """Validate and quote meal modifications; does not reserve stock or mutate carts."""
 from collections import Counter
-from database.models import get_connection
+from data.database.models import get_connection
 
 
 class CustomizationService:
