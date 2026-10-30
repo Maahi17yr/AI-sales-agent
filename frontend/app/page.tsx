@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { useAuth } from './auth-provider';
 import FoodPanel from './food-panel';
+import VoiceChatPanel from './voice-chat-panel';
 
 import {
   ChefHat,
@@ -23,6 +24,7 @@ import {
   Sparkles,
   X,
   MessageCircle,
+  Mic,
   RefreshCw,
   LogOut,
   Menu,
@@ -111,6 +113,16 @@ const API = '/api/backend';
 
 const uid = () => crypto.randomUUID();
 
+// Remove model-internal planning, including incomplete streaming think blocks.
+function customerFacingText(text: string): string {
+  return text
+    .replace(/<(?:think|thinking)\b[^>]*>[\s\S]*?<\/(?:think|thinking)\s*>/gi, '')
+    .replace(/<(?:think|thinking)\b[^>]*>[\s\S]*$/gi, '')
+    .replace(/<\/?(?:think|thinking)\b[^>]*>/gi, '')
+    .replace(/<(?:t|th|thi|thin|think|thinki|thinkin|thinking)$/gi, '')
+    .trimStart();
+}
+
 const welcome: Msg = {
   id: 'welcome',
   role: 'assistant',
@@ -141,6 +153,7 @@ export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [foodPanelOpen, setFoodPanelOpen] = useState(false);
+  const [voicePanelOpen, setVoicePanelOpen] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [showTyping, setShowTyping] = useState(false);
@@ -566,7 +579,8 @@ export default function Home() {
           if (firstTokenAt === null) firstTokenAt = performance.now();
           assistantText += evt.delta;
 
-          const textSnapshot = assistantText;
+          const textSnapshot = customerFacingText(assistantText);
+          if (!textSnapshot.trim()) return;
 
           setMessages((current) => {
             const exists = current.some(
@@ -910,7 +924,7 @@ export default function Home() {
             ) : <div className="date-divider"><span>Today</span></div>}
             {messages.filter(message => message.id !== 'welcome').map((message) => <div key={message.id} className={`message-row ${message.role}`}>
               {message.role === 'assistant' && <span className="message-avatar"><UtensilsCrossed size={15}/></span>}
-              <div className="message-content"><div className="bubble"><MessageMarkup content={message.content}/></div><span className="message-meta">{message.role === 'assistant' ? 'Naija Bites' : 'You'}</span></div>
+              <div className="message-content"><div className="bubble"><MessageMarkup content={message.role === 'assistant' ? customerFacingText(message.content) : message.content}/></div><span className="message-meta">{message.role === 'assistant' ? 'Naija Bites' : 'You'}</span></div>
             </div>)}
             {messages.length === 1 && <section className="welcome-shortcuts" aria-label="Ways to get started">
               <div className="shortcuts-heading"><div><span className="shortcuts-eyebrow">NOT SURE WHERE TO START?</span><h3>What sounds good today?</h3></div><span>Pick a shortcut or type below</span></div>
@@ -950,11 +964,13 @@ export default function Home() {
           <div className="composer-intro"><Sparkles size={15}/> Ask me anything about your next meal</div>
           <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
             <textarea ref={textareaRef} id="message-input" rows={1} aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} disabled={busy || confirming}/>
-            <button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <Send size={20}/>}</button>
+            <button type="button" className="voice-launch" onClick={() => setVoicePanelOpen(true)} aria-label="Open voice chat preview" title="Voice chat preview"><Mic size={20}/></button>
+             <button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <Send size={20}/>}</button>
           </form>
           <div className="composer-caption">A little chat, a lot of flavour. <span>✳</span> Naija Bites</div>
         </div>
       </section>
+      <VoiceChatPanel open={voicePanelOpen} onClose={() => setVoicePanelOpen(false)} />
       <FoodPanel open={foodPanelOpen} onClose={() => setFoodPanelOpen(false)}
         onOrder={(meal) => { void send(`I'd like one ${meal}, please.`); }}
         onViewCart={() => { void send('Show me my current cart and help me check out.'); }}
