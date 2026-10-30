@@ -104,8 +104,15 @@ EXTRA_FRONTEND_ORIGINS = {
     for origin in os.getenv("NAIJA_BITES_EXTRA_ALLOWED_ORIGINS", "").split(",")
     if origin.strip()
 }
+# Exact temporary Vercel deployment URL for the current frontend preview.
+# Keep the origin check strict: do not use a wildcard for preview deployments.
+# Remove this entry once the preview is promoted to the stable frontend URL.
+CURRENT_PREVIEW_ORIGINS = {
+    "https://ai-sales-agent-uerh-n1g0p73jw-huhm2.vercel.app",
+}
 AUTH_ALLOWED_ORIGINS = (
-    ({DEMO_FRONTEND_ORIGIN} | EXTRA_FRONTEND_ORIGINS) if DEPLOYMENT_MODE == "demo"
+    ({DEMO_FRONTEND_ORIGIN} | EXTRA_FRONTEND_ORIGINS | CURRENT_PREVIEW_ORIGINS)
+    if DEPLOYMENT_MODE == "demo"
     else LOCAL_ORIGINS
 )
 
