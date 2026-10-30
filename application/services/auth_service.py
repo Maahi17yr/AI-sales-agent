@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, VerificationError, InvalidHashError
 
-from database.models import get_connection
+from data.database.models import get_connection
 
 _hasher = PasswordHasher()
 SESSION_DAYS = 7
