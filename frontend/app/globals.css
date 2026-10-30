@@ -688,3 +688,22 @@ img, video { height: auto; }
   .site-shell.sidebar-collapsed .side-panel .chat-history-item span { display: block; }
   .site-shell.sidebar-collapsed .side-panel .chat-history-empty { display: block; }
 }
+
+/* Clear history is available when navigation is expanded, with confirmation. */
+.site-shell .chat-history-actions { display: flex; align-items: center; gap: .4rem; }
+.site-shell .chat-history-clear {
+  display: inline-flex; align-items: center; justify-content: center; gap: .25rem;
+  min-height: 2rem; padding: .3rem .4rem; border: 1px solid transparent;
+  border-radius: .5rem; background: transparent; color: #93543e;
+  font: inherit; font-size: .73rem; font-weight: 700; white-space: nowrap;
+}
+.site-shell .chat-history-clear:hover:not(:disabled) { background: #fce8e1; border-color: #f0d2c7; }
+.site-shell .chat-history-clear:focus-visible { outline: 2px solid #a35438; outline-offset: 2px; }
+.site-shell .chat-history-clear:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 479px) {
+  .site-shell .chat-history-clear { padding: .35rem; }
+}
+@media (prefers-color-scheme: dark) {
+  .site-shell .chat-history-clear { color: #e9ac98; }
+  .site-shell .chat-history-clear:hover:not(:disabled) { background: #54352f; border-color: #765247; }
+}
