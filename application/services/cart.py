@@ -7,8 +7,8 @@ import json
 from collections import Counter
 
 from data.database import repository
-from database.models import get_connection
-from services.customization_service import CustomizationService
+from data.database.models import get_connection
+from application.services.customization_service import CustomizationService
 
 
 class CartService:
