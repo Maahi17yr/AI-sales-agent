@@ -1,10 +1,10 @@
 """Additive database schema for meal customization.
 
-Run from the project root with: python -m database.customization_schema
+Run from the project root with: python -m data.database.customization_schema
 Do not expose database administration functions to the AI agent.
 """
 
-from database.models import get_connection
+from data.database.models import get_connection
 
 
 def create_customization_tables():
