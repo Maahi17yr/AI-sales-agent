@@ -916,41 +916,71 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
 .site-shell.theme-dark .message-row:not(.user) .message-markup,
 .site-shell.theme-dark .message-row:not(.user) .message-markup strong { color: #eff6ed; }
 
-/* Lemon halo on clickable controls that contain icons, in both themes.
-   The glow is a shadow outside each control, not a layout or size change. */
-.site-shell button:has(svg):not(:disabled):not(.mobile-nav-backdrop),
-.site-shell + .food-panel button:has(svg):not(:disabled),
-.food-panel button:has(svg):not(:disabled),
-.voice-dialog button:has(svg):not(:disabled) {
-  box-shadow: 0 0 0 1px #d7f66c1e, 0 0 8px 1px #d9fa6820;
+/* Light theme: a quiet lemon edge around interactive icon controls.
+   Dark theme intentionally has no neon/glow; use tonal contrast instead. */
+.site-shell.theme-light :is(.sidebar-toggle, .theme-toggle, .new-chat, .open-food-panel,
+  .mobile-logout, .chat-history-clear, .side-link, .chat-history-item):has(svg):not(:disabled),
+.site-shell.theme-light .composer button:has(svg):not(:disabled),
+.site-shell.theme-light .food-panel button:has(svg):not(:disabled) {
+  box-shadow: 0 0 0 1px #c6e78328, 0 0 5px #d7f66c1c;
 }
-.site-shell button:has(svg):not(:disabled):not(.mobile-nav-backdrop):hover,
-.food-panel button:has(svg):not(:disabled):hover,
-.voice-dialog button:has(svg):not(:disabled):hover {
-  box-shadow: 0 0 0 1px #e3ff8154, 0 0 12px 2px #dfff714c;
+.site-shell.theme-light :is(.sidebar-toggle, .theme-toggle, .new-chat, .open-food-panel,
+  .mobile-logout, .chat-history-clear, .side-link, .chat-history-item):has(svg):not(:disabled):hover,
+.site-shell.theme-light .composer button:has(svg):not(:disabled):hover,
+.site-shell.theme-light .food-panel button:has(svg):not(:disabled):hover {
+  box-shadow: 0 0 0 1px #b6d96666, 0 0 8px 1px #d7f66c33;
 }
-.site-shell button:has(svg):not(:disabled):not(.mobile-nav-backdrop):focus-visible,
-.food-panel button:has(svg):not(:disabled):focus-visible,
-.voice-dialog button:has(svg):not(:disabled):focus-visible {
-  outline: 3px solid #d8f66d;
-  outline-offset: 3px;
-  box-shadow: 0 0 0 1px #e7ff9280, 0 0 12px 3px #dfff7153;
+.site-shell.theme-dark :is(.sidebar-toggle, .theme-toggle, .new-chat, .open-food-panel,
+  .mobile-logout, .chat-history-clear, .side-link, .chat-history-item):has(svg),
+.site-shell.theme-dark .composer button:has(svg),
+.site-shell.theme-dark .food-panel button:has(svg) {
+  box-shadow: none;
 }
-/* Keep the lemon effect subtle on full-width navigation and cards. */
-.site-shell .side-link:has(svg):not(:disabled),
-.site-shell .shortcut-grid button:has(svg):not(:disabled),
-.site-shell .review-reopen:has(svg):not(:disabled),
-.food-panel .meal-add:has(svg):not(:disabled) {
-  box-shadow: inset 0 0 0 1px #d9f66c18, 0 0 5px #dfff7116;
+.site-shell.theme-dark :is(.sidebar-toggle, .theme-toggle, .new-chat, .open-food-panel,
+  .mobile-logout, .chat-history-clear, .side-link, .chat-history-item):not(:disabled):hover {
+  border-color: #6e9271;
 }
-.site-shell.theme-dark button:has(svg):not(:disabled):not(.mobile-nav-backdrop),
-.site-shell.theme-dark .food-panel button:has(svg):not(:disabled) {
-  box-shadow: 0 0 0 1px #dfff712c, 0 0 10px 2px #dfff7130;
+.site-shell :is(.sidebar-toggle, .theme-toggle, .new-chat, .open-food-panel,
+  .mobile-logout, .chat-history-clear, .side-link, .chat-history-item):focus-visible {
+  outline: 2px solid #a2c77b;
+  outline-offset: 2px;
 }
-.site-shell.theme-dark .side-link:has(svg):not(:disabled),
-.site-shell.theme-dark .shortcut-grid button:has(svg):not(:disabled),
-.site-shell.theme-dark .review-reopen:has(svg):not(:disabled) {
-  box-shadow: inset 0 0 0 1px #dfff7126, 0 0 6px #dfff711d;
+
+/* A collapsed rail is one centered column. Chat-history icons must share
+   the same footprint and horizontal center as the primary navigation icons. */
+@media (min-width: 1440px) {
+  .site-shell.sidebar-collapsed .side-panel {
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+  }
+  .site-shell.sidebar-collapsed .side-panel::-webkit-scrollbar,
+  .site-shell.sidebar-collapsed .chat-history-list::-webkit-scrollbar { display: none; }
+  .site-shell.sidebar-collapsed .side-panel .chat-history {
+    width: 100%;
+    margin-inline: 0;
+  }
+  .site-shell.sidebar-collapsed .side-panel .chat-history-list {
+    width: 100%;
+    padding: 0;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+  }
+  .site-shell.sidebar-collapsed .side-panel :is(.side-link, .chat-history-item) {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.5rem;
+    min-width: 3.5rem;
+    height: 3.5rem;
+    min-height: 3.5rem;
+    padding: 0;
+    margin: .125rem auto;
+    border-radius: 1rem;
+  }
+  .site-shell.sidebar-collapsed .side-panel .chat-history-item svg {
+    flex: 0 0 auto;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .site-shell button:has(svg), .food-panel button:has(svg) { transition: none; }
