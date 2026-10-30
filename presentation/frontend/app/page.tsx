@@ -217,9 +217,14 @@ export default function Home() {
         if (!cancelled) setError('Cloud history is unavailable. Local conversations remain on this browser.');
       }
       if (cancelled) return;
-      const remoteIds = new Set(remote.map(chat => chat.id));
-      const missing = local.filter(chat => !remoteIds.has(chat.id));
-      const restored = [...remote, ...missing]
+      const remoteById = new Map(remote.map(chat => [chat.id, chat]));
+      // Preserve newer local edits if a tab closed before the last cloud save.
+      const toUpload = local.filter(chat => {
+        const saved = remoteById.get(chat.id);
+        return !saved || chat.updatedAt > saved.updatedAt;
+      });
+      const pendingIds = new Set(toUpload.map(chat => chat.id));
+      const restored = [...remote.filter(chat => !pendingIds.has(chat.id)), ...toUpload]
         .sort((left, right) => right.updatedAt - left.updatedAt)
         .slice(0, MAX_SAVED_CHATS);
       setSavedChats(restored);
@@ -232,7 +237,7 @@ export default function Home() {
       }
       setHistoryReady(true);
       if (remoteAvailable) {
-        for (const chat of missing) {
+        for (const chat of toUpload) {
           if (cancelled) return;
           try {
             await apiFetch('/chats/' + encodeURIComponent(chat.id), {
