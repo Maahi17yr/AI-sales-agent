@@ -1004,3 +1004,44 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
   background: #423522; color: #ffe4ad; border-color: #765b31;
 }
 .site-shell.theme-dark .history-notice button { background: #5c4628; color: #ffe4ad; }
+
+/* Collapsed desktop rail: prevent reserved scrollbar gutters from squeezing
+   only the saved-chat buttons. All nav items use the same 56px grid track. */
+@media (min-width: 1440px) {
+  .site-shell.sidebar-collapsed .side-panel,
+  .site-shell.sidebar-collapsed .side-panel .chat-history,
+  .site-shell.sidebar-collapsed .side-panel .chat-history-list {
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+  }
+  .site-shell.sidebar-collapsed .side-panel .chat-history-list {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    overflow-y: auto;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+  }
+  .site-shell.sidebar-collapsed .side-panel .chat-history-item,
+  .site-shell.sidebar-collapsed .side-panel .side-link {
+    flex: 0 0 3.5rem;
+    width: 3.5rem;
+    max-width: 100%;
+    min-width: 0;
+    height: 3.5rem;
+    min-height: 3.5rem;
+    box-sizing: border-box;
+    padding: 0;
+    margin: .125rem auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .site-shell.sidebar-collapsed .side-panel .chat-history-item svg,
+  .site-shell.sidebar-collapsed .side-panel .side-link > svg:first-child {
+    flex: 0 0 auto;
+    margin: 0;
+  }
+}
