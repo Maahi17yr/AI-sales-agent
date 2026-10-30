@@ -16,7 +16,7 @@ def get_connection():
     if url:
         if not url.startswith(("postgresql://", "postgres://")):
             raise ValueError("DATABASE_URL must be a PostgreSQL URI.")
-        from database.postgres import PostgresConnection
+        from data.database.postgres import PostgresConnection
         return PostgresConnection(url)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
