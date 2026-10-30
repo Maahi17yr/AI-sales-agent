@@ -6,7 +6,7 @@ import secrets
 import sqlite3
 
 import httpx
-from database.models import get_connection
+from data.database.models import get_connection
 
 API = "https://api.paystack.co"
 
