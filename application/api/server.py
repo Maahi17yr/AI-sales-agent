@@ -695,7 +695,8 @@ async def memory_decision(decision: PreferenceDecision, request: Request):
 def initialize_payment(payload: PaymentInitialize, request: Request):
     try:
         return paystack_service.initialize(
-            payload.order_id, _customer_session(request), payload.email
+            payload.order_id, _customer_session(request), payload.email,
+            request.headers.get("origin") if request.headers.get("origin") in AUTH_ALLOWED_ORIGINS else None
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
