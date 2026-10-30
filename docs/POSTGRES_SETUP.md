@@ -1,7 +1,6 @@
 # Naija Bites — hosted PostgreSQL staging guide
 
-This work is on `feature/postgres-persistence`, NOT `main`.
-Your live Vercel and Render deployment should remain unchanged until staging passes.
+This guide applies to the layered repository. See `docs/ARCHITECTURE.md` for the current structure.
 
 ## Create a database and connect it
 
@@ -9,7 +8,7 @@ Your live Vercel and Render deployment should remain unchanged until staging pas
 2. In the Neon dashboard, open **Connect** and copy the **PostgreSQL connection string**.
    Select the provider's TLS connection URL (include `sslmode=require`).
 3. In Render, deploy **a separate staging web service** from
-   `feature/postgres-persistence`. Use the same build/start commands as
+   `refactor/architecture-layer-structure`. Use the same build/start commands as
    `render.yaml` and set the same demo environment variables, but use a
    separate test-only database and credentials.
 4. In the staging service's **Environment** tab, add a **secret**:
@@ -23,7 +22,7 @@ Your live Vercel and Render deployment should remain unchanged until staging pas
 7. Verify signup, login, logout, order creation, Paystack TEST verification,
    and **restart the staging backend**. Verify the same account still signs in.
 8. Once verified, merge the branch to `main`, add `DATABASE_URL` to the
-   existing Render service, and deploy. Only then should the live backend use
+   Render service, and deploy. Only then should the live backend use
    PostgreSQL. Keep `NEXT_BACKEND_URL` pointing at the existing service.
 
 ## Persistence scope and limits
