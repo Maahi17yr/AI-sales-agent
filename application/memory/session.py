@@ -6,7 +6,7 @@ and the trusted session-to-customer binding.
 from pathlib import Path
 import os
 
-from database import repository
+from data.database import repository
 
 _DATA_DIR = os.getenv("NAIJA_BITES_DATA_DIR", "").strip()
 MEMORY_DIR = (Path(_DATA_DIR).expanduser() / "sessions"
