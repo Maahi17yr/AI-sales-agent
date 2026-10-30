@@ -12,7 +12,7 @@ Features:
 - Customer-controlled order confirmation
 
 Run:
-python -m uvicorn application.api.server:app --host 127.0.0.1 --port 8000
+python -m uvicorn core.api.server:app --host 127.0.0.1 --port 8000
 
 IMPORTANT:
 Public demo mode requires explicit configuration and authenticated customer sessions.
@@ -46,7 +46,7 @@ from pydantic import BaseModel, StrictBool, Field
 from typing import Literal
 from uuid import UUID
 import time
-from application.services import paystack_service, auth_service
+from core.services import paystack_service, auth_service
 
 from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
@@ -66,10 +66,10 @@ load_dotenv()
 
 from data.database.models import get_connection
 from data.database import repository
-from application.intelligence.agent import make_agent
+from core.intelligence.agent import make_agent
 
-from application.services.checkout import CheckoutService
-from application.services.order_service import fingerprint
+from core.services.checkout import CheckoutService
+from core.services.order_service import fingerprint
 
 
 # ------------------------------------------
@@ -726,14 +726,14 @@ async def get_dev_customer(request: Request):
 # Customer identity is always resolved from the authenticated cookie.
 @app.get("/memory/pending")
 async def memory_pending(request: Request):
-    from application.memory import preferences
+    from core.memory import preferences
     pending = preferences.get_pending_preference(_customer_session(request))
     return {"success": True, "pending": pending is not None, "proposal": pending}
 
 
 @app.post("/memory/decision")
 async def memory_decision(decision: PreferenceDecision, request: Request):
-    from application.memory import preferences
+    from core.memory import preferences
     try:
         result = preferences.resolve_preference(
             _customer_session(request), decision.request_id, decision.approved

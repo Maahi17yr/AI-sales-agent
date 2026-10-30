@@ -12,14 +12,14 @@ import os
 from strands import Agent, tool
 from strands.models.bedrock import BedrockModel
 
-from application.intelligence.system_prompt import SYSTEM_PROMPT
+from core.intelligence.system_prompt import SYSTEM_PROMPT
 from data.database import repository
-from application.services.cart import CartService
-from application.tools.cart import make_cart_tools
-from application.tools.orders import make_order_tools
-from application.rag.tool import search_knowledge_base
-from application.memory.session import make_session_manager
-from application.memory.tools import make_preference_tools
+from core.services.cart import CartService
+from core.tools.cart import make_cart_tools
+from core.tools.orders import make_order_tools
+from core.rag.tool import search_knowledge_base
+from core.memory.session import make_session_manager
+from core.memory.tools import make_preference_tools
 
 
 
