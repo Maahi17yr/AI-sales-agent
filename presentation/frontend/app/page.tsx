@@ -44,6 +44,7 @@ type WireMsg = Msg;
 type SavedChat = { id: string; title: string; messages: Msg[]; updatedAt: number };
 const MAX_SAVED_CHATS = 30;
 const historyKey = (customerId: number) => `naija-bites-chat-history-v1-${customerId}`;
+const paymentChatKey = (customerId: number) => `naija-bites-payment-chat-v1-${customerId}`;
 const chatTitle = (items: Msg[]) => items.find(m => m.role === 'user')?.content.slice(0, 52).trim() || 'New chat';
 const upsertChat = (items: SavedChat[], id: string, messages: Msg[]): SavedChat[] => {
   if (!messages.some(m => m.role === 'user')) return items;
@@ -162,6 +163,7 @@ export default function Home() {
   const checkoutCardRef = useRef<HTMLElement>(null);
   const lastCheckoutFingerprint = useRef<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+  const paymentReturnStarted = useRef(false);
 
   // Escape closes the mobile drawer without resetting the food conversation.
   useEffect(() => {
@@ -228,9 +230,18 @@ export default function Home() {
         .sort((left, right) => right.updatedAt - left.updatedAt)
         .slice(0, MAX_SAVED_CHATS);
       setSavedChats(restored);
+      // Return to the conversation that initiated payment, not simply the
+      // latest chat (which may have changed in another tab).
+      let preferredChatId: string | null = null;
+      try {
+        if (new URLSearchParams(window.location.search).get('payment_return') === '1') {
+          preferredChatId = window.sessionStorage.getItem(paymentChatKey(customer.id));
+        }
+      } catch { /* Private browsing may disable session storage. */ }
       if (restored.length) {
-        setThreadId(restored[0].id);
-        setMessages(restored[0].messages);
+        const active = restored.find(chat => chat.id === preferredChatId) || restored[0];
+        setThreadId(active.id);
+        setMessages(active.messages);
       } else {
         setThreadId(uid());
         setMessages([welcome]);
@@ -701,6 +712,8 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Could not start payment.');
       if (!String(data.authorization_url).startsWith('https://')) throw new Error('Invalid payment URL.');
+      try { window.sessionStorage.setItem(paymentChatKey(customer.id), threadId); }
+      catch { /* The payment flow still works without session storage. */ }
       window.location.assign(data.authorization_url);
     } catch (err) {
       setCheckoutError(err instanceof Error ? err.message : 'Could not start payment.');
@@ -716,9 +729,15 @@ export default function Home() {
     return () => window.clearTimeout(timeout);
   }, [paymentMessage]);
 
+  // Verify the return with the backend, then add a durable, idempotent chat
+  // message. Never ask the LLM to decide whether payment was successful.
+  // Wait for chat restoration so the message is not lost on page reload.
   useEffect(() => {
+    if (!historyReady || !threadId || paymentReturnStarted.current) return;
     const params = new URLSearchParams(window.location.search);
     if (params.get('payment_return') !== '1') return;
+    paymentReturnStarted.current = true;
+
     const reference = params.get('reference') || params.get('trxref');
     if (!reference) {
       setPaymentToastSuccess(false);
@@ -726,24 +745,44 @@ export default function Home() {
       window.history.replaceState({}, '', window.location.pathname);
       return;
     }
-    apiFetch('/payments/verify', {
+
+    void apiFetch('/payments/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reference }),
     }).then(async response => {
-      const data = await response.json();
+      const data: { order_id?: number; payment_status?: string; detail?: string } = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Payment verification failed.');
       const paid = data.payment_status === 'paid';
       setPaymentToastSuccess(paid);
-      setPaymentMessage(paid
-        ? `Payment verified! Order #${data.order_id} is confirmed.`
-        : 'Payment is not yet confirmed. You can try verifying again later.');
+      if (!paid || typeof data.order_id !== 'number' || !Number.isSafeInteger(data.order_id)) {
+        setPaymentMessage('Payment is not yet confirmed. You can try verifying again later.');
+        return; // Keep the return URL so refreshing can retry verification.
+      }
+
+      const orderId = data.order_id;
+      const confirmationId = `verified-payment-order-${orderId}`;
+      const confirmation: Msg = {
+        id: confirmationId,
+        role: 'assistant',
+        content: `🎉 Payment confirmed for order #${orderId}! Thank you for choosing Naija Bites. Your order is confirmed. If you'd like to order something else, we can start a fresh order for you. 🍛`,
+      };
+      setMessages(current => (
+        current.some(message => message.id === confirmationId)
+          ? current
+          : [...current, confirmation]
+      ));
+      setPaymentOrder(null);
+      setPaymentMessage(`Payment verified! Order #${orderId} is confirmed.`);
+      try { window.sessionStorage.removeItem(paymentChatKey(customer.id)); }
+      catch { /* Ignore storage restrictions. */ }
+      window.history.replaceState({}, '', window.location.pathname);
     }).catch(err => {
       setPaymentToastSuccess(false);
-      setPaymentMessage(err instanceof Error ? err.message : 'Verification failed.');
+      setPaymentMessage(err instanceof Error ? err.message : 'Payment verification failed.');
+      // Keep the return URL to allow verification on refresh.
     });
-    window.history.replaceState({}, '', window.location.pathname);
-  }, [apiFetch]);
+  }, [historyReady, threadId, apiFetch, customer.id]);
 
   // Avoid showing a misleading empty conversation while the saved history loads.
   if (!historyReady) {
