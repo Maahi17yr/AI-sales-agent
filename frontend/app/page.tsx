@@ -155,7 +155,7 @@ export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarHoverExpanded, setSidebarHoverExpanded] = useState(false);
-  const sidebarHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sidebarHoverTimer = useRef<number | null>(null);
 
   function cancelSidebarHover() {
     if (sidebarHoverTimer.current !== null) {
