@@ -1,5 +1,5 @@
 
-from application import config
+from core import config
 from core.services.cart import CartService
 
 
@@ -35,7 +35,7 @@ class DiscountService:
 
         if subtotal < config.MIN_ORDER_FOR_DISCOUNT:
             result["message"] = (
-                f"Bulk discounts start from "
+                f"Automatic discounts start from "
                 f"NGN {config.MIN_ORDER_FOR_DISCOUNT:,}."
             )
             return result
@@ -73,7 +73,7 @@ class DiscountService:
             "total_after_discount": total,
             "message": (
                 f"You qualify for a {discount_percent}% "
-                f"bulk-order discount!"
+                f"automatic food discount!"
             ),
         })
 

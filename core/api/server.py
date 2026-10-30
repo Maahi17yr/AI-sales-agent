@@ -69,6 +69,8 @@ from data.database import repository
 from core.intelligence.agent import make_agent
 
 from core.services.checkout import CheckoutService
+from core.services.cart import CartService
+from core import config
 from core.services.order_service import fingerprint
 
 
@@ -454,6 +456,34 @@ async def ping():
 # ------------------------------------------
 # AI AGENT ENDPOINT
 # ------------------------------------------
+
+@app.get("/menu")
+def menu(request: Request):
+    """Authenticated menu with server-owned original and discounted prices."""
+    _customer_session(request)
+    rate = config.MAX_DISCOUNT_PERCENT if config.DISCOUNTS_ENABLED else 0
+    products = repository.get_all_products()
+    return {
+        "discount_percent": rate,
+        "products": [
+            {
+                "id": p["id"], "name": p["name"], "category": p["category"],
+                "description": p["description"], "price": p["price"],
+                "discounted_price": p["price"] - (p["price"] * rate + 50) // 100,
+            } for p in products
+        ],
+    }
+
+
+@app.get("/cart")
+def current_cart(request: Request):
+    """Read the actual authenticated cart; never infer it from chat history."""
+    session_id = _customer_session(request)
+    cart = CartService(session_id).view_cart()
+    rate = config.MAX_DISCOUNT_PERCENT if config.DISCOUNTS_ENABLED else 0
+    return {**cart, "discount_percent": rate,
+            "discount": (cart["subtotal"] * rate + 50) // 100}
+
 
 @app.post("/agent")
 async def run_agent(

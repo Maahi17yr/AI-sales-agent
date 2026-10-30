@@ -65,19 +65,15 @@ REQUIRE_ORDER_CONFIRMATION = True
 
 DISCOUNTS_ENABLED = True
 
-# Customers do not qualify simply by asking.
-MIN_ORDER_FOR_DISCOUNT = 15000
+# Automatic demo promotion applies to every order's food subtotal.
+MIN_ORDER_FOR_DISCOUNT = 0
 
 # Absolute maximum percentage allowed.
-MAX_DISCOUNT_PERCENT = 10
+MAX_DISCOUNT_PERCENT = 50
 
-# Bulk discounts based on order subtotal.
+# Automatic 50% discount on food; delivery is charged separately.
 # Format: minimum subtotal -> discount percentage
-BULK_DISCOUNT_TIERS = {
-    15000: 3,
-    30000: 5,
-    50000: 10,
-}
+BULK_DISCOUNT_TIERS = {0: 50}
 
 # Separate promotional discounts may be
 # restricted to once every 30 days.

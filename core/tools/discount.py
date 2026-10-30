@@ -7,7 +7,7 @@ from core.services.discount_service import DiscountService
 def apply_discount(session_id: str) -> dict:
     """
     Check whether the customer's current cart qualifies
-    for an approved bulk-order discount.
+    for an automatic food discount.
 
     Use this tool when customers ask for a discount,
     negotiate prices, or want to know their discounted total.
