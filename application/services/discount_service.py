@@ -1,5 +1,5 @@
 
-import config
+from application import config
 from application.services.cart import CartService
 
 
