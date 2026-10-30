@@ -1,0 +1,46 @@
+name: Naija Bites chat safety checks
+
+on:
+  push:
+    branches:
+      - fix/account-chat-sync-preview-20261030
+  pull_request:
+    branches:
+      - fix/auth-bff-proxy-20261030
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Test authentication, customer isolation, and chat persistence
+        run: python -m unittest scripts.test_auth_api -v
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: presentation/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: presentation/frontend/package-lock.json
+      - run: npm ci
+      - name: Build production frontend
+        env:
+          NEXT_BACKEND_URL: https://naija-bites-demo-api.onrender.com
+          NEXT_PUBLIC_DEMO_MODE: 'true'
+        run: npm run build
