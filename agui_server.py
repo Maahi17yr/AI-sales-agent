@@ -23,6 +23,7 @@ import json
 import uuid
 import os
 import asyncio
+import logging
 
 from contextlib import asynccontextmanager
 
@@ -458,14 +459,34 @@ async def run_agent(
     encoder = EventEncoder(accept=request.headers.get("accept"))
 
     async def stream():
-        async with _agent_lock(session_id):
-            agent = StrandsAgent(
-                agent=make_agent(session_id),
-                name="naija_bites",
-                description="Naija Bites food ordering assistant",
+        # Log only timing and event counts; never log customer text or tokens.
+        started = time.perf_counter()
+        first_event_ms = None
+        event_count = 0
+        outcome = "completed"
+        try:
+            async with _agent_lock(session_id):
+                agent = StrandsAgent(
+                    agent=make_agent(session_id),
+                    name="naija_bites",
+                    description="Naija Bites food ordering assistant",
+                )
+                async for event in agent.run(input_data):
+                    event_count += 1
+                    if first_event_ms is None:
+                        first_event_ms = round((time.perf_counter() - started) * 1000)
+                    yield encoder.encode(event)
+        except Exception:
+            outcome = "error"
+            raise
+        finally:
+            logging.getLogger(__name__).info(
+                "agent_stream_latency total_ms=%d first_event_ms=%s events=%d outcome=%s",
+                round((time.perf_counter() - started) * 1000),
+                first_event_ms,
+                event_count,
+                outcome,
             )
-            async for event in agent.run(input_data):
-                yield encoder.encode(event)
 
     return StreamingResponse(
         stream(),
