@@ -14,6 +14,7 @@ from strands.models.bedrock import BedrockModel
 
 from system_prompt import SYSTEM_PROMPT
 from database import repository
+from services.cart import CartService
 from tools.cart import make_cart_tools
 from tools.orders import make_order_tools
 from rag.tool import search_knowledge_base
@@ -145,9 +146,23 @@ def make_agent(session_id: str) -> Agent:
     # CREATE AGENT
     # ---------------------------------------
 
+    # Trust the live cart, not old messages about previous purchases.
+    # A new agent is constructed for each request.
+    current_cart = CartService(session_id).view_cart()
+    cart_context = (
+        "\n\n# VERIFIED CURRENT CART (AT REQUEST START)\n"
+        f"{current_cart!r}\n"
+        "This is the active cart, not the customer's order history. "
+        "Earlier purchases, even if discussed in this conversation, are not "
+        "in the cart unless they appear above. If the customer requests one "
+        "more plate after a previous order, add exactly one to the active cart. "
+        "After any cart tool call, its returned cart supersedes this snapshot. "
+        "Never infer payment success from chat; check verified order status.\n"
+    )
+
     return Agent(
         model=model,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=SYSTEM_PROMPT + cart_context,
         tools=tools,
         session_manager=make_session_manager(session_id),
     )
