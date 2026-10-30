@@ -8,7 +8,7 @@ except ImportError:  # SQLite-only local development
     PostgresError = sqlite3.Error
 from collections import Counter
 
-import config
+from application import config
 from data.database.models import get_connection
 
 
