@@ -169,6 +169,7 @@ export default function Home() {
   const [threadId, setThreadId] = useState('');
   const [savedChats, setSavedChats] = useState<SavedChat[]>([]);
   const [historyReady, setHistoryReady] = useState(false);
+  const [clearingHistory, setClearingHistory] = useState(false);
 
   const [checkout, setCheckout] =
     useState<PendingCheckout | null>(null);
@@ -464,6 +465,36 @@ export default function Home() {
     setCheckoutError('');
     setCheckoutResult('');
     setMobileMenuOpen(false);
+  }
+
+  async function clearAllHistory() {
+    if (busy || confirming || paymentBusy || clearingHistory || !historyReady || savedChats.length === 0) return;
+    if (!window.confirm('Permanently delete all saved conversations? This cannot be undone. Your cart and orders will not be deleted.')) return;
+    setClearingHistory(true);
+    // Suspend autosave while deleting so the current conversation is not recreated.
+    setHistoryReady(false);
+    try {
+      const response = await apiFetch('/chats', { method: 'DELETE' });
+      if (!response.ok) throw new Error('Unable to delete saved conversations. Please try again.');
+      try {
+        window.localStorage.removeItem(historyKey(customer.id));
+        window.sessionStorage.removeItem(paymentChatKey(customer.id));
+      } catch { /* Storage may be disabled. */ }
+      setSavedChats([]);
+      setThreadId(uid());
+      setMessages([welcome]);
+      setDraft('');
+      setShowTyping(false);
+      setError('');
+      setCheckoutError('');
+      setCheckoutResult('');
+      setMobileMenuOpen(false);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to delete saved conversations.');
+    } finally {
+      setHistoryReady(true);
+      setClearingHistory(false);
+    }
   }
 
   // ----------------------------------------
@@ -893,7 +924,7 @@ export default function Home() {
         <button className="side-link selected" title="Food chat" onClick={() => { setMobileMenuOpen(false); document.getElementById('message-input')?.focus(); }}><MessageCircle size={18}/><span className="side-link-text">Food chat</span><ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" title="Explore menu" onClick={() => { setMobileMenuOpen(false); void send('Show me the menu'); }} disabled={busy || confirming || !threadId}><UtensilsCrossed size={18}/><span className="side-link-text">Explore menu</span><ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" title="My cart" onClick={() => { setMobileMenuOpen(false); void send('Show me my cart'); }} disabled={busy || confirming || !threadId}><ShoppingBag size={18}/><span className="side-link-text">My cart</span><ArrowRight size={16} className="side-link-arrow"/></button>
-        <div className="chat-history" aria-label="Recent conversations"><div className="chat-history-heading"><span className="side-caption">RECENT CHATS</span><span className="chat-history-count">{savedChats.length}</span></div>{savedChats.length ? <div className="chat-history-list">{savedChats.map(chat => <button key={chat.id} type="button" className={`chat-history-item ${threadId === chat.id ? 'active' : ''}`} title={chat.title} aria-current={threadId === chat.id ? 'page' : undefined} disabled={busy || confirming} onClick={() => openChat(chat)}><MessageCircle size={16}/><span>{chat.title}</span></button>)}</div> : <p className="chat-history-empty">Your conversations will appear here.</p>}</div>
+        <div className="chat-history" aria-label="Recent conversations"><div className="chat-history-heading"><span className="side-caption">RECENT CHATS</span><div className="chat-history-actions"><span className="chat-history-count">{savedChats.length}</span>{savedChats.length > 0 && <button type="button" className="chat-history-clear" onClick={() => void clearAllHistory()} disabled={busy || confirming || paymentBusy || clearingHistory} title="Clear all conversation history" aria-label="Clear all saved conversations"><Trash2 size={15}/><span>Clear all</span></button>}</div></div>{savedChats.length ? <div className="chat-history-list">{savedChats.map(chat => <button key={chat.id} type="button" className={`chat-history-item ${threadId === chat.id ? 'active' : ''}`} title={chat.title} aria-current={threadId === chat.id ? 'page' : undefined} disabled={busy || confirming} onClick={() => openChat(chat)}><MessageCircle size={16}/><span>{chat.title}</span></button>)}</div> : <p className="chat-history-empty">Your conversations will appear here.</p>}</div>
         <div className="account-panel"><span className="account-label">SIGNED IN AS</span><strong>{customer.name}</strong><span className="account-email">{customer.email}</span><button className="account-logout" type="button" onClick={() => void logout()}><LogOut size={15}/> Sign out</button></div>
         <div className="side-help"><div className="side-help-icon"><Sparkles size={20}/></div><span className="side-help-eyebrow">YOUR PERSONAL FOOD GUIDE</span><strong>Good food, zero stress.</strong><p>Tell us what you’re craving. We’ll help you find the right bite.</p><button type="button" className="side-help-action" onClick={() => void send("Help me choose something delicious")} disabled={busy || confirming || !threadId}>Get inspired <ArrowRight size={15}/></button></div>
         <div className="sidebar-foot"><span className={`connect-dot ${online ? 'up' : ''}`}/><span>{online === null ? 'Connecting…' : online ? 'Ready to take your order' : 'Connection unavailable'}</span></div>
