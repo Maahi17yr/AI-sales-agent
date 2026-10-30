@@ -3,7 +3,15 @@
 import { createContext, useCallback, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { ChefHat, LoaderCircle, ShieldCheck, UtensilsCrossed } from 'lucide-react';
 
-const API = process.env.NEXT_PUBLIC_AGUI_URL || '/api/backend';
+// Always use the same-origin Next.js proxy; FastAPI owns authentication.
+const API = '/api/backend';
+
+function connectionMessage(error: unknown): string {
+  if (error instanceof TypeError) {
+    return 'Cannot reach Naija Bites right now. Check that the website and API are running, then try again.';
+  }
+  return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+}
 
 export type Customer = { id: number; name: string; email: string; phone?: string | null };
 
@@ -23,11 +31,16 @@ export function useAuth(): AuthContextValue {
 
 async function detail(response: Response): Promise<string> {
   try {
-    const body: { detail?: string; message?: string } = await response.json();
-    return body.detail || body.message || 'Request failed. Please try again.';
+    const body: { detail?: unknown; message?: unknown } = await response.json();
+    if (typeof body.detail === 'string') return body.detail;
+    if (typeof body.message === 'string') return body.message;
   } catch {
-    return 'Request failed. Please try again.';
+    // Proxy and gateway failures may return HTML rather than JSON.
   }
+  if ([502, 503, 504].includes(response.status)) {
+    return 'The Naija Bites API is unavailable. Please try again shortly.';
+  }
+  return `Request failed (HTTP ${response.status}). Please try again.`;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -61,11 +74,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const data: { customer: Customer } = await response.json();
           if (!controller.signal.aborted) setCustomer(data.customer);
         } else if (response.status !== 401 && !controller.signal.aborted) {
-          setNotice('Unable to verify your session. Please sign in.');
+          setNotice(await detail(response));
         }
       })
       .catch(error => {
-        if (!controller.signal.aborted) setNotice(error instanceof Error ? error.message : 'Could not connect to the server.');
+        if (!controller.signal.aborted) setNotice(connectionMessage(error));
       })
       .finally(() => { if (!controller.signal.aborted) setChecking(false); });
     return () => controller.abort();
@@ -80,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCustomer(null);
       setNotice('You have signed out.');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not sign out.');
+      setNotice(connectionMessage(error));
     }
   }, []);
 
@@ -109,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setPassword('');
       setCustomer(data.customer);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not sign in.');
+      setNotice(connectionMessage(error));
     } finally {
       setSubmitting(false);
     }
