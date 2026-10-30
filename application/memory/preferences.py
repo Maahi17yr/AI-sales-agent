@@ -1,5 +1,5 @@
 """Customer-scoped, opt-in food preferences. Never stores orders or payment data."""
-from database import repository
+from data.database import repository
 import secrets
 import hashlib
 import json
