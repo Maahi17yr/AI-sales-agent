@@ -344,7 +344,7 @@ async def protect_auth_cookie_requests(request: Request, call_next):
             current = auth_service.authenticate_token(request.cookies.get(AUTH_COOKIE_NAME))
             if current is None or str(current["id"]) != expected_customer:
                 return JSONResponse({"detail": "Account changed. Refresh before continuing."}, status_code=409)
-        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "core/json" and request.url.path not in {"/auth/logout", "/agent"}:
+        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json" and request.url.path not in {"/auth/logout", "/agent"}:
             return JSONResponse({"detail": "JSON body required."}, status_code=415)
     return await call_next(request)
 
