@@ -873,3 +873,85 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
   .site-shell .chat-header .new-chat,
   .site-shell .chat-header .open-food-panel { min-width: 2.5rem; min-height: 2.5rem; }
 }
+
+/* WhatsApp-style conversational contrast: user and assistant swap light/dark
+   roles between the two themes. No structural changes to the chat UI. */
+.site-shell.theme-light .message-row.user .bubble {
+  background: #294936;
+  border-color: #3c6147;
+  color: #f6faef;
+  box-shadow: 0 6px 18px #142e1b20;
+}
+.site-shell.theme-light .message-row:not(.user) .bubble {
+  background: #fffefa;
+  border-color: #e3e9dd;
+  color: #25362a;
+}
+.site-shell.theme-light .message-row.user .message-markup,
+.site-shell.theme-light .message-row.user .message-markup strong { color: #f6faef; }
+.site-shell.theme-light .message-row.user .message-markup code {
+  background: #42624a;
+  color: #f6faef;
+}
+.site-shell.theme-light .message-row.user .list-marker { color: #d9f4a4; }
+
+.site-shell.theme-dark .message-row.user .bubble {
+  background: #eaf4d8;
+  border-color: #cfe5b3;
+  color: #1d3425;
+  box-shadow: 0 5px 22px #070e0866;
+}
+.site-shell.theme-dark .message-row:not(.user) .bubble {
+  background: #25372d;
+  border-color: #45604b;
+  color: #eff6ed;
+}
+.site-shell.theme-dark .message-row.user .message-markup,
+.site-shell.theme-dark .message-row.user .message-markup strong { color: #1d3425; }
+.site-shell.theme-dark .message-row.user .message-markup code {
+  background: #d4e7bf;
+  color: #1d3425;
+}
+.site-shell.theme-dark .message-row.user .list-marker { color: #3c713b; }
+.site-shell.theme-dark .message-row:not(.user) .message-markup,
+.site-shell.theme-dark .message-row:not(.user) .message-markup strong { color: #eff6ed; }
+
+/* Lemon halo on clickable controls that contain icons, in both themes.
+   The glow is a shadow outside each control, not a layout or size change. */
+.site-shell button:has(svg):not(:disabled):not(.mobile-nav-backdrop),
+.site-shell + .food-panel button:has(svg):not(:disabled),
+.food-panel button:has(svg):not(:disabled),
+.voice-dialog button:has(svg):not(:disabled) {
+  box-shadow: 0 0 0 1px #d7f66c3d, 0 0 13px 2px #d9fa6840;
+}
+.site-shell button:has(svg):not(:disabled):not(.mobile-nav-backdrop):hover,
+.food-panel button:has(svg):not(:disabled):hover,
+.voice-dialog button:has(svg):not(:disabled):hover {
+  box-shadow: 0 0 0 1px #e3ff81a8, 0 0 20px 4px #dfff7199;
+}
+.site-shell button:has(svg):not(:disabled):not(.mobile-nav-backdrop):focus-visible,
+.food-panel button:has(svg):not(:disabled):focus-visible,
+.voice-dialog button:has(svg):not(:disabled):focus-visible {
+  outline: 3px solid #d8f66d;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 1px #e7ff92, 0 0 20px 5px #dfff71a6;
+}
+/* Keep the lemon effect subtle on full-width navigation and cards. */
+.site-shell .side-link:has(svg):not(:disabled),
+.site-shell .shortcut-grid button:has(svg):not(:disabled),
+.site-shell .review-reopen:has(svg):not(:disabled),
+.food-panel .meal-add:has(svg):not(:disabled) {
+  box-shadow: inset 0 0 0 1px #d9f66c30, 0 0 9px #dfff712b;
+}
+.site-shell.theme-dark button:has(svg):not(:disabled):not(.mobile-nav-backdrop),
+.site-shell.theme-dark ~ .food-panel button:has(svg):not(:disabled) {
+  box-shadow: 0 0 0 1px #dfff7159, 0 0 17px 3px #dfff7161;
+}
+.site-shell.theme-dark .side-link:has(svg):not(:disabled),
+.site-shell.theme-dark .shortcut-grid button:has(svg):not(:disabled),
+.site-shell.theme-dark .review-reopen:has(svg):not(:disabled) {
+  box-shadow: inset 0 0 0 1px #dfff714d, 0 0 10px #dfff713a;
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-shell button:has(svg), .food-panel button:has(svg) { transition: none; }
+}
