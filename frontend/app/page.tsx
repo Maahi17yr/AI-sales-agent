@@ -154,6 +154,30 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarHoverExpanded, setSidebarHoverExpanded] = useState(false);
+  const sidebarHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function cancelSidebarHover() {
+    if (sidebarHoverTimer.current !== null) {
+      window.clearTimeout(sidebarHoverTimer.current);
+      sidebarHoverTimer.current = null;
+    }
+    setSidebarHoverExpanded(false);
+  }
+
+  function startSidebarHover() {
+    if (!sidebarCollapsed || !window.matchMedia('(min-width: 1440px) and (hover: hover) and (pointer: fine)').matches) return;
+    if (sidebarHoverTimer.current !== null) window.clearTimeout(sidebarHoverTimer.current);
+    sidebarHoverTimer.current = window.setTimeout(() => {
+      setSidebarHoverExpanded(true);
+      sidebarHoverTimer.current = null;
+    }, 500);
+  }
+
+  useEffect(() => () => {
+    if (sidebarHoverTimer.current !== null) window.clearTimeout(sidebarHoverTimer.current);
+  }, []);
+
   const [foodPanelOpen, setFoodPanelOpen] = useState(false);
   const [voicePanelOpen, setVoicePanelOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -193,6 +217,16 @@ export default function Home() {
   const [savedChats, setSavedChats] = useState<SavedChat[]>([]);
   const [historyReady, setHistoryReady] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
+  const [historyNotice, setHistoryNotice] = useState('');
+  const clearingHistoryRef = useRef(false);
+  const pendingHistoryWrites = useRef(new Set<Promise<unknown>>());
+
+  function trackHistoryWrite(promise: Promise<unknown>) {
+    pendingHistoryWrites.current.add(promise);
+    void promise.finally(() => pendingHistoryWrites.current.delete(promise)).catch(() => {});
+    return promise;
+  }
+
 
   const [checkout, setCheckout] =
     useState<PendingCheckout | null>(null);
@@ -319,18 +353,19 @@ export default function Home() {
         setThreadId(uid());
         setMessages([welcome]);
       }
-      setHistoryReady(true);
       if (remoteAvailable) {
         for (const chat of toUpload) {
           if (cancelled) return;
           try {
-            await apiFetch('/chats/' + encodeURIComponent(chat.id), {
+            const saved = await apiFetch('/chats/' + encodeURIComponent(chat.id), {
               method: 'PUT', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ title: chat.title, messages: chat.messages }),
             });
+            if (!saved.ok) throw new Error('Cloud migration failed');
           } catch { /* Retain local copy for a later retry. */ }
         }
       }
+      if (!cancelled) setHistoryReady(true);
     };
     void load();
     return () => { cancelled = true; };
@@ -355,14 +390,16 @@ export default function Home() {
     const active = savedChats.find(chat => chat.id === threadId);
     if (!active) return;
     const timer = window.setTimeout(() => {
-      void apiFetch('/chats/' + encodeURIComponent(active.id), {
+      if (clearingHistoryRef.current) return;
+      const write = apiFetch('/chats/' + encodeURIComponent(active.id), {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: active.title, messages: active.messages }),
       }).then(response => {
         if (!response.ok) throw new Error('Cloud save failed');
       }).catch(() => {
-        setError('Unable to sync this conversation. Please check your connection.');
+        if (!clearingHistoryRef.current) setError('Unable to sync this conversation. Please check your connection.');
       });
+      trackHistoryWrite(write);
     }, 1500);
     return () => window.clearTimeout(timer);
   }, [historyReady, savedChats, threadId, apiFetch]);
@@ -491,14 +528,24 @@ export default function Home() {
   }
 
   async function clearAllHistory() {
-    if (busy || confirming || paymentBusy || clearingHistory || !historyReady || savedChats.length === 0) return;
+    if (busy || confirming || paymentBusy || clearingHistoryRef.current || !historyReady || savedChats.length === 0) return;
     if (!window.confirm('Permanently delete all saved conversations? This cannot be undone. Your cart and orders will not be deleted.')) return;
+    clearingHistoryRef.current = true;
     setClearingHistory(true);
-    // Suspend autosave while deleting so the current conversation is not recreated.
+    setHistoryNotice('');
+    // Wait for pending cloud saves, otherwise a late PUT can recreate deleted chats.
     setHistoryReady(false);
     try {
+      await Promise.allSettled(Array.from(pendingHistoryWrites.current));
       const response = await apiFetch('/chats', { method: 'DELETE' });
-      if (!response.ok) throw new Error('Unable to delete saved conversations. Please try again.');
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 405) {
+          throw new Error('Clear history is not available on the running backend yet. Update and restart the backend, then try again.');
+        }
+        throw new Error(`Could not clear history (server returned ${response.status}). Please try again.`);
+      }
+      const data = await response.json();
+      if (data?.cleared !== true) throw new Error('The server did not confirm that your history was deleted.');
       try {
         window.localStorage.removeItem(historyKey(customer.id));
         window.sessionStorage.removeItem(paymentChatKey(customer.id));
@@ -512,9 +559,11 @@ export default function Home() {
       setCheckoutError('');
       setCheckoutResult('');
       setMobileMenuOpen(false);
+      setHistoryNotice('Chat history cleared successfully.');
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Unable to delete saved conversations.');
+      setHistoryNotice(error instanceof Error ? error.message : 'Unable to clear history. Please try again.');
     } finally {
+      clearingHistoryRef.current = false;
       setHistoryReady(true);
       setClearingHistory(false);
     }
@@ -934,9 +983,9 @@ export default function Home() {
   }
 
   return (
-    <main className={`site-shell theme-${theme} ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
+    <main className={`site-shell theme-${theme} ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''} ${sidebarCollapsed && !sidebarHoverExpanded ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
       {mobileMenuOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} />}
-      <aside className="side-panel" id="main-navigation" aria-label="Main navigation">
+      <aside className="side-panel" id="main-navigation" aria-label="Main navigation" onMouseEnter={startSidebarHover} onMouseLeave={cancelSidebarHover}>
         <div className="identity">
           <button type="button" className="sidebar-close-mobile" onClick={() => setMobileMenuOpen(false)} aria-label="Close navigation"><X size={20}/></button>
           <span className="identity-mark"><UtensilsCrossed size={20} strokeWidth={2.2} /></span>
@@ -947,6 +996,7 @@ export default function Home() {
         <button className="side-link selected" title="Food chat" onClick={() => { setMobileMenuOpen(false); document.getElementById('message-input')?.focus(); }}><MessageCircle size={18}/><span className="side-link-text">Food chat</span><ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" title="Explore menu" onClick={() => { setMobileMenuOpen(false); void send('Show me the menu'); }} disabled={busy || confirming || !threadId}><UtensilsCrossed size={18}/><span className="side-link-text">Explore menu</span><ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" title="My cart" onClick={() => { setMobileMenuOpen(false); void send('Show me my cart'); }} disabled={busy || confirming || !threadId}><ShoppingBag size={18}/><span className="side-link-text">My cart</span><ArrowRight size={16} className="side-link-arrow"/></button>
+        {historyNotice && <div className="history-notice" role="status" aria-live="polite">{historyNotice}<button type="button" aria-label="Dismiss history notification" onClick={() => setHistoryNotice('')}><X size={14}/></button></div>}
         <div className="chat-history" aria-label="Recent conversations"><div className="chat-history-heading"><span className="side-caption">RECENT CHATS</span><div className="chat-history-actions"><span className="chat-history-count">{savedChats.length}</span>{savedChats.length > 0 && <button type="button" className="chat-history-clear" onClick={() => void clearAllHistory()} disabled={busy || confirming || paymentBusy || clearingHistory} title="Clear all conversation history" aria-label="Clear all saved conversations"><Trash2 size={15}/><span>Clear all</span></button>}</div></div>{savedChats.length ? <div className="chat-history-list">{savedChats.map(chat => <button key={chat.id} type="button" className={`chat-history-item ${threadId === chat.id ? 'active' : ''}`} title={chat.title} aria-current={threadId === chat.id ? 'page' : undefined} disabled={busy || confirming} onClick={() => openChat(chat)}><MessageCircle size={16}/><span>{chat.title}</span></button>)}</div> : <p className="chat-history-empty">Your conversations will appear here.</p>}</div>
         <div className="account-panel"><span className="account-label">SIGNED IN AS</span><strong>{customer.name}</strong><span className="account-email">{customer.email}</span><button className="account-logout" type="button" onClick={() => void logout()}><LogOut size={15}/> Sign out</button></div>
         <div className="side-help"><div className="side-help-icon"><Sparkles size={20}/></div><span className="side-help-eyebrow">YOUR PERSONAL FOOD GUIDE</span><strong>Good food, zero stress.</strong><p>Tell us what you’re craving. We’ll help you find the right bite.</p><button type="button" className="side-help-action" onClick={() => void send("Help me choose something delicious")} disabled={busy || confirming || !threadId}>Get inspired <ArrowRight size={15}/></button></div>
@@ -957,7 +1007,7 @@ export default function Home() {
           <div className="demo-notice" role="note">Demo only · Paystack TEST payments · No real orders or deliveries. Use fictional details.</div>
         )}
         <header className="chat-header">
-          <button type="button" className="sidebar-toggle desktop-sidebar-toggle" onClick={() => setSidebarCollapsed(value => !value)} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-controls="main-navigation" aria-expanded={!sidebarCollapsed} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>{sidebarCollapsed ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</button>
+          <button type="button" className="sidebar-toggle desktop-sidebar-toggle" onClick={() => { cancelSidebarHover(); setSidebarCollapsed(value => !value); }} aria-label={sidebarCollapsed && !sidebarHoverExpanded ? 'Expand sidebar' : 'Collapse sidebar'} aria-controls="main-navigation" aria-expanded={!sidebarCollapsed || sidebarHoverExpanded} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>{sidebarCollapsed ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</button>
           <button type="button" className="sidebar-toggle mobile-sidebar-toggle" onClick={() => setMobileMenuOpen(true)} aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileMenuOpen} title="Open navigation"><Menu size={21}/></button>
           <div className="mobile-brand"><span className="identity-mark small"><UtensilsCrossed size={18}/></span></div>
           <div className="agent-avatar"><ChefHat size={24}/><span className="avatar-online"/></div>
