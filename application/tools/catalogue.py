@@ -1,5 +1,5 @@
 from strands import tool
-from database import repository
+from data.database import repository
 
 
 @tool
