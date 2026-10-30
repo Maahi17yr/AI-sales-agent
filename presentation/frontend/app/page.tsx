@@ -184,32 +184,68 @@ export default function Home() {
     setPaymentEmail(customer.email);
   }, [customer.email]);
 
-  // Restore this signed-in customer's conversations on this browser.
+
+  // Restore server-owned chats and migrate any browser-only conversations.
   useEffect(() => {
-    let restored: SavedChat[] = [];
-    try {
-      const raw = window.localStorage.getItem(historyKey(customer.id));
-      const parsed: unknown = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(parsed)) restored = parsed.filter((entry): entry is SavedChat =>
-        entry !== null && typeof entry === 'object' &&
-        typeof entry.id === 'string' && typeof entry.title === 'string' &&
-        typeof entry.updatedAt === 'number' && Array.isArray(entry.messages) &&
-        entry.messages.every((m: unknown) => m !== null && typeof m === 'object' &&
-          'id' in m && typeof m.id === 'string' &&
-          'role' in m && (m.role === 'user' || m.role === 'assistant') &&
-          'content' in m && typeof m.content === 'string')
-      ).slice(0, MAX_SAVED_CHATS);
-    } catch { /* Ignore unavailable or invalid local history. */ }
-    setSavedChats(restored);
-    if (restored.length) {
-      setThreadId(restored[0].id);
-      setMessages(restored[0].messages);
-    } else {
-      setThreadId(uid());
-      setMessages([welcome]);
-    }
-    setHistoryReady(true);
-  }, [customer.id]);
+    let cancelled = false;
+    setHistoryReady(false);
+    const load = async () => {
+      let local: SavedChat[] = [];
+      try {
+        const raw = window.localStorage.getItem(historyKey(customer.id));
+        const parsed: unknown = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) local = parsed.filter((entry): entry is SavedChat =>
+          entry !== null && typeof entry === 'object' &&
+          typeof entry.id === 'string' && typeof entry.title === 'string' &&
+          typeof entry.updatedAt === 'number' && Array.isArray(entry.messages) &&
+          entry.messages.every((m: unknown) => m !== null && typeof m === 'object' &&
+            'id' in m && typeof m.id === 'string' &&
+            'role' in m && (m.role === 'user' || m.role === 'assistant') &&
+            'content' in m && typeof m.content === 'string')
+        ).slice(0, MAX_SAVED_CHATS);
+      } catch { /* Local storage unavailable. */ }
+      let remote: SavedChat[] = [];
+      let remoteAvailable = false;
+      try {
+        const response = await apiFetch('/chats');
+        if (!response.ok) throw new Error('Cloud history unavailable');
+        const data: { chats: SavedChat[] } = await response.json();
+        if (!Array.isArray(data.chats)) throw new Error('Invalid chat response');
+        remote = data.chats;
+        remoteAvailable = true;
+      } catch {
+        if (!cancelled) setError('Cloud history is unavailable. Local conversations remain on this browser.');
+      }
+      if (cancelled) return;
+      const remoteIds = new Set(remote.map(chat => chat.id));
+      const missing = local.filter(chat => !remoteIds.has(chat.id));
+      const restored = [...remote, ...missing]
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+        .slice(0, MAX_SAVED_CHATS);
+      setSavedChats(restored);
+      if (restored.length) {
+        setThreadId(restored[0].id);
+        setMessages(restored[0].messages);
+      } else {
+        setThreadId(uid());
+        setMessages([welcome]);
+      }
+      setHistoryReady(true);
+      if (remoteAvailable) {
+        for (const chat of missing) {
+          if (cancelled) return;
+          try {
+            await apiFetch('/chats/' + encodeURIComponent(chat.id), {
+              method: 'PUT', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: chat.title, messages: chat.messages }),
+            });
+          } catch { /* Retain local copy for a later retry. */ }
+        }
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [customer.id, apiFetch]);
 
   // Save the active conversation after each message, including streamed replies.
   useEffect(() => {
