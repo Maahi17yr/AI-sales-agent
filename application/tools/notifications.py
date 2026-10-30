@@ -7,8 +7,8 @@ from pathlib import Path
 from strands import tool
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-NOTIFICATION_FILE = BASE_DIR / "database" / "owner_notifications.json"
+BASE_DIR = Path(__file__).resolve().parents[2]
+NOTIFICATION_FILE = BASE_DIR / "data" / "database" / "owner_notifications.json"
 
 ALLOWED_CATEGORIES = {
     "complaint",
