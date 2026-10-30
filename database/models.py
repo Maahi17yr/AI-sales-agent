@@ -210,6 +210,23 @@ def create_tables():
             )
         """)
 
+        # Account-owned, durable frontend conversation history (separate from agent cart state).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS customer_chats (
+                customer_id INTEGER NOT NULL,
+                chat_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                messages TEXT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                PRIMARY KEY (customer_id, chat_id),
+                FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_customer_chats_recent
+            ON customer_chats(customer_id, updated_at)
+        """)
+
         # Indexes for frequently accessed records
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_orders_customer
