@@ -740,6 +740,18 @@ export default function Home() {
     window.history.replaceState({}, '', window.location.pathname);
   }, [apiFetch]);
 
+  // Avoid showing a misleading empty conversation while the saved history loads.
+  if (!historyReady) {
+    return (
+      <main className="auth-shell" aria-busy="true">
+        <div className="auth-loading" role="status" aria-live="polite">
+          <LoaderCircle className="spin" size={26} aria-hidden="true" />
+          Getting your conversations ready…
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className={`site-shell ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
       {mobileMenuOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} />}
