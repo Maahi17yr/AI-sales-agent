@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { useAuth } from './auth-provider';
+import FoodPanel from './food-panel';
 
 import {
   ChefHat,
@@ -139,6 +140,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [foodPanelOpen, setFoodPanelOpen] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [showTyping, setShowTyping] = useState(false);
@@ -160,6 +162,7 @@ export default function Home() {
   const [paymentToastSuccess, setPaymentToastSuccess] = useState(false);
 
   const conversationRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const checkoutCardRef = useRef<HTMLElement>(null);
   const lastCheckoutFingerprint = useRef<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -174,6 +177,30 @@ export default function Home() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [mobileMenuOpen]);
+
+  // Keep the chat composer above mobile on-screen keyboards, including iOS Safari.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const updateHeight = () => document.documentElement.style.setProperty(
+      '--app-height', `${viewport?.height ?? window.innerHeight}px`
+    );
+    updateHeight();
+    viewport?.addEventListener('resize', updateHeight);
+    window.addEventListener('resize', updateHeight);
+    return () => {
+      viewport?.removeEventListener('resize', updateHeight);
+      window.removeEventListener('resize', updateHeight);
+      document.documentElement.style.removeProperty('--app-height');
+    };
+  }, []);
+
+  // Grow the composer naturally without moving the page or hiding the send button.
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+  }, [draft]);
 
   // Stop an active agent stream when this authenticated view unmounts.
   useEffect(() => () => { abort.current?.abort(); }, []);
@@ -858,6 +885,7 @@ export default function Home() {
           <div className="mobile-brand"><span className="identity-mark small"><UtensilsCrossed size={18}/></span></div>
           <div className="agent-avatar"><ChefHat size={24}/><span className="avatar-online"/></div>
           <div className="agent-title"><h1>Your food companion <span className="header-sparkle">✳</span></h1><p><span className="live-dot"/> Naija Bites AI · Here to help you order</p></div>
+          <button type="button" className="open-food-panel" onClick={() => setFoodPanelOpen(true)} aria-label="Open menu and order summary" aria-haspopup="dialog"><ShoppingBag size={18}/><span>Menu & order</span></button>
           <button className="mobile-logout" type="button" onClick={() => void logout()} aria-label="Sign out" title="Sign out"><LogOut size={17}/></button>
           <button className="new-chat" onClick={reset} disabled={busy || confirming} title="Start a fresh conversation"><RefreshCw size={16}/><span>New chat</span></button>
         </header>
@@ -920,10 +948,18 @@ export default function Home() {
         </div>
         <div className="composer-area">
           <div className="composer-intro"><Sparkles size={15}/> Ask me anything about your next meal</div>
-          <form className="composer" onSubmit={(e) => {e.preventDefault();void send();}}><input id="message-input" aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy || confirming}/><button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <ArrowRight size={21}/>}</button></form>
+          <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+            <textarea ref={textareaRef} id="message-input" rows={1} aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} disabled={busy || confirming}/>
+            <button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <Send size={20}/>}</button>
+          </form>
           <div className="composer-caption">A little chat, a lot of flavour. <span>✳</span> Naija Bites</div>
         </div>
       </section>
+      <FoodPanel open={foodPanelOpen} onClose={() => setFoodPanelOpen(false)}
+        onOrder={(meal) => { void send(`I'd like one ${meal}, please.`); }}
+        onViewCart={() => { void send('Show me my current cart and help me check out.'); }}
+        apiFetch={apiFetch} refreshKey={messages.length + (busy ? 1 : 0)}
+        disabled={busy || confirming || !threadId} checkoutTotal={checkout?.summary.total}/>
       {paymentMessage && (
         <div
           className={`payment-toast ${paymentToastSuccess ? 'payment-toast--success' : 'payment-toast--warning'}`}
