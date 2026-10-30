@@ -1,7 +1,7 @@
 """Read-only diagnosis of Naija Bites checkout state. Run from project root."""
 import json
 import os
-from database.models import get_connection
+from data.database.models import get_connection
 
 session_id = os.getenv('NAIJA_BITES_DEV_SESSION_ID', 'naija-bites-local-dev-v1')
 conn = get_connection()
