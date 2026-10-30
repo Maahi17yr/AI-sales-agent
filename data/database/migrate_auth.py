@@ -1,6 +1,6 @@
 """Explicit, backup-first SQLite migration for email/password accounts.
 
-Run from project root: python -m database.migrate_auth
+Run from project root: python -m data.database.migrate_auth
 Never runs automatically during application startup.
 """
 import sqlite3
@@ -8,7 +8,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from database.models import DB_PATH
+from data.database.models import DB_PATH
 
 
 def migrate(path=DB_PATH):
