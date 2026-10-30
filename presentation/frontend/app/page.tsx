@@ -749,9 +749,16 @@ export default function Home() {
     void apiFetch('/payments/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reference }),
+      // The backend saves the confirmation in this authenticated chat.
+      body: JSON.stringify({ reference, chat_id: threadId }),
     }).then(async response => {
-      const data: { order_id?: number; payment_status?: string; detail?: string } = await response.json();
+      const data: {
+        order_id?: number;
+        payment_status?: string;
+        detail?: string;
+        chat_saved?: boolean;
+        chat_message?: Msg;
+      } = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Payment verification failed.');
       const paid = data.payment_status === 'paid';
       setPaymentToastSuccess(paid);
@@ -762,16 +769,42 @@ export default function Home() {
 
       const orderId = data.order_id;
       const confirmationId = `verified-payment-order-${orderId}`;
-      const confirmation: Msg = {
+      const confirmation: Msg = (
+        data.chat_message?.id === confirmationId &&
+        data.chat_message?.role === 'assistant' &&
+        typeof data.chat_message.content === 'string'
+      ) ? data.chat_message : {
         id: confirmationId,
         role: 'assistant',
         content: `🎉 Payment confirmed for order #${orderId}! Thank you for choosing Naija Bites. Your order is confirmed. If you'd like to order something else, we can start a fresh order for you. 🍛`,
       };
-      setMessages(current => (
-        current.some(message => message.id === confirmationId)
-          ? current
-          : [...current, confirmation]
-      ));
+
+      // Show it immediately, and sync local history. The backend has already
+      // persisted it if the original chat existed on the server.
+      setMessages(current => current.some(message => message.id === confirmationId)
+        ? current : [...current, confirmation]);
+      setSavedChats(current => {
+        const original = current.find(chat => chat.id === threadId);
+        if (!original) return current;
+        return upsertChat(current, threadId,
+          original.messages.some(message => message.id === confirmationId)
+            ? original.messages : [...original.messages, confirmation]);
+      });
+
+      // Recover a browser-only chat when the server could not save it.
+      if (!data.chat_saved) {
+        const original = savedChats.find(chat => chat.id === threadId);
+        if (original) {
+          const updatedMessages = original.messages.some(message => message.id === confirmationId)
+            ? original.messages : [...original.messages, confirmation];
+          const saved = await apiFetch('/chats/' + encodeURIComponent(threadId), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: original.title, messages: updatedMessages }),
+          });
+          if (!saved.ok) setError('Payment confirmed, but your thank-you message could not sync to cloud history.');
+        }
+      }
       setPaymentOrder(null);
       setPaymentMessage(`Payment verified! Order #${orderId} is confirmed.`);
       try { window.sessionStorage.removeItem(paymentChatKey(customer.id)); }
@@ -782,7 +815,7 @@ export default function Home() {
       setPaymentMessage(err instanceof Error ? err.message : 'Payment verification failed.');
       // Keep the return URL to allow verification on refresh.
     });
-  }, [historyReady, threadId, apiFetch, customer.id]);
+  }, [historyReady, threadId, apiFetch, customer.id, savedChats]);
 
   // Avoid showing a misleading empty conversation while the saved history loads.
   if (!historyReady) {
