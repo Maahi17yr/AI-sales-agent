@@ -179,6 +179,8 @@ class PaymentInitialize(BaseModel):
 
 class PaymentVerify(BaseModel):
     reference: str
+    # Chat ID is only used after authenticated, provider-verified payment.
+    chat_id: UUID | None = None
 
 
 class PreferenceDecision(BaseModel):
@@ -758,10 +760,52 @@ def initialize_payment(payload: PaymentInitialize, request: Request):
 
 @app.post("/payments/verify")
 def verify_payment(payload: PaymentVerify, request: Request):
+    # The Paystack verification and order ownership check remain authoritative.
     try:
-        return paystack_service.verify(payload.reference, _customer_session(request))
+        result = paystack_service.verify(payload.reference, _customer_session(request))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if result.get("payment_status") != "paid":
+        return result
+
+    order_id = result["order_id"]
+    confirmation = {
+        "id": f"verified-payment-order-{order_id}",
+        "role": "assistant",
+        "content": (
+            f"🎉 Payment confirmed for order #{order_id}! "
+            "Thank you for choosing Naija Bites. Your order is confirmed. "
+            "If you'd like anything else, we can start a fresh order for you. 🍛"
+        ),
+    }
+    result["chat_message"] = confirmation
+    result["chat_saved"] = False
+
+    # Persist the verified message to the user's own conversation, so a reload
+    # or an interrupted frontend state update cannot silently lose it.
+    # Never accept a chat belonging to a different authenticated customer.
+    if payload.chat_id is not None:
+        customer_id = _require_authenticated_customer(request)["id"]
+        with get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            chat = conn.execute(
+                "SELECT messages FROM customer_chats "
+                "WHERE customer_id = ? AND chat_id = ?",
+                (customer_id, str(payload.chat_id)),
+            ).fetchone()
+            if chat is not None:
+                messages = json.loads(chat["messages"])
+                if not any(m.get("id") == confirmation["id"] for m in messages):
+                    messages.append(confirmation)
+                    conn.execute(
+                        "UPDATE customer_chats SET messages = ?, updated_at = ? "
+                        "WHERE customer_id = ? AND chat_id = ?",
+                        (json.dumps(messages), int(time.time() * 1000),
+                         customer_id, str(payload.chat_id)),
+                    )
+                result["chat_saved"] = True
+    return result
 
 
 @app.post("/payments/webhook")
