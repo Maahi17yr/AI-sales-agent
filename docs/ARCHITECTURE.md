@@ -1,61 +1,89 @@
-# Naija Bites — Architecture and repository map
+# Naija Bites — Layered architecture
 
-This is a **layered application**, not a set of independent services. Follow a customer request from top to bottom:
+Naija Bites is a **layered application**, not a collection of separately deployed microservices. A request passes through these responsibilities:
 
 ```text
-PRESENTATION LAYER
-frontend/ (Next.js UI)
-        |
-        v
-APPLICATION / API LAYER
-application/api/server.py (FastAPI + AG-UI)
-        |
-        v
-INTELLIGENCE LAYER
-application/intelligence/agent.py
-application/intelligence/system_prompt.py
-        |
-        v
-TOOLS AND BUSINESS RULES
-tools/ (agent-facing operations)
-services/ (trusted validation, carts, orders, checkout, payments)
-        |
-        v
-PERSISTENCE LAYER
-database/ (repository, schema, PostgreSQL adapter)
-        |
-        +-- DATABASE_URL set: Neon PostgreSQL
-        +-- DATABASE_URL absent in local development: SQLite
+CUSTOMER
+   |
+   v
+PRESENTATION
+presentation/frontend/           Next.js / React chat, login, cart, checkout
+   |
+   v
+APPLICATION API
+application/api/server.py        FastAPI endpoints, auth, AG-UI events
+   |
+   v
+INTELLIGENCE
+application/intelligence/        Strands agent + system prompt
+   |
+   v
+TOOLS
+application/tools/               Agent-callable operations
+   |
+   v
+BUSINESS SERVICES
+application/services/            Trusted cart, stock, order, checkout, payments
+   |
+   v
+PERSISTENCE
+data/database/                   Schema, repository, database connections
+   |
+   +-- Hosted demo: Neon PostgreSQL (DATABASE_URL required)
+   +-- Local development: SQLite (DATABASE_URL unset)
 ```
 
-**Supporting capabilities:** `memory/` handles customer session/preference logic; `rag/` indexes and searches fictional policy documents using a separate local SQLite FTS5 knowledge index; `observability/` provides tracing/hooks.
+## Supporting components
 
-## Where to find things
+- `application/memory/` — Session and customer preference operations. Strands model-message session files are stored locally and may be ephemeral on hosted free-tier infrastructure.
+- `application/rag/` — Fictional policy Markdown documents, FTS5 indexing and retrieval. The RAG index uses a **separate local SQLite file**, even when customer/order records use Neon.
+- `application/observability/` — Optional tracing and tool-call instrumentation.
+- `scripts/` — Local command-line entrypoint and maintenance/diagnostic utilities. These are not API routes.
+- `docs/` — Architecture and setup notes.
 
-| Responsibility | Path |
+## Trust boundary
+
+The AI may interpret a request and call tools. It cannot directly approve a checkout or declare payment success. The API authenticates customers, trusted services calculate totals and validate state, and the customer explicitly confirms the prepared checkout. The database is the source of truth.
+
+## Key code paths
+
+| Purpose | Path |
 | --- | --- |
-| Web presentation | `frontend/` |
-| FastAPI endpoints, auth, streaming | `application/api/server.py` |
-| Strands agent factory and prompt | `application/intelligence/` |
-| Agent-facing tools | `tools/` |
-| Deterministic business rules | `services/` |
-| Persistence, schema, seed data | `database/` |
-| Memory and preferences | `memory/` |
-| Knowledge retrieval | `rag/` |
-| Instrumentation | `observability/` |
-| Local developer CLI | `main.py` |
-| Checkout diagnostics | `diagnose_checkout.py` |
+| Customer interface | `presentation/frontend/app/page.tsx` |
+| HTTP API and streaming | `application/api/server.py` |
+| Agent factory | `application/intelligence/agent.py` |
+| Agent instructions | `application/intelligence/system_prompt.py` |
+| Agent tools | `application/tools/` |
+| Business rules | `application/services/` |
+| SQL and schema | `data/database/` |
+| Config | `application/config.py` |
+| RAG indexing | `application/rag/ingest.py` |
+| Local CLI | `scripts/cli.py` |
+| Checkout diagnostic | `scripts/diagnose_checkout.py` |
 
-## Compatibility entrypoints
+## Startup and deployment
 
-- `agui_server.py` remains a tiny import shim so existing Render and local `uvicorn agui_server:app` commands still work.
-- `agent.py` remains a tiny import shim so local development scripts importing `make_agent` still work.
-- The frontend remains at `frontend/` because the deployed Vercel project may be configured with that directory as its project root. Moving it requires updating the Vercel project configuration, not just Git files.
+Run commands from the repository root:
 
-## Storage safety
+```powershell
+python -m application.rag.ingest
+python -m uvicorn application.api.server:app --reload --port 8000
+```
 
-In public demo mode, `DATABASE_URL` is mandatory and the API rejects startup without it. **Never fall back silently to SQLite in the hosted demo.** For local development, leaving `DATABASE_URL` unset uses a local SQLite database with fictional data. The RAG SQLite FTS5 index is a different database from customer/order storage and should not be deleted as a "duplicate Neon database".
+For the UI:
 
-## Next refactor stages
+```powershell
+cd presentation/frontend
+npm install
+npm run dev
+```
 
-Once API and frontend smoke tests pass, group `tools/`, `services/`, `memory/`, `rag/`, and `observability/` under the application layer, and group `database/` under a data layer, updating imports and deployment commands together. Avoid moving every package at once without a runnable verification environment.
+Render uses `render.yaml`. Vercel must use `presentation/frontend` as its project root; changing Git folders does not automatically update Vercel project settings.
+
+## Storage and safety
+
+The hosted demo requires `NAIJA_BITES_ENV=demo`, a valid `DATABASE_URL`, and Paystack TEST credentials. It must fail closed if Neon is unavailable rather than quietly write orders to SQLite. Local development may use SQLite with **fictional data only**. RAG's SQLite index is generated from policy documents and does not replace Neon.
+
+## Refactoring notes
+
+The previous root entrypoints (`agent.py`, `agui_server.py`, `main.py`) and previous package imports have been replaced with fully qualified module paths. Update local shortcuts and hosting project settings before redeploying. This restructuring does **not** imply that a full end-to-end smoke test has passed.
