@@ -8,12 +8,12 @@ Naija Bites is a conversational food-ordering demonstration. Customers can brows
 
 | Layer | Directory | Responsibility |
 | --- | --- | --- |
-| Presentation | `presentation/frontend/` | Next.js 15 / React 19 customer interface |
-| Application API | `application/api/` | FastAPI endpoints, authentication, AG-UI streaming |
-| Intelligence | `application/intelligence/` | Strands agent and system instructions |
-| Tools | `application/tools/` | Agent-callable operations |
-| Business logic | `application/services/` | Cart, checkout, orders, payment and validation |
-| Supporting application | `application/memory/`, `application/rag/`, `application/observability/` | Sessions, knowledge retrieval, tracing |
+| Frontend | `frontend/` | Next.js 15 / React 19 customer interface |
+| Core API | `core/api/` | FastAPI endpoints, authentication, AG-UI streaming |
+| Intelligence | `core/intelligence/` | Strands agent and system instructions |
+| Tools | `core/tools/` | Agent-callable operations |
+| Business logic | `core/services/` | Cart, checkout, orders, payment and validation |
+| Supporting application | `core/memory/`, `core/rag/`, `core/observability/` | Sessions, knowledge retrieval, tracing |
 | Persistence | `data/database/` | Models, repository, seeds and PostgreSQL adapter |
 | Developer utilities | `scripts/` | Local CLI, diagnostics, reset utility |
 | Documentation | `docs/` | Architecture, setup and deployment |
@@ -24,7 +24,7 @@ See **[Architecture and request flow](docs/ARCHITECTURE.md)** for a readable wal
 
 - **Hosted demo:** Set `DATABASE_URL` to a Neon PostgreSQL connection string. In `NAIJA_BITES_ENV=demo`, startup fails if this variable is missing; the server must never silently fall back to SQLite.
 - **Local development:** Leave `DATABASE_URL` unset to use a local SQLite database for fictional data.
-- **RAG knowledge search:** `application/rag/` builds a **separate** SQLite FTS5 index from Markdown business-policy documents. It is not the customer/order database.
+- **RAG knowledge search:** `core/rag/` builds a **separate** SQLite FTS5 index from Markdown business-policy documents. It is not the customer/order database.
 
 Never commit secrets or use actual customer/payment data. AWS Bedrock usage may incur costs.
 
@@ -36,19 +36,19 @@ From the **repository root**:
 
 ```powershell
 python -m pip install -r requirements.txt
-python -m application.rag.ingest
-python -m uvicorn application.api.server:app --reload --port 8000
+python -m core.rag.ingest
+python -m uvicorn core.api.server:app --reload --port 8000
 ```
 
 In a **second terminal**:
 
 ```powershell
-cd presentation/frontend
+cd frontend
 npm install
 npm run dev
 ```
 
-For a local frontend connection, put `NEXT_PUBLIC_AGUI_URL=http://localhost:8000` in `presentation/frontend/.env.local` and restart Next.js. Set the necessary environment variables in your root `.env` or shell; see `application/config.py` and the guides in `docs/`.
+For a local frontend connection, put `NEXT_PUBLIC_AGUI_URL=http://localhost:8000` in `frontend/.env.local` and restart Next.js. Set the necessary environment variables in your root `.env` or shell; see `core/config.py` and the guides in `docs/`.
 
 To use the local command-line demo:
 
@@ -58,8 +58,8 @@ python -m scripts.cli
 
 ## Deployment
 
-- **Vercel:** Set **Root Directory** to `presentation/frontend` (changed from `frontend`).
-- **Render:** Use `render.yaml`; it now builds the RAG index via `application.rag.ingest` and runs `application.api.server:app`.
+- **Vercel:** Set **Root Directory** to `frontend` (formerly `presentation/frontend`).
+- **Render:** Use `render.yaml`; it now builds the RAG index via `core.rag.ingest` and runs `core.api.server:app`.
 - **Neon:** Keep `DATABASE_URL` as a secret on Render; do not expose it to the browser.
 - **Paystack:** Use TEST credentials only.
 

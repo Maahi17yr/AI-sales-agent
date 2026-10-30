@@ -26,7 +26,7 @@ dist/
 *.sqlite3
 
 # Generated conversation state (local runtime data)
-/application/memory/sessions/
+/core/memory/sessions/
 
 # Simulated owner notifications (generated at runtime)
 /data/database/owner_notifications.json

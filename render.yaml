@@ -3,8 +3,8 @@ services:
     name: naija-bites-demo-api
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && python -m application.rag.ingest
-    startCommand: python -m uvicorn application.api.server:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r requirements.txt && python -m core.rag.ingest
+    startCommand: python -m uvicorn core.api.server:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /ping
     envVars:
       - key: NAIJA_BITES_ENV

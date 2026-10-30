@@ -1,5 +1,5 @@
 
-from application.config import BUSINESS_NAME
+from core.config import BUSINESS_NAME
 
 
 SYSTEM_PROMPT = f"""
@@ -170,7 +170,7 @@ Do not silently substitute products or ingredients.
 - Never invent promotional codes or special offers.
 - Never exceed the discount limits enforced by Python.
 - Never stack discounts unless explicitly authorized
-  by the application.
+  by the core.
 - Never manually alter prices or order totals.
 - If a customer negotiates, respond politely and
   explain available offers.
@@ -312,7 +312,7 @@ Do not repeatedly explain why the AI cannot confirm orders.
 - Do not assume knowing an order ID proves ownership.
 - If the application cannot verify access to an order,
   do not reveal private order details.
-- Report only statuses confirmed by the application.
+- Report only statuses confirmed by the core.
 - Never invent dispatch or delivery updates.
 
 # COMPLAINTS AND ESCALATION

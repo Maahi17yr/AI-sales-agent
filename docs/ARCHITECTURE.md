@@ -7,23 +7,23 @@ CUSTOMER
    |
    v
 PRESENTATION
-presentation/frontend/           Next.js / React chat, login, cart, checkout
+frontend/           Next.js / React chat, login, cart, checkout
    |
    v
 APPLICATION API
-application/api/server.py        FastAPI endpoints, auth, AG-UI events
+core/api/server.py        FastAPI endpoints, auth, AG-UI events
    |
    v
 INTELLIGENCE
-application/intelligence/        Strands agent + system prompt
+core/intelligence/        Strands agent + system prompt
    |
    v
 TOOLS
-application/tools/               Agent-callable operations
+core/tools/               Agent-callable operations
    |
    v
 BUSINESS SERVICES
-application/services/            Trusted cart, stock, order, checkout, payments
+core/services/            Trusted cart, stock, order, checkout, payments
    |
    v
 PERSISTENCE
@@ -35,9 +35,9 @@ data/database/                   Schema, repository, database connections
 
 ## Supporting components
 
-- `application/memory/` — Session and customer preference operations. Strands model-message session files are stored locally and may be ephemeral on hosted free-tier infrastructure.
-- `application/rag/` — Fictional policy Markdown documents, FTS5 indexing and retrieval. The RAG index uses a **separate local SQLite file**, even when customer/order records use Neon.
-- `application/observability/` — Optional tracing and tool-call instrumentation.
+- `core/memory/` — Session and customer preference operations. Strands model-message session files are stored locally and may be ephemeral on hosted free-tier infrastructure.
+- `core/rag/` — Fictional policy Markdown documents, FTS5 indexing and retrieval. The RAG index uses a **separate local SQLite file**, even when customer/order records use Neon.
+- `core/observability/` — Optional tracing and tool-call instrumentation.
 - `scripts/` — Local command-line entrypoint and maintenance/diagnostic utilities. These are not API routes.
 - `docs/` — Architecture and setup notes.
 
@@ -49,15 +49,15 @@ The AI may interpret a request and call tools. It cannot directly approve a chec
 
 | Purpose | Path |
 | --- | --- |
-| Customer interface | `presentation/frontend/app/page.tsx` |
-| HTTP API and streaming | `application/api/server.py` |
-| Agent factory | `application/intelligence/agent.py` |
-| Agent instructions | `application/intelligence/system_prompt.py` |
-| Agent tools | `application/tools/` |
-| Business rules | `application/services/` |
+| Customer interface | `frontend/app/page.tsx` |
+| HTTP API and streaming | `core/api/server.py` |
+| Agent factory | `core/intelligence/agent.py` |
+| Agent instructions | `core/intelligence/system_prompt.py` |
+| Agent tools | `core/tools/` |
+| Business rules | `core/services/` |
 | SQL and schema | `data/database/` |
-| Config | `application/config.py` |
-| RAG indexing | `application/rag/ingest.py` |
+| Config | `core/config.py` |
+| RAG indexing | `core/rag/ingest.py` |
 | Local CLI | `scripts/cli.py` |
 | Checkout diagnostic | `scripts/diagnose_checkout.py` |
 
@@ -66,19 +66,19 @@ The AI may interpret a request and call tools. It cannot directly approve a chec
 Run commands from the repository root:
 
 ```powershell
-python -m application.rag.ingest
-python -m uvicorn application.api.server:app --reload --port 8000
+python -m core.rag.ingest
+python -m uvicorn core.api.server:app --reload --port 8000
 ```
 
 For the UI:
 
 ```powershell
-cd presentation/frontend
+cd frontend
 npm install
 npm run dev
 ```
 
-Render uses `render.yaml`. Vercel must use `presentation/frontend` as its project root; changing Git folders does not automatically update Vercel project settings.
+Render uses `render.yaml`. Vercel must use `frontend` as its project root; changing Git folders does not automatically update Vercel project settings.
 
 ## Storage and safety
 
@@ -86,4 +86,4 @@ The hosted demo requires `NAIJA_BITES_ENV=demo`, a valid `DATABASE_URL`, and Pay
 
 ## Refactoring notes
 
-The previous root entrypoints (`agent.py`, `main.py`) and previous package imports have been replaced with fully qualified module paths. A temporary `agui_server.py` forwarding module and `rag/ingest.py` build wrapper remain to keep the existing Render service working until its dashboard build/start commands are updated to `python -m application.rag.ingest` and `python -m uvicorn application.api.server:app --host 0.0.0.0 --port $PORT`. Update local shortcuts and hosting project settings before redeploying. This restructuring does **not** imply that a full end-to-end smoke test has passed.
+The previous root entrypoints (`agent.py`, `main.py`) and previous package imports have been replaced with fully qualified module paths. A temporary `agui_server.py` forwarding module and `rag/ingest.py` build wrapper remain to keep the existing Render service working until its dashboard build/start commands are updated to `python -m core.rag.ingest` and `python -m uvicorn core.api.server:app --host 0.0.0.0 --port $PORT`. Update local shortcuts and hosting project settings before redeploying. This restructuring does **not** imply that a full end-to-end smoke test has passed.

@@ -6,9 +6,9 @@ approve checkout or change inventory through these tools.
 from strands import tool
 
 from data.database import repository
-from application.services.cart import CartService
-from application.services.customization_service import CustomizationService
-from application.tools.product_matching import match_exact_orderable_product
+from core.services.cart import CartService
+from core.services.customization_service import CustomizationService
+from core.tools.product_matching import match_exact_orderable_product
 
 
 def resolve_orderable_product_by_name(product_name: str) -> dict:

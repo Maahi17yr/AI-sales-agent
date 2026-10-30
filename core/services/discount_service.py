@@ -1,6 +1,6 @@
 
 from application import config
-from application.services.cart import CartService
+from core.services.cart import CartService
 
 
 class DiscountService:

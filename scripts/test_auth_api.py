@@ -17,7 +17,7 @@ os.environ["DATABASE_URL"] = ""
 
 import httpx
 from data.database import models
-from application.api.server import app
+from core.api.server import app
 
 TEST_PASSWORD = "FictionalOnly-Password-1234"
 TEST_EMAIL = "test.customer@example.test"

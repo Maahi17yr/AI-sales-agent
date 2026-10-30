@@ -7,7 +7,7 @@ except ImportError:  # SQLite-only local development
     PostgresError = sqlite3.Error
 
 from data.database.models import get_connection
-from application.services.order_service import OrderService, fingerprint
+from core.services.order_service import OrderService, fingerprint
 
 
 class CheckoutService:

@@ -4,8 +4,8 @@
 
 ## Services and configuration
 
-- **Vercel:** Next.js frontend; set **Root Directory** to `presentation/frontend`.
-- **Render:** FastAPI backend; the root `render.yaml` installs dependencies, builds the RAG FTS5 index and launches `application.api.server:app`.
+- **Vercel:** Next.js frontend; set **Root Directory** to `frontend`.
+- **Render:** FastAPI backend; the root `render.yaml` installs dependencies, builds the RAG FTS5 index and launches `core.api.server:app`.
 - **Neon:** PostgreSQL for customer, cart, inventory and order data; configure `DATABASE_URL` as a secret on Render.
 - **RAG:** A generated SQLite FTS5 index of fictional Markdown policies. This is separate from the Neon business database.
 
@@ -17,7 +17,7 @@
 4. Set `NAIJA_BITES_FRONTEND_ORIGIN` to the deployed Vercel HTTPS origin, and `PAYSTACK_CALLBACK_URL` to that origin plus the application's payment-return path.
 5. Set `PAYSTACK_SECRET_KEY` to a **sk_test_** key only. Configure `BEDROCK_MODEL_ID`, `AWS_REGION` and appropriately scoped AWS credentials.
 6. In Vercel, set `NEXT_BACKEND_URL` to the Render HTTPS origin (no path or trailing slash). Do not expose `DATABASE_URL` or secrets through `NEXT_PUBLIC_` variables. Do not set `NEXT_PUBLIC_AGUI_URL`: the browser uses `/api/backend`.
-7. Confirm that the Vercel Root Directory is **`presentation/frontend`**, not the old `frontend`.
+7. Confirm that the Vercel Root Directory is **`frontend`**, not the old `presentation/frontend`.
 
 ## Smoke check
 
@@ -40,14 +40,14 @@ Run from the repository root:
 
 ```powershell
 python -m pip install -r requirements.txt
-python -m application.rag.ingest
-python -m uvicorn application.api.server:app --reload --port 8000
+python -m core.rag.ingest
+python -m uvicorn core.api.server:app --reload --port 8000
 ```
 
 In a second terminal:
 
 ```powershell
-cd presentation/frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -55,7 +55,7 @@ npm run dev
 ## Authentication connection setup and tests
 
 - Start FastAPI on port 8000 and Next.js on port 3000. The frontend defaults to forwarding to `http://127.0.0.1:8000` **only** in development.
-- Optionally set `NEXT_BACKEND_URL=http://127.0.0.1:8000` in `presentation/frontend/.env.local` to override the development default. Remove the old `NEXT_PUBLIC_AGUI_URL` variable.
+- Optionally set `NEXT_BACKEND_URL=http://127.0.0.1:8000` in `frontend/.env.local` to override the development default. Remove the old `NEXT_PUBLIC_AGUI_URL` variable.
 - For Vercel, set `NEXT_BACKEND_URL` to the Render **HTTPS** origin and redeploy. HTTP destinations are rejected outside development.
 - First check `http://127.0.0.1:8000/ping`, then `http://127.0.0.1:3000/api/backend/ping`. Both should return `status: ok`. If the first fails, fix FastAPI; if only the second fails, fix the proxy or its target.
 - Restart Next.js after changing `.env.local`. Keep the browser on one host, preferably `http://127.0.0.1:3000`.
