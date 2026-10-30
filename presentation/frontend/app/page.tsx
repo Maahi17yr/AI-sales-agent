@@ -44,6 +44,7 @@ type WireMsg = Msg;
 type SavedChat = { id: string; title: string; messages: Msg[]; updatedAt: number };
 const MAX_SAVED_CHATS = 30;
 const historyKey = (customerId: number) => `naija-bites-chat-history-v1-${customerId}`;
+const paymentChatKey = (customerId: number) => `naija-bites-payment-chat-v1-${customerId}`;
 const chatTitle = (items: Msg[]) => items.find(m => m.role === 'user')?.content.slice(0, 52).trim() || 'New chat';
 const upsertChat = (items: SavedChat[], id: string, messages: Msg[]): SavedChat[] => {
   if (!messages.some(m => m.role === 'user')) return items;
@@ -140,7 +141,7 @@ export default function Home() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
   const [error, setError] = useState('');
-  const [activity, setActivity] = useState('');
+  const [showTyping, setShowTyping] = useState(false);
   const [threadId, setThreadId] = useState('');
   const [savedChats, setSavedChats] = useState<SavedChat[]>([]);
   const [historyReady, setHistoryReady] = useState(false);
@@ -162,6 +163,7 @@ export default function Home() {
   const checkoutCardRef = useRef<HTMLElement>(null);
   const lastCheckoutFingerprint = useRef<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+  const paymentReturnStarted = useRef(false);
 
   // Escape closes the mobile drawer without resetting the food conversation.
   useEffect(() => {
@@ -184,32 +186,82 @@ export default function Home() {
     setPaymentEmail(customer.email);
   }, [customer.email]);
 
-  // Restore this signed-in customer's conversations on this browser.
+
+  // Restore server-owned chats and migrate any browser-only conversations.
   useEffect(() => {
-    let restored: SavedChat[] = [];
-    try {
-      const raw = window.localStorage.getItem(historyKey(customer.id));
-      const parsed: unknown = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(parsed)) restored = parsed.filter((entry): entry is SavedChat =>
-        entry !== null && typeof entry === 'object' &&
-        typeof entry.id === 'string' && typeof entry.title === 'string' &&
-        typeof entry.updatedAt === 'number' && Array.isArray(entry.messages) &&
-        entry.messages.every((m: unknown) => m !== null && typeof m === 'object' &&
-          'id' in m && typeof m.id === 'string' &&
-          'role' in m && (m.role === 'user' || m.role === 'assistant') &&
-          'content' in m && typeof m.content === 'string')
-      ).slice(0, MAX_SAVED_CHATS);
-    } catch { /* Ignore unavailable or invalid local history. */ }
-    setSavedChats(restored);
-    if (restored.length) {
-      setThreadId(restored[0].id);
-      setMessages(restored[0].messages);
-    } else {
-      setThreadId(uid());
-      setMessages([welcome]);
-    }
-    setHistoryReady(true);
-  }, [customer.id]);
+    let cancelled = false;
+    setHistoryReady(false);
+    const load = async () => {
+      let local: SavedChat[] = [];
+      try {
+        const raw = window.localStorage.getItem(historyKey(customer.id));
+        const parsed: unknown = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) local = parsed.filter((entry): entry is SavedChat =>
+          entry !== null && typeof entry === 'object' &&
+          typeof entry.id === 'string' && typeof entry.title === 'string' &&
+          typeof entry.updatedAt === 'number' && Array.isArray(entry.messages) &&
+          entry.messages.every((m: unknown) => m !== null && typeof m === 'object' &&
+            'id' in m && typeof m.id === 'string' &&
+            'role' in m && (m.role === 'user' || m.role === 'assistant') &&
+            'content' in m && typeof m.content === 'string')
+        ).slice(0, MAX_SAVED_CHATS);
+      } catch { /* Local storage unavailable. */ }
+      let remote: SavedChat[] = [];
+      let remoteAvailable = false;
+      try {
+        const response = await apiFetch('/chats');
+        if (!response.ok) throw new Error('Cloud history unavailable');
+        const data: { chats: SavedChat[] } = await response.json();
+        if (!Array.isArray(data.chats)) throw new Error('Invalid chat response');
+        remote = data.chats;
+        remoteAvailable = true;
+      } catch {
+        if (!cancelled) setError('Cloud history is unavailable. Local conversations remain on this browser.');
+      }
+      if (cancelled) return;
+      const remoteById = new Map(remote.map(chat => [chat.id, chat]));
+      // Preserve newer local edits if a tab closed before the last cloud save.
+      const toUpload = local.filter(chat => {
+        const saved = remoteById.get(chat.id);
+        return !saved || chat.updatedAt > saved.updatedAt;
+      });
+      const pendingIds = new Set(toUpload.map(chat => chat.id));
+      const restored = [...remote.filter(chat => !pendingIds.has(chat.id)), ...toUpload]
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+        .slice(0, MAX_SAVED_CHATS);
+      setSavedChats(restored);
+      // Return to the conversation that initiated payment, not simply the
+      // latest chat (which may have changed in another tab).
+      let preferredChatId: string | null = null;
+      try {
+        if (new URLSearchParams(window.location.search).get('payment_return') === '1') {
+          preferredChatId = window.sessionStorage.getItem(paymentChatKey(customer.id));
+        }
+      } catch { /* Private browsing may disable session storage. */ }
+      if (restored.length) {
+        const active = restored.find(chat => chat.id === preferredChatId) || restored[0];
+        setThreadId(active.id);
+        setMessages(active.messages);
+      } else {
+        setThreadId(uid());
+        setMessages([welcome]);
+      }
+      setHistoryReady(true);
+      if (remoteAvailable) {
+        for (const chat of toUpload) {
+          if (cancelled) return;
+          try {
+            await apiFetch('/chats/' + encodeURIComponent(chat.id), {
+              method: 'PUT', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: chat.title, messages: chat.messages }),
+            });
+          } catch { /* Retain local copy for a later retry. */ }
+        }
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [customer.id, apiFetch]);
 
   // Save the active conversation after each message, including streamed replies.
   useEffect(() => {
@@ -222,6 +274,25 @@ export default function Home() {
     try { window.localStorage.setItem(historyKey(customer.id), JSON.stringify(savedChats)); }
     catch { /* Storage may be disabled or full; chat still works in this tab. */ }
   }, [customer.id, historyReady, savedChats]);
+
+
+  // Persist the active conversation after the streaming response settles.
+  useEffect(() => {
+    if (!historyReady || !threadId) return;
+    const active = savedChats.find(chat => chat.id === threadId);
+    if (!active) return;
+    const timer = window.setTimeout(() => {
+      void apiFetch('/chats/' + encodeURIComponent(active.id), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: active.title, messages: active.messages }),
+      }).then(response => {
+        if (!response.ok) throw new Error('Cloud save failed');
+      }).catch(() => {
+        setError('Unable to sync this conversation. Please check your connection.');
+      });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [historyReady, savedChats, threadId, apiFetch]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -245,10 +316,10 @@ export default function Home() {
 
   // Scroll only the conversation, never the document or the message composer.
   useEffect(() => {
-    if (messages.length === 1 && !activity) return;
+    if (messages.length === 1 && !showTyping) return;
     const panel = conversationRef.current;
     if (panel) panel.scrollTop = panel.scrollHeight;
-  }, [messages, activity]);
+  }, [messages, showTyping]);
 
   // Keep the review card in sync with the trusted backend state.
   // Polling also covers tool results that finish just after a chat stream.
@@ -322,7 +393,7 @@ export default function Home() {
     setMessages([welcome]);
     setDraft('');
     setError('');
-    setActivity('');
+    setShowTyping(false);
     setThreadId(uid());
 
     setCheckoutResult('');
@@ -340,7 +411,7 @@ export default function Home() {
     setMessages(chat.messages);
     setDraft('');
     setError('');
-    setActivity('');
+    setShowTyping(false);
     setCheckoutError('');
     setCheckoutResult('');
     setMobileMenuOpen(false);
@@ -364,7 +435,7 @@ export default function Home() {
 
     setDraft('');
     setError('');
-    setActivity('');
+    setShowTyping(true);
     setCheckoutError('');
     setBusy(true);
 
@@ -377,6 +448,10 @@ export default function Home() {
     const next = [...messages, user];
 
     setMessages(next);
+
+    const requestStartedAt = performance.now();
+    let headersReceivedAt: number | null = null;
+    let firstTokenAt: number | null = null;
 
     const assistantId = uid();
     let assistantText = '';
@@ -412,6 +487,8 @@ export default function Home() {
         }),
         signal: controller.signal,
       });
+
+      headersReceivedAt = performance.now();
 
       if (!response.ok) {
         throw new Error(
@@ -458,6 +535,8 @@ export default function Home() {
           typeof evt.delta === 'string'
         ) {
           gotText = true;
+          setShowTyping(false);
+          if (firstTokenAt === null) firstTokenAt = performance.now();
           assistantText += evt.delta;
 
           const textSnapshot = assistantText;
@@ -487,16 +566,6 @@ export default function Home() {
               },
             ];
           });
-        } else if (
-          evt.type === 'TOOL_CALL_START'
-        ) {
-          setActivity(
-            'Checking your order details…'
-          );
-        } else if (
-          evt.type === 'TOOL_CALL_END'
-        ) {
-          setActivity('');
         } else if (evt.type === 'RUN_ERROR') {
           throw new Error(
             evt.message ||
@@ -537,6 +606,13 @@ export default function Home() {
           'No text response received. Check the backend logs.'
         );
       }
+
+      // Diagnostic timings (no message content or personal data logged).
+      console.info('[Naija Bites latency]', {
+        response_headers_ms: headersReceivedAt === null ? null : Math.round(headersReceivedAt - requestStartedAt),
+        first_token_ms: firstTokenAt === null ? null : Math.round(firstTokenAt - requestStartedAt),
+        total_ms: Math.round(performance.now() - requestStartedAt),
+      });
     } catch (err) {
       if (
         err instanceof Error &&
@@ -552,7 +628,7 @@ export default function Home() {
       );
     } finally {
       setBusy(false);
-      setActivity('');
+      setShowTyping(false);
       abort.current = null;
     }
   }
@@ -620,14 +696,24 @@ export default function Home() {
     setPaymentBusy(true);
     setCheckoutError('');
     try {
+      // Flush this conversation before navigating away to Paystack.
+      if (messages.some(message => message.role === 'user')) {
+        const saved = await apiFetch('/chats/' + encodeURIComponent(threadId), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: chatTitle(messages), messages }),
+        });
+        if (!saved.ok) throw new Error('Could not save your conversation. Payment was not started.');
+      }
       const response = await apiFetch('/payments/initialize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: paymentOrder, email: paymentEmail.trim() }),
+        body: JSON.stringify({ order_id: paymentOrder, email: paymentEmail.trim(), frontend_origin: window.location.origin }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Could not start payment.');
       if (!String(data.authorization_url).startsWith('https://')) throw new Error('Invalid payment URL.');
+      try { window.sessionStorage.setItem(paymentChatKey(customer.id), threadId); }
+      catch { /* The payment flow still works without session storage. */ }
       window.location.assign(data.authorization_url);
     } catch (err) {
       setCheckoutError(err instanceof Error ? err.message : 'Could not start payment.');
@@ -643,9 +729,15 @@ export default function Home() {
     return () => window.clearTimeout(timeout);
   }, [paymentMessage]);
 
+  // Verify the return with the backend, then add a durable, idempotent chat
+  // message. Never ask the LLM to decide whether payment was successful.
+  // Wait for chat restoration so the message is not lost on page reload.
   useEffect(() => {
+    if (!historyReady || !threadId || paymentReturnStarted.current) return;
     const params = new URLSearchParams(window.location.search);
     if (params.get('payment_return') !== '1') return;
+    paymentReturnStarted.current = true;
+
     const reference = params.get('reference') || params.get('trxref');
     if (!reference) {
       setPaymentToastSuccess(false);
@@ -653,24 +745,89 @@ export default function Home() {
       window.history.replaceState({}, '', window.location.pathname);
       return;
     }
-    apiFetch('/payments/verify', {
+
+    void apiFetch('/payments/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reference }),
+      // The backend saves the confirmation in this authenticated chat.
+      body: JSON.stringify({ reference, chat_id: threadId }),
     }).then(async response => {
-      const data = await response.json();
+      const data: {
+        order_id?: number;
+        payment_status?: string;
+        detail?: string;
+        chat_saved?: boolean;
+        chat_message?: Msg;
+      } = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Payment verification failed.');
       const paid = data.payment_status === 'paid';
       setPaymentToastSuccess(paid);
-      setPaymentMessage(paid
-        ? `Payment verified! Order #${data.order_id} is confirmed.`
-        : 'Payment is not yet confirmed. You can try verifying again later.');
+      if (!paid || typeof data.order_id !== 'number' || !Number.isSafeInteger(data.order_id)) {
+        setPaymentMessage('Payment is not yet confirmed. You can try verifying again later.');
+        return; // Keep the return URL so refreshing can retry verification.
+      }
+
+      const orderId = data.order_id;
+      const confirmationId = `verified-payment-order-${orderId}`;
+      const confirmation: Msg = (
+        data.chat_message?.id === confirmationId &&
+        data.chat_message?.role === 'assistant' &&
+        typeof data.chat_message.content === 'string'
+      ) ? data.chat_message : {
+        id: confirmationId,
+        role: 'assistant',
+        content: `🎉 Payment confirmed for order #${orderId}! Thank you for choosing Naija Bites. Your order is confirmed. If you'd like to order something else, we can start a fresh order for you. 🍛`,
+      };
+
+      // Show it immediately, and sync local history. The backend has already
+      // persisted it if the original chat existed on the server.
+      setMessages(current => current.some(message => message.id === confirmationId)
+        ? current : [...current, confirmation]);
+      setSavedChats(current => {
+        const original = current.find(chat => chat.id === threadId);
+        if (!original) return current;
+        return upsertChat(current, threadId,
+          original.messages.some(message => message.id === confirmationId)
+            ? original.messages : [...original.messages, confirmation]);
+      });
+
+      // Recover a browser-only chat when the server could not save it.
+      if (!data.chat_saved) {
+        const original = savedChats.find(chat => chat.id === threadId);
+        if (original) {
+          const updatedMessages = original.messages.some(message => message.id === confirmationId)
+            ? original.messages : [...original.messages, confirmation];
+          const saved = await apiFetch('/chats/' + encodeURIComponent(threadId), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: original.title, messages: updatedMessages }),
+          });
+          if (!saved.ok) setError('Payment confirmed, but your thank-you message could not sync to cloud history.');
+        }
+      }
+      setPaymentOrder(null);
+      setPaymentMessage(`Payment verified! Order #${orderId} is confirmed.`);
+      try { window.sessionStorage.removeItem(paymentChatKey(customer.id)); }
+      catch { /* Ignore storage restrictions. */ }
+      window.history.replaceState({}, '', window.location.pathname);
     }).catch(err => {
       setPaymentToastSuccess(false);
-      setPaymentMessage(err instanceof Error ? err.message : 'Verification failed.');
+      setPaymentMessage(err instanceof Error ? err.message : 'Payment verification failed.');
+      // Keep the return URL to allow verification on refresh.
     });
-    window.history.replaceState({}, '', window.location.pathname);
-  }, [apiFetch]);
+  }, [historyReady, threadId, apiFetch, customer.id, savedChats]);
+
+  // Avoid showing a misleading empty conversation while the saved history loads.
+  if (!historyReady) {
+    return (
+      <main className="auth-shell" aria-busy="true">
+        <div className="auth-loading" role="status" aria-live="polite">
+          <LoaderCircle className="spin" size={26} aria-hidden="true" />
+          Getting your conversations ready…
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className={`site-shell ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
@@ -735,7 +892,7 @@ export default function Home() {
                 <button type="button" onClick={() => void send('Surprise me with a Nigerian food recommendation')} disabled={busy || confirming || !threadId}><span className="shortcut-icon"><Sparkles size={21}/></span><strong>Surprise me</strong><small>Find a new favourite</small><ArrowRight size={17} className="shortcut-arrow"/></button>
               </div>
             </section>}
-            {busy && <div className="working-row"><span className="message-avatar"><UtensilsCrossed size={15}/></span><div className="working-bubble"><span className="typing-dots"><i/><i/><i/></span><span>{activity || 'Putting something together…'}</span></div></div>}
+            {busy && showTyping && <div className="working-row" role="status" aria-live="polite" aria-label="Naija Bites is typing"><span className="message-avatar" aria-hidden="true"><UtensilsCrossed size={15}/></span><div className="working-bubble"><span className="typing-dots" aria-hidden="true"><i/><i/><i/></span><span>Naija Bites is typing</span></div></div>}
             {error && <div className="inline-alert" role="alert">{error}</div>}
             {checkout && reviewOpen && <section ref={checkoutCardRef} className="checkout-panel" aria-label="Review your order">
               <div className="checkout-top"><div><span className="checkout-kicker"><ShoppingBag size={15}/> YOUR ORDER</span><h2>Review your order</h2><p>Make sure everything looks right.</p></div><button className="icon-button" aria-label="Hide order review" title="Hide order review" onClick={() => setReviewOpen(false)}><X size={18}/></button></div>

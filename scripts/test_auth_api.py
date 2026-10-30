@@ -92,6 +92,59 @@ class AuthenticationAPITests(unittest.IsolatedAsyncioTestCase):
     async def test_protected_checkout_requires_login(self):
         self.assertEqual((await self.client.get("/checkout")).status_code, 401)
 
+
+    async def test_chat_history_is_private_and_survives_relogin(self):
+        chat_id = "b4d99882-1e9a-45b8-8b17-59ad66a4b303"
+        payload = {"title": "Jollof order", "messages": [
+            {"id": "m1", "role": "user", "content": "I'd like jollof rice."}
+        ]}
+        self.assertEqual((await self.client.get("/chats")).status_code, 401)
+        self.assertEqual((await self.register()).status_code, 201)
+        self.assertEqual((await self.login()).status_code, 200)
+        saved = await self.client.put("/chats/" + chat_id, json=payload)
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual((await self.client.get("/chats")).json()["chats"][0]["title"], "Jollof order")
+        self.assertEqual((await self.client.post("/auth/logout")).status_code, 200)
+        other = "other.customer@example.test"
+        self.assertEqual((await self.register(email=other)).status_code, 201)
+        self.assertEqual((await self.login(email=other)).status_code, 200)
+        self.assertEqual((await self.client.get("/chats")).json()["chats"], [])
+        self.assertEqual((await self.client.post("/auth/logout")).status_code, 200)
+        self.assertEqual((await self.login()).status_code, 200)
+        chats = (await self.client.get("/chats")).json()["chats"]
+        self.assertEqual(len(chats), 1)
+        self.assertEqual(chats[0]["messages"], payload["messages"])
+
+    async def test_stale_tab_cannot_write_to_another_account(self):
+        await self.register()
+        await self.login()
+        first_id = (await self.client.get("/auth/me")).json()["customer"]["id"]
+        await self.client.post("/auth/logout")
+        second = "second.customer@example.test"
+        await self.register(email=second)
+        await self.login(email=second)
+        result = await self.client.put(
+            "/chats/b4d99882-1e9a-45b8-8b17-59ad66a4b303",
+            headers={"X-Naija-Bites-Expected-Customer": str(first_id)},
+            json={"title": "Wrong account", "messages": [
+                {"id": "m1", "role": "user", "content": "This belongs to account A"}
+            ]},
+        )
+        self.assertEqual(result.status_code, 409)
+        self.assertEqual((await self.client.get("/chats")).json()["chats"], [])
+
+    async def test_chat_save_rejects_unknown_origin(self):
+        await self.register()
+        await self.login()
+        response = await self.client.put(
+            "/chats/b4d99882-1e9a-45b8-8b17-59ad66a4b303",
+            headers={"Origin": "https://untrusted.example"},
+            json={"title": "Test", "messages": [
+                {"id": "m1", "role": "user", "content": "Hello"}
+            ]},
+        )
+        self.assertEqual(response.status_code, 403)
+
     async def test_unknown_origin_rejected(self):
         result = await self.client.post(
             "/auth/register",
