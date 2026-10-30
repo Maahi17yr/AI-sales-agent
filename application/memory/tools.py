@@ -1,6 +1,6 @@
 """Session-bound Strands tools for optional customer food preferences."""
 from strands import tool
-from memory import preferences
+from application.memory import preferences
 
 
 def make_preference_tools(session_id):
