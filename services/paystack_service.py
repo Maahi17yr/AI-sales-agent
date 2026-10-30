@@ -40,7 +40,7 @@ def _owned_order(conn, order_id, session_id):
         WHERE o.id=? AND s.session_id=?
     """, (order_id, session_id)).fetchone()
 
-def initialize(order_id, session_id, email):
+def initialize(order_id, session_id, email, callback_origin=None):
     if not isinstance(order_id, int) or isinstance(order_id, bool) or order_id <= 0:
         raise ValueError("Invalid order ID.")
     if not isinstance(email, str) or "@" not in email or len(email) > 254:
@@ -71,8 +71,10 @@ def initialize(order_id, session_id, email):
     data = _request("POST", "/transaction/initialize", {
         "email": email, "amount": order["total"] * 100,
         "currency": "NGN", "reference": reference,
-        "callback_url": os.getenv("PAYSTACK_CALLBACK_URL",
-            "http://127.0.0.1:3000/?payment_return=1"),
+        # Callback origin is validated against the server's exact allowlist.
+        "callback_url": (callback_origin.rstrip("/") + "/?payment_return=1"
+            if callback_origin else os.getenv("PAYSTACK_CALLBACK_URL",
+                "http://127.0.0.1:3000/?payment_return=1")),
         "metadata": {"order_id": order_id},
     })
     if data.get("reference") != reference or not str(data.get("authorization_url", "")).startswith("https://"):

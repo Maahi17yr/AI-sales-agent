@@ -41,7 +41,10 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-from pydantic import BaseModel, StrictBool
+from pydantic import BaseModel, StrictBool, Field
+from typing import Literal
+from uuid import UUID
+import time
 from services import paystack_service, auth_service
 
 from ag_ui.core import RunAgentInput
@@ -146,9 +149,21 @@ def _agent_lock(session_id: str) -> asyncio.Lock:
     return _agent_locks[session_id]
 
 
+class ChatMessage(BaseModel):
+    id: str = Field(min_length=1, max_length=100)
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=20000)
+
+
+class SaveChatRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    messages: list[ChatMessage] = Field(min_length=1, max_length=300)
+
+
 class PaymentInitialize(BaseModel):
     order_id: int
     email: str
+    frontend_origin: str | None = None
 
 
 class PaymentVerify(BaseModel):
@@ -256,10 +271,12 @@ app.add_middleware(
     allow_methods=[
         "GET",
         "POST",
+        "PUT",
     ],
 
     allow_headers=[
         "Content-Type",
+        "X-Naija-Bites-Expected-Customer",
     ],
 )
 
@@ -303,10 +320,17 @@ async def protect_auth_cookie_requests(request: Request, call_next):
     # Browsers send Origin for cross-origin POSTs. Reject unknown origins
     # before any authentication mutation; requests with no Origin (CLI)
     # remain usable for local testing.
-    if request.method == "POST" and request.url.path != "/payments/webhook":
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.url.path != "/payments/webhook":
         origin = request.headers.get("origin")
         if origin is not None and origin not in AUTH_ALLOWED_ORIGINS:
             return JSONResponse({"detail": "Origin not allowed."}, status_code=403)
+        # The browser sends the account it believes is active. Refuse writes if
+        # another tab replaced the shared cookie after the frontend checked it.
+        expected_customer = request.headers.get("x-naija-bites-expected-customer")
+        if expected_customer is not None:
+            current = auth_service.authenticate_token(request.cookies.get(AUTH_COOKIE_NAME))
+            if current is None or str(current["id"]) != expected_customer:
+                return JSONResponse({"detail": "Account changed. Refresh before continuing."}, status_code=409)
         if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json" and request.url.path not in {"/auth/logout", "/agent"}:
             return JSONResponse({"detail": "JSON body required."}, status_code=415)
     return await call_next(request)
@@ -332,6 +356,46 @@ def auth_login(payload: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid email or password.") from exc
     response = JSONResponse({"customer": result["customer"]})
     _set_auth_cookie(response, result["session_token"])
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+# Durable chat history is always resolved from the session cookie, never a client customer ID.
+@app.get("/chats")
+def list_customer_chats(request: Request):
+    customer_id = _require_authenticated_customer(request)["id"]
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT chat_id, title, messages, updated_at
+            FROM customer_chats WHERE customer_id = ?
+            ORDER BY updated_at DESC LIMIT 30
+        """, (customer_id,)).fetchall()
+    response = JSONResponse({"chats": [
+        {"id": row["chat_id"], "title": row["title"],
+         "messages": json.loads(row["messages"]), "updatedAt": row["updated_at"]}
+        for row in rows
+    ]})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.put("/chats/{chat_id}")
+def save_customer_chat(chat_id: UUID, payload: SaveChatRequest, request: Request):
+    customer_id = _require_authenticated_customer(request)["id"]
+    messages = [message.model_dump() for message in payload.messages]
+    # Never persist a conversation consisting only of the welcome message.
+    if not any(message["role"] == "user" for message in messages):
+        raise HTTPException(status_code=400, detail="A user message is required.")
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO customer_chats (customer_id, chat_id, title, messages, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(customer_id, chat_id) DO UPDATE SET
+                title=excluded.title, messages=excluded.messages,
+                updated_at=excluded.updated_at
+        """, (customer_id, str(chat_id), payload.title, json.dumps(messages),
+              int(time.time() * 1000)))
+    response = JSONResponse({"saved": True})
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -649,9 +713,13 @@ async def memory_decision(decision: PreferenceDecision, request: Request):
 # Paystack TEST mode only; the customer is authenticated and scoped to their session.
 @app.post("/payments/initialize")
 def initialize_payment(payload: PaymentInitialize, request: Request):
+    # A proxy may omit the browser Origin; accept only explicitly approved origins.
+    origin = payload.frontend_origin or request.headers.get("origin")
+    if origin is not None and origin not in AUTH_ALLOWED_ORIGINS:
+        raise HTTPException(status_code=403, detail="Payment return origin not allowed.")
     try:
         return paystack_service.initialize(
-            payload.order_id, _customer_session(request), payload.email
+            payload.order_id, _customer_session(request), payload.email, origin
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
