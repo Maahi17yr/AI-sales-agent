@@ -944,7 +944,7 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
   box-shadow: inset 0 0 0 1px #d9f66c30, 0 0 9px #dfff712b;
 }
 .site-shell.theme-dark button:has(svg):not(:disabled):not(.mobile-nav-backdrop),
-.site-shell.theme-dark ~ .food-panel button:has(svg):not(:disabled) {
+.site-shell.theme-dark .food-panel button:has(svg):not(:disabled) {
   box-shadow: 0 0 0 1px #dfff7159, 0 0 17px 3px #dfff7161;
 }
 .site-shell.theme-dark .side-link:has(svg):not(:disabled),
