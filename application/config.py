@@ -7,10 +7,10 @@ from dotenv import load_dotenv
 # 1. PROJECT PATHS
 # ==========================================
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-DATABASE_PATH = BASE_DIR / "database" / "smallchops.db"
-RAG_DOCUMENTS_PATH = BASE_DIR / "rag" / "documents"
+DATABASE_PATH = BASE_DIR / "data" / "database" / "smallchops.db"
+RAG_DOCUMENTS_PATH = BASE_DIR / "application" / "rag" / "knowledge"
 
 load_dotenv(BASE_DIR / ".env")
 

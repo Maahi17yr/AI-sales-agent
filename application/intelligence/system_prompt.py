@@ -1,5 +1,5 @@
 
-from config import BUSINESS_NAME
+from application.config import BUSINESS_NAME
 
 
 SYSTEM_PROMPT = f"""

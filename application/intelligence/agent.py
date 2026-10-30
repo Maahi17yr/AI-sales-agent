@@ -13,12 +13,12 @@ from strands import Agent, tool
 from strands.models.bedrock import BedrockModel
 
 from application.intelligence.system_prompt import SYSTEM_PROMPT
-from database import repository
-from tools.cart import make_cart_tools
-from tools.orders import make_order_tools
-from rag.tool import search_knowledge_base
-from memory.session import make_session_manager
-from memory.tools import make_preference_tools
+from data.database import repository
+from application.tools.cart import make_cart_tools
+from application.tools.orders import make_order_tools
+from application.rag.tool import search_knowledge_base
+from application.memory.session import make_session_manager
+from application.memory.tools import make_preference_tools
 
 
 

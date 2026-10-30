@@ -42,7 +42,7 @@ from fastapi.responses import (
 )
 
 from pydantic import BaseModel, StrictBool
-from services import paystack_service, auth_service
+from application.services import paystack_service, auth_service
 
 from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
@@ -60,12 +60,12 @@ load_dotenv()
 # PROJECT IMPORTS
 # ------------------------------------------
 
-from database.models import get_connection
-from database import repository
+from data.database.models import get_connection
+from data.database import repository
 from application.intelligence.agent import make_agent
 
-from services.checkout import CheckoutService
-from services.order_service import fingerprint
+from application.services.checkout import CheckoutService
+from application.services.order_service import fingerprint
 
 
 # ------------------------------------------
@@ -172,7 +172,7 @@ def _create_local_dev_session() -> str:
 
     # Stable, LOCAL-ONLY test identity so restarts reuse the same session.
     # Never use this identity mechanism for real customers.
-    from database import repository
+    from data.database import repository
 
     session_id = os.getenv("NAIJA_BITES_DEV_SESSION_ID", "naija-bites-local-dev-v1")
     if not session_id.strip():
@@ -207,10 +207,10 @@ async def lifespan(app: FastAPI):
         if not os.getenv("BEDROCK_MODEL_ID"):
             raise RuntimeError("Demo requires BEDROCK_MODEL_ID.")
         # Create only missing schema/catalogue; never overwrite existing orders or stock.
-        from database.models import create_tables
-        from database.seed import seed_products, seed_delivery_zones
-        from database.customization_schema import create_customization_tables
-        from database.seed_customizations import seed_customizations
+        from data.database.models import create_tables
+        from data.database.seed import seed_products, seed_delivery_zones
+        from data.database.customization_schema import create_customization_tables
+        from data.database.seed_customizations import seed_customizations
         create_tables()
         with get_connection() as conn:
             seed_products(conn)
@@ -620,14 +620,14 @@ async def get_dev_customer(request: Request):
 # Customer identity is always resolved from the authenticated cookie.
 @app.get("/memory/pending")
 async def memory_pending(request: Request):
-    from memory import preferences
+    from application.memory import preferences
     pending = preferences.get_pending_preference(_customer_session(request))
     return {"success": True, "pending": pending is not None, "proposal": pending}
 
 
 @app.post("/memory/decision")
 async def memory_decision(decision: PreferenceDecision, request: Request):
-    from memory import preferences
+    from application.memory import preferences
     try:
         result = preferences.resolve_preference(
             _customer_session(request), decision.request_id, decision.approved
