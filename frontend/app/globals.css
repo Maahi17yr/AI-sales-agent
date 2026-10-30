@@ -604,30 +604,6 @@ img, video { height: auto; }
   .site-shell .conversation { scroll-behavior: auto; }
   .typing-dots i, .spin { animation: none !important; }
 }
-/* Respect the user's system appearance without sacrificing readability. */
-@media (prefers-color-scheme: dark) {
-  .site-shell { --ink: #f1f4ed; --line: #3c4a3f; --canvas: #15271d; background: #15271d; color: #f1f4ed; }
-  .site-shell .chat-layout, .site-shell .conversation { background: #15271d; }
-  .site-shell .chat-header, .site-shell .composer-area, .site-shell .side-panel { background: #1c3023; color: #f1f4ed; border-color: #3c4a3f; }
-  .site-shell .bubble, .site-shell .composer, .site-shell .checkout-panel { background: #263a2b; color: #f1f4ed; border-color: #425b47; }
-  .site-shell .user .bubble { background: #36553c; color: #fff; }
-  .site-shell .message-markup strong, .site-shell .composer textarea { color: #f1f4ed; }
-  .site-shell .composer textarea::placeholder { color: #b9c8bb; }
-  .site-shell .new-chat, .site-shell .sidebar-toggle { background: #263a2b; color: #e5eee1; border-color: #425b47; }
-  .food-panel { background: #203329; color: #f2f6f0; border-color: #405344; }
-  .food-panel-content { background: #203329; }
-  .food-panel-tabs { border-color: #405344; }
-  .food-panel-tabs button { color: #c5d5c7; }
-  .food-panel-tabs button.active, .order-status { background: #35533d; color: #f1f8ed; }
-  .meal-card, .menu-search, .menu-categories button { background: #2a4031; border-color: #4d6450; color: #f1f6f0; }
-  .meal-card p, .order-totals p, .food-empty { color: #c5d2c6; }
-  .menu-search input { color: #f1f6f0; }
-  .meal-price del { color: #c4d1c5; }
-  .meal-price strong, .order-totals .order-discount { color: #a9ec9e; }
-  .order-line { border-color: #4d6450; }
-  .menu-categories button.active { background: #4d7653; }
-}
-
 /* Voice chat UI preview; no audio is recorded or transmitted. */
 .site-shell .composer .voice-launch { background: #e7f0e1; color: #2e5b3e; }
 .site-shell .composer .voice-launch:hover:not(:disabled) { background: #d5e8cc; }
@@ -649,12 +625,7 @@ img, video { height: auto; }
 .voice-return:hover { background: #254a33; }
 @media (max-width:479px) { .voice-dialog { padding: 2rem 1rem 1.2rem; } .voice-orb { width: 7.5rem; height: 7.5rem; } }
 @media (prefers-reduced-motion: reduce) { .voice-dialog *, .voice-backdrop * { animation: none !important; } }
-@media (prefers-color-scheme: dark) {
-  .voice-dialog { background: #21382b; color: #f0f6ec; }
-  .voice-dialog #voice-description, .voice-dialog .voice-footnote { color: #b3c6b7; }
-  .voice-close, .voice-controls button { background: #35523c; color: #e5f2e0; border-color: #537359; }
-  .voice-dialog .voice-status, .voice-eyebrow { color: #b8dba8; }
-}
+
 
 /* Desktop space management: an icon rail must actually occupy icon-rail width.
    This overrides the more-specific 1440px sidebar width declared earlier. */
@@ -706,4 +677,199 @@ img, video { height: auto; }
 @media (prefers-color-scheme: dark) {
   .site-shell .chat-history-clear { color: #e9ac98; }
   .site-shell .chat-history-clear:hover:not(:disabled) { background: #54352f; border-color: #765247; }
+}
+
+/* Appearance switch: light is the default; a user-controlled class activates dark.
+   OS appearance is only used to initialize the preference in React. */
+.site-shell .theme-toggle {
+  display: inline-grid; place-items: center; flex: 0 0 auto;
+  width: 2.75rem; height: 2.75rem; min-width: 2.75rem;
+  border: 1px solid #d6e1d1; border-radius: .8rem;
+  background: #f0f5e9; color: #31573b;
+}
+.site-shell .theme-toggle:hover { background: #e1ebd9; }
+.site-shell .theme-toggle:focus-visible { outline: 3px solid #bd8e46; outline-offset: 2px; }
+body:has(.site-shell.theme-dark) { background: #0e1b14; }
+.site-shell.theme-dark {
+  --ink: #eff5ec;
+  --muted: #b1c3b4;
+  --canvas: #14231b;
+  --line: #385043;
+  --nb-cream: #14231b;
+  --nb-border: #385043;
+  --nb-forest: #224b34;
+  color-scheme: dark;
+  color: #eff5ec;
+  background: #14231b;
+  box-shadow: 0 14px 70px #07130d88;
+}
+.site-shell.theme-dark .chat-layout,
+.site-shell.theme-dark .conversation { background: #14231b; }
+.site-shell.theme-dark .chat-header,
+.site-shell.theme-dark .composer-area,
+.site-shell.theme-dark .side-panel { background: #1c3024; color: #eff5ec; border-color: #385043; }
+.site-shell.theme-dark .chat-header { backdrop-filter: none; }
+.site-shell.theme-dark .identity small,
+.site-shell.theme-dark .agent-title p,
+.site-shell.theme-dark .message-meta,
+.site-shell.theme-dark .composer-caption,
+.site-shell.theme-dark .side-caption,
+.site-shell.theme-dark .sidebar-foot,
+.site-shell.theme-dark .chat-history-count,
+.site-shell.theme-dark .account-email,
+.site-shell.theme-dark .account-label { color: #b1c3b4; }
+.site-shell.theme-dark .side-divider,
+.site-shell.theme-dark .date-divider:before,
+.site-shell.theme-dark .date-divider:after { background: #385043; }
+.site-shell.theme-dark .date-divider { color: #b3c5b4; }
+.site-shell.theme-dark .side-link { color: #c6d6c7; }
+.site-shell.theme-dark .side-link.selected,
+.site-shell.theme-dark .side-link:hover,
+.site-shell.theme-dark .chat-history-item.active,
+.site-shell.theme-dark .chat-history-item:hover:not(:disabled) { background: #31513a; color: #f3f9ee; }
+.site-shell.theme-dark .chat-history-item { color: #c2d4c4; }
+.site-shell.theme-dark .chat-history-empty { color: #b2c5b3; }
+.site-shell.theme-dark .account-panel,
+.site-shell.theme-dark .side-help { background: #253e2e; border-color: #46604a; color: #eff5ec; }
+.site-shell.theme-dark .side-help:after { border-color: #4d6b50; }
+.site-shell.theme-dark .side-help-icon { background: #3c6244; color: #d9f1cf; }
+.site-shell.theme-dark .side-help-eyebrow,
+.site-shell.theme-dark .side-help p { color: #b7d0ae; }
+.site-shell.theme-dark .side-help-action { background: #4b7750; }
+.site-shell.theme-dark .account-logout,
+.site-shell.theme-dark .mobile-logout,
+.site-shell.theme-dark .sidebar-toggle,
+.site-shell.theme-dark .new-chat,
+.site-shell.theme-dark .theme-toggle,
+.site-shell.theme-dark .icon-button,
+.site-shell.theme-dark .secondary-action {
+  background: #2b4533; color: #e8f2e4; border-color: #526d56;
+}
+.site-shell.theme-dark .new-chat:hover,
+.site-shell.theme-dark .theme-toggle:hover,
+.site-shell.theme-dark .sidebar-toggle:hover,
+.site-shell.theme-dark .account-logout:hover,
+.site-shell.theme-dark .mobile-logout:hover { background: #3c6045; }
+.site-shell.theme-dark .agent-avatar,
+.site-shell.theme-dark .message-avatar { background: #33563b; color: #d9f0ce; }
+.site-shell.theme-dark .avatar-online { border-color: #1c3024; }
+.site-shell.theme-dark .open-food-panel,
+.site-shell.theme-dark .open-food-panel[aria-expanded="true"] {
+  background: #35553e; color: #f2f8ec; border-color: #5b805f;
+}
+.site-shell.theme-dark .open-food-panel:hover { background: #416a4b; }
+.site-shell.theme-dark .bubble,
+.site-shell.theme-dark .working-bubble,
+.site-shell.theme-dark .composer,
+.site-shell.theme-dark .checkout-panel {
+  background: #253b2c; color: #f0f5ed; border-color: #49614e;
+  box-shadow: 0 5px 18px #07150b33;
+}
+.site-shell.theme-dark .user .bubble { background: #36563e; border-color: #4c7350; color: #fff; }
+.site-shell.theme-dark .message-markup strong,
+.site-shell.theme-dark .composer textarea,
+.site-shell.theme-dark .message-markup { color: #f0f5ed; }
+.site-shell.theme-dark .message-markup code { background: #3d5842; color: #e7f6e4; }
+.site-shell.theme-dark .list-marker { color: #b5e090; }
+.site-shell.theme-dark .composer-area { border-color: #385043; }
+.site-shell.theme-dark .composer textarea::placeholder { color: #b5c6b7; }
+.site-shell.theme-dark .composer-intro { color: #bdd6ac; }
+.site-shell.theme-dark .composer-caption span { color: #b1d59c; }
+.site-shell.theme-dark .composer button:not(.voice-launch) { background: #527a52; color: #fff; }
+.site-shell.theme-dark .composer button:not(.voice-launch):hover:not(:disabled) { background: #649365; }
+.site-shell.theme-dark .composer .voice-launch { background: #34543c; color: #e2f2dd; }
+.site-shell.theme-dark .composer .voice-launch:hover:not(:disabled) { background: #436e4d; }
+.site-shell.theme-dark .suggestions button,
+.site-shell.theme-dark .shortcut-grid button {
+  background: #253d2e; color: #e8f3e6; border-color: #4b654e;
+}
+.site-shell.theme-dark .suggestions button:hover,
+.site-shell.theme-dark .shortcut-grid button:hover:not(:disabled) { background: #31523b; border-color: #6c926e; }
+.site-shell.theme-dark .shortcut-grid small,
+.site-shell.theme-dark .shortcuts-heading > span { color: #b7c9b8; }
+.site-shell.theme-dark .shortcut-grid strong,
+.site-shell.theme-dark .shortcuts-heading h3 { color: #eaf5e5; }
+.site-shell.theme-dark .shortcut-icon { background: #3a6043; color: #e4f3db; }
+.site-shell.theme-dark .shortcuts-eyebrow { color: #b4d19e; }
+.site-shell.theme-dark .welcome-hero { background: #263f2f; border-color: #47664a; }
+.site-shell.theme-dark .hero-copy h2,
+.site-shell.theme-dark .hero-copy p { color: #e8f3e5; }
+.site-shell.theme-dark .hero-eyebrow,
+.site-shell.theme-dark .hero-footnote { color: #c0d9ad; }
+.site-shell.theme-dark .hero-visual { background: radial-gradient(circle at 56% 52%,#405d43 0%,#294430 70%); }
+.site-shell.theme-dark .hero-orbit { border-color: #5e795c; }
+.site-shell.theme-dark .hero-food-plate { box-shadow: 0 22px 35px #08170e66; }
+.site-shell.theme-dark .hero-sticker { background: #35533d; color: #eff6e9; border-color: #527253; }
+.site-shell.theme-dark .checkout-top,
+.site-shell.theme-dark .checkout-item,
+.site-shell.theme-dark .checkout-cost,
+.site-shell.theme-dark .checkout-cost > .checkout-total { border-color: #4b6550; }
+.site-shell.theme-dark .checkout-top p,
+.site-shell.theme-dark .food-details span,
+.site-shell.theme-dark .food-details small,
+.site-shell.theme-dark .checkout-cost > div,
+.site-shell.theme-dark .order-disclaimer { color: #bdcdbd; }
+.site-shell.theme-dark .checkout-cost > div span:last-child,
+.site-shell.theme-dark .checkout-cost > .checkout-total,
+.site-shell.theme-dark .checkout-cost > .checkout-total strong:last-child { color: #f1f7ed; }
+.site-shell.theme-dark .checkout-cost > .discount span:last-child { color: #b7ecaa; }
+.site-shell.theme-dark .food-icon,
+.site-shell.theme-dark .delivery-box { background: #304e39; color: #d8eccd; }
+.site-shell.theme-dark .delivery-box strong,
+.site-shell.theme-dark .delivery-box p,
+.site-shell.theme-dark .delivery-box span { color: #d0e0cf; }
+.site-shell.theme-dark .review-reopen,
+.site-shell.theme-dark .checkout-success { background: #31513a; color: #dff2d8; border-color: #547657; }
+.site-shell.theme-dark .inline-alert { background: #51322f; color: #ffdad1; border-color: #8a5349; }
+.site-shell.theme-dark .demo-notice { background: #493a22; color: #f5dfa9; border-color: #80683c; }
+.site-shell.theme-dark .food-panel { background: #1e3125; color: #f0f6ec; border-color: #405b45; }
+.site-shell.theme-dark .food-panel-content { background: #1e3125; }
+.site-shell.theme-dark .food-panel-tabs { border-color: #405b45; }
+.site-shell.theme-dark .food-panel-tabs button { color: #c5d7c8; }
+.site-shell.theme-dark .food-panel-tabs button.active,
+.site-shell.theme-dark .order-status { background: #34543e; color: #f1f8ed; }
+.site-shell.theme-dark .promo-strip { background: #4c3523; color: #f6dfc0; }
+.site-shell.theme-dark .promo-strip strong { background: #a84c23; }
+.site-shell.theme-dark .meal-card,
+.site-shell.theme-dark .menu-search,
+.site-shell.theme-dark .menu-categories button { background: #2a4232; border-color: #506b53; color: #f1f6ed; }
+.site-shell.theme-dark .menu-search { color: #c0d8bf; }
+.site-shell.theme-dark .menu-search input { color: #f1f6ed; }
+.site-shell.theme-dark .menu-search input::placeholder { color: #b6c8b8; }
+.site-shell.theme-dark .menu-categories button.active { background: #48734e; color: #fff; border-color: #6b966e; }
+.site-shell.theme-dark .meal-card h3 { color: #f2f8ee; }
+.site-shell.theme-dark .meal-card p,
+.site-shell.theme-dark .food-empty,
+.site-shell.theme-dark .order-totals p,
+.site-shell.theme-dark .order-line small { color: #c4d5c5; }
+.site-shell.theme-dark .meal-category { color: #f2b477; }
+.site-shell.theme-dark .meal-price strong,
+.site-shell.theme-dark .order-totals .order-discount { color: #b4eda5; }
+.site-shell.theme-dark .meal-price del { color: #b9cbb9; }
+.site-shell.theme-dark .order-line,
+.site-shell.theme-dark .order-totals,
+.site-shell.theme-dark .order-totals .order-grand { border-color: #4b6550; }
+.site-shell.theme-dark .panel-link { color: #c7edb7; }
+.site-shell.theme-dark .meal-add,
+.site-shell.theme-dark .panel-primary { background: #3d6946; color: #fff; }
+.site-shell.theme-dark .meal-add:hover:not(:disabled),
+.site-shell.theme-dark .panel-primary:hover:not(:disabled) { background: #4f8157; }
+.site-shell.theme-dark .voice-dialog { background: #21382b; color: #f0f6ec; }
+.site-shell.theme-dark .voice-dialog #voice-description,
+.site-shell.theme-dark .voice-dialog .voice-footnote { color: #b3c6b7; }
+.site-shell.theme-dark .voice-close,
+.site-shell.theme-dark .voice-controls button { background: #35523c; color: #e5f2e0; border-color: #537359; }
+.site-shell.theme-dark .voice-dialog .voice-status,
+.site-shell.theme-dark .voice-eyebrow { color: #b8dba8; }
+.site-shell.theme-dark .voice-return { background: #456f4c; }
+.site-shell.theme-dark .chat-history-clear { color: #f0b7a4; }
+.site-shell.theme-dark .chat-history-clear:hover:not(:disabled) { background: #54352f; border-color: #765247; }
+.site-shell.theme-dark .conversation,
+.site-shell.theme-dark .side-panel,
+.site-shell.theme-dark .food-panel-content { scrollbar-color: #59735c #203629; }
+@media (max-width: 479px) {
+  .site-shell .chat-header .agent-avatar { display: none; }
+  .site-shell .chat-header .theme-toggle { width: 2.5rem; height: 2.5rem; min-width: 2.5rem; }
+  .site-shell .chat-header .new-chat,
+  .site-shell .chat-header .open-food-panel { min-width: 2.5rem; min-height: 2.5rem; }
 }
