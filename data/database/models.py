@@ -1,5 +1,6 @@
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 import os
 
@@ -29,7 +30,7 @@ def get_connection():
 def create_tables():
     """Create the eight tables for customer operations."""
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         if os.getenv("DATABASE_URL", "").strip():
             conn.execute("CREATE EXTENSION IF NOT EXISTS citext")
 
@@ -237,7 +238,7 @@ def create_tables():
 
 def show_tables():
     """Display the tables currently in the database."""
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         tables = conn.execute("""
             SELECT name
             FROM sqlite_master

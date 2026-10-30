@@ -104,9 +104,8 @@ type ConfirmationResponse = {
 // CONFIGURATION
 // ------------------------------------------
 
-const API =
-  process.env.NEXT_PUBLIC_AGUI_URL ||
-  '/api/backend';
+// Use the same-origin Next.js proxy for health checks and chat.
+const API = '/api/backend';
 
 const uid = () => crypto.randomUUID();
 
