@@ -90,6 +90,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshSession]);
 
   const apiFetch = useCallback(async (path: string, options: RequestInit = {}) => {
+    const expectedCustomerId = customerRef.current?.id;
+    const headers = new Headers(options.headers);
+    if (expectedCustomerId !== undefined) {
+      headers.set('X-Naija-Bites-Expected-Customer', String(expectedCustomerId));
+    }
     // Do not send account-changing requests from a stale tab under another user's cookie.
     if (options.method && !['GET', 'HEAD'].includes(options.method.toUpperCase())) {
       const session = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
@@ -108,6 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const response = await fetch(`${API}${path}`, {
       ...options,
+      headers,
       credentials: 'include',
       cache: options.cache ?? 'no-store',
     });
