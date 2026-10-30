@@ -9,7 +9,7 @@ except ImportError:  # SQLite-only local development
 from collections import Counter
 
 import config
-from database.models import get_connection
+from data.database.models import get_connection
 
 
 def fingerprint(summary):
