@@ -395,6 +395,17 @@ def list_customer_chats(request: Request):
     return response
 
 
+@app.delete("/chats")
+def clear_customer_chats(request: Request):
+    """Permanently clear only the signed-in customer's saved conversations."""
+    customer_id = _require_authenticated_customer(request)["id"]
+    with get_connection() as conn:
+        conn.execute("DELETE FROM customer_chats WHERE customer_id = ?", (customer_id,))
+    response = JSONResponse({"cleared": True})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.put("/chats/{chat_id}")
 def save_customer_chat(chat_id: UUID, payload: SaveChatRequest, request: Request):
     customer_id = _require_authenticated_customer(request)["id"]
