@@ -54,16 +54,6 @@ npm run dev
 
 For a local frontend connection, set `NEXT_PUBLIC_AGUI_URL=http://localhost:8000` in `frontend/.env.local`, then restart Next.js.
 
-## Testing
-
-Run the dependency-free exact product matching regression tests:
-
-```powershell
-python -m unittest discover -s tests -p "test_exact_cart_matching.py" -v
-```
-
-Additional tests are under `tests/` and `rag/tests/`. Some integration tests require installed dependencies, a configured database, or a running backend. Do not interpret a successful unit test as proof of end-to-end agent reliability.
-
 **Known limitation:** The AI may occasionally require a retry. Cart contents and totals must be verified against application state, not inferred from the assistant's message.
 
 ## Repository guide
@@ -76,6 +66,5 @@ Additional tests are under `tests/` and `rag/tests/`. Some integration tests req
 - `rag/` — knowledge-base ingestion and retrieval
 - `memory/` — session management (generated session files are ignored)
 - `frontend/` — customer-facing website
-- `tests/` — test and regression cases
 
 See `Use_case.md` for the assignment brief, `DEPLOY_DEMO.md` for deployment notes, and `POSTGRES_SETUP.md` for database configuration.
