@@ -24,10 +24,11 @@ type Props = {
 const money = (amount: number) => new Intl.NumberFormat('en-NG', {
   style: 'currency', currency: 'NGN', maximumFractionDigits: 0,
 }).format(amount);
-const foodEmoji = (category: string) => ({
+const foodIcons: Record<string, string> = {
   'Main Meals': '🍛', Soups: '🥘', Swallows: '🍽️', Proteins: '🍗',
   Sides: '🍌', Drinks: '🥤', Snacks: '🥟',
-}[category] || '🍲');
+};
+const foodEmoji = (category: string) => foodIcons[category] || '🍲';
 
 export default function FoodPanel({
   open, onClose, onOrder, onViewCart, apiFetch, refreshKey, disabled, checkoutTotal,
