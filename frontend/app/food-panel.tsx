@@ -101,7 +101,7 @@ export default function FoodPanel({
   return (
     <>
       {open && <button type="button" className="food-panel-backdrop" onClick={onClose} aria-label="Close menu and order summary" />}
-      <aside className={`food-panel ${open ? 'food-panel-open' : ''}`} aria-label="Menu and order summary">
+      <aside id="food-menu-panel" className={`food-panel ${open ? 'food-panel-open' : ''}`} aria-label="Menu and order summary">
         <div className="food-panel-heading">
           <div><span className="food-panel-eyebrow">NAIJA BITES</span><h2>What’s cooking?</h2><p>Fresh flavours, made for you.</p></div>
           <button type="button" className="food-panel-close" onClick={onClose} aria-label="Close menu"><X size={20} /></button>
