@@ -1,66 +1,53 @@
-# Naija Bites — low-cost public demo deployment
+# Naija Bites — Demo deployment guide
 
-This is **demo-only**. It is not a production release. **Paystack test mode is mandatory.** Never enter real payment details or actual delivery addresses. No real food orders will be fulfilled. AWS Bedrock usage may incur charges even when hosting is free.
+**Fictional demo only. Paystack TEST mode is required. Do not enter real customer/payment information.** AWS Bedrock and other hosting services may incur costs.
 
-## Architecture
+## Services and configuration
 
-- Next.js frontend on Vercel (root directory: `frontend`)
-- FastAPI backend on Render (Blueprint: `render.yaml`)
-- First-party browser API proxy: `/api/backend/*` rewritten by Next.js to Render
-- HttpOnly, Secure, SameSite=Lax authentication cookie on the **Vercel domain**
-- SQLite + Strands session files in `/tmp/naija-bites` on the free Render instance (**ephemeral**)
+- **Vercel:** Next.js frontend; set **Root Directory** to `presentation/frontend`.
+- **Render:** FastAPI backend; the root `render.yaml` installs dependencies, builds the RAG FTS5 index and launches `application.api.server:app`.
+- **Neon:** PostgreSQL for customer, cart, inventory and order data; configure `DATABASE_URL` as a secret on Render.
+- **RAG:** A generated SQLite FTS5 index of fictional Markdown policies. This is separate from the Neon business database.
 
-**Critical limitation:** Render free-instance local data can be erased on restart, sleep, or redeploy. All accounts, orders, inventory changes, payment records and conversations may disappear. A user can be logged out and an old Paystack callback may not be verifiable if data disappears. Use fictitious test data only. Do not use this architecture for real customers.
+## Before deployment
 
-## 1. Prepare repository branch
+1. Check out a verified branch and review `README.md` and `docs/ARCHITECTURE.md`.
+2. Ensure no `.env` files, private keys, credentials or local databases are tracked.
+3. In Render, set `NAIJA_BITES_ENV=demo` and `DATABASE_URL` to the **Neon PostgreSQL** URI. Demo mode refuses to start without `DATABASE_URL`.
+4. Set `NAIJA_BITES_FRONTEND_ORIGIN` to the deployed Vercel HTTPS origin, and `PAYSTACK_CALLBACK_URL` to that origin plus the application's payment-return path.
+5. Set `PAYSTACK_SECRET_KEY` to a **sk_test_** key only. Configure `BEDROCK_MODEL_ID`, `AWS_REGION` and appropriately scoped AWS credentials.
+6. In Vercel, set `NEXT_BACKEND_URL` to the Render HTTPS service URL. Do not expose `DATABASE_URL` or secrets through `NEXT_PUBLIC_` variables.
+7. Confirm that the Vercel Root Directory is **`presentation/frontend`**, not the old `frontend`.
 
-Work from `deployment-preparation`. Keep `main` unchanged. Do not commit `.env`, `.env.local`, AWS keys or Paystack keys.
+## Smoke check
 
-## 2. Deploy backend on Render
+- Open the frontend and check signup/login/logout.
+- Browse menu, add items to cart and verify quantities/prices against the UI.
+- Prepare checkout, review totals, and confirm only through the application-controlled flow.
+- Use **Paystack TEST** payment flows only.
+- Restart the backend and confirm customer/order data survives in Neon.
+- Verify the backend `/ping` endpoint and check logs for startup errors.
 
-1. In Render, create a Blueprint from this repository and select the `deployment-preparation` branch (check branch selection before deploying).
-2. Render uses `render.yaml`. Confirm the free plan is available for your account; pricing and availability may vary.
-3. Set the secret environment variables:
-   - `NAIJA_BITES_FRONTEND_ORIGIN` = `https://YOUR-VERCEL-DOMAIN.vercel.app` (no trailing slash)
-   - `PAYSTACK_CALLBACK_URL` = `https://YOUR-VERCEL-DOMAIN.vercel.app/?payment_return=1`
-   - `PAYSTACK_SECRET_KEY` = your **sk_test_...** key only
-   - `BEDROCK_MODEL_ID` = a model available to your AWS account
-   - `AWS_REGION` = the model's AWS region
-   - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` = credentials with least-privilege Bedrock model invocation access (use a role instead if your host supports it)
-4. If you don't yet know your Vercel domain, create the Vercel project first, then return to configure these variables.
-5. The demo initializes tables and the sample menu automatically on startup; the RAG index builds during deployment. Use a single backend instance only.
+## Limitations
 
-## 3. Deploy frontend on Vercel
+- Render free-tier file storage is ephemeral: local Strands session files and the generated RAG index can be lost across restarts, but the RAG index is rebuilt during deployment. **Neon** is the persistent business-data store.
+- This is not a production payment or food-ordering service.
+- If Neon is unavailable, demo mode should fail instead of silently switching to SQLite.
 
-1. Import this GitHub repository and select branch `deployment-preparation`.
-2. Set **Root Directory** to `frontend` and framework to Next.js.
-3. Set server-side `NEXT_BACKEND_URL` to `https://YOUR-RENDER-SERVICE.onrender.com` (no trailing slash).
-4. Set `NEXT_PUBLIC_DEMO_MODE=true` so the site visibly warns visitors this is not a real food service.
-5. **Do not set** `NEXT_PUBLIC_AGUI_URL` in Vercel. The browser must call relative `/api/backend/*` URLs through the Next.js rewrite; direct cross-site cookies are unreliable.
-6. Deploy, and copy the actual Vercel HTTPS domain to `NAIJA_BITES_FRONTEND_ORIGIN` and `PAYSTACK_CALLBACK_URL` on Render. Redeploy/restart Render after setting them.
+## Local development
 
-## 4. Payment webhook (test mode)
+Run from the repository root:
 
-In the Paystack **test** dashboard, set the webhook URL to:
-`https://YOUR-RENDER-SERVICE.onrender.com/payments/webhook`
+```powershell
+python -m pip install -r requirements.txt
+python -m application.rag.ingest
+python -m uvicorn application.api.server:app --reload --port 8000
+```
 
-The webhook is validated using the Paystack test secret. The browser callback returns to the Vercel frontend. Keep both in test mode. Render's free service may be asleep when webhooks arrive; do not rely on webhook delivery in this demo.
+In a second terminal:
 
-## 5. Smoke test (use fake information)
-
-- Visit `https://YOUR-VERCEL-DOMAIN.vercel.app` in a fresh browser.
-- Sign up with a **fictional demo identity**, then sign in and refresh to confirm the session cookie works.
-- Ask the AI for the menu; verify Bedrock replies.
-- Create a fake cart and prepared checkout, then explicitly confirm it.
-- Complete Paystack's **test** payment and check for the backend-verified success confirmation.
-- Log out, log back in and verify isolation with a second fictional account.
-- Check Render logs if `/api/backend/ping` returns an error.
-
-## Security / operational caveats
-
-- **Never set `NAIJA_BITES_ENV=production`**. Only `development` and explicitly configured `demo` are allowed.
-- The demo exposes customer signup to the public. It does **not** have production-grade abuse prevention, monitoring, backups, or persistent data.
-- Authenticated state is enforced on the FastAPI server; the frontend login gate alone is not a security boundary.
-- `NAIJA_BITES_FRONTEND_ORIGIN` must exactly match the browser's origin. If you later add a custom domain, update this setting and redeploy the backend.
-- Hosted AI may cost money and the free backend may cold-start, time out, or lose data. Use budgets/usage limits at AWS.
-- Production requires a durable database (prefer PostgreSQL), persistent session storage, a rate-limiting strategy, stronger security review, and real payment/fulfilment processes.
+```powershell
+cd presentation/frontend
+npm install
+npm run dev
+```
