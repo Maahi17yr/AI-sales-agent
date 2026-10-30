@@ -13,6 +13,9 @@ Naija Bites is a conversational ordering demo. Customers can explore a 30-item N
 
 ## Architecture
 
+See [the architecture and repository map](docs/ARCHITECTURE.md) for the end-to-end request flow, folder responsibilities, and the distinction between Neon and the local SQLite RAG index.
+
+
 | Layer | Technology | Responsibility |
 | --- | --- | --- |
 | Web UI | Next.js 15, React 19, TypeScript | Chat, login, cart, checkout review |
@@ -58,8 +61,9 @@ For a local frontend connection, set `NEXT_PUBLIC_AGUI_URL=http://localhost:8000
 
 ## Repository guide
 
-- `agent.py` and `system_prompt.py` — agent registration and behavior
-- `agui_server.py` — API endpoints and streaming
+- `application/intelligence/` — agent registration and system prompt
+- `application/api/server.py` — API endpoints and streaming
+- `agent.py` and `agui_server.py` — compatibility entrypoints for existing commands
 - `tools/` — agent-facing operations and exact product-name matching
 - `services/` — trusted cart, order and checkout logic
 - `database/` — persistence, schema and sample catalogue
