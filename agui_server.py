@@ -93,8 +93,15 @@ LOCAL_ORIGINS = {
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 }
+# Additional exact HTTPS origins for temporary Vercel preview deployments.
+# Keep the primary frontend origin unchanged for Paystack callback validation.
+EXTRA_FRONTEND_ORIGINS = {
+    origin.strip().rstrip("/")
+    for origin in os.getenv("NAIJA_BITES_EXTRA_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+}
 AUTH_ALLOWED_ORIGINS = (
-    {DEMO_FRONTEND_ORIGIN} if DEPLOYMENT_MODE == "demo"
+    ({DEMO_FRONTEND_ORIGIN} | EXTRA_FRONTEND_ORIGINS) if DEPLOYMENT_MODE == "demo"
     else LOCAL_ORIGINS
 )
 
@@ -200,6 +207,8 @@ async def lifespan(app: FastAPI):
             raise RuntimeError("Demo requires DATABASE_URL for durable PostgreSQL storage.")
         if not DEMO_FRONTEND_ORIGIN.startswith("https://"):
             raise RuntimeError("Demo requires HTTPS NAIJA_BITES_FRONTEND_ORIGIN.")
+        if any(not origin.startswith("https://") for origin in EXTRA_FRONTEND_ORIGINS):
+            raise RuntimeError("Demo extra allowed origins must use HTTPS.")
         if not os.getenv("PAYSTACK_SECRET_KEY", "").startswith("sk_test_"):
             raise RuntimeError("Demo requires a Paystack TEST secret key.")
         if not os.getenv("PAYSTACK_CALLBACK_URL", "").startswith(DEMO_FRONTEND_ORIGIN + "/"):
