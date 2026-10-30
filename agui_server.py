@@ -108,6 +108,9 @@ EXTRA_FRONTEND_ORIGINS = {
 # Keep the origin check strict: do not use a wildcard for preview deployments.
 # Remove this entry once the preview is promoted to the stable frontend URL.
 CURRENT_PREVIEW_ORIGINS = {
+    # Stable alias for the chat-preview branch, unchanged across deployments.
+    "https://ai-sales-agent-uerh-git-fix-account-chat-sync-prev-c8a4b3-huhm2.vercel.app",
+    # Older preview URL retained temporarily for existing payment returns.
     "https://ai-sales-agent-uerh-n1g0p73jw-huhm2.vercel.app",
 }
 AUTH_ALLOWED_ORIGINS = (
