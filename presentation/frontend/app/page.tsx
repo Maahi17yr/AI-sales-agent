@@ -109,11 +109,6 @@ const API = '/api/backend';
 
 const uid = () => crypto.randomUUID();
 
-// Only bypass Bedrock for an unambiguous greeting at the start of a chat.
-// Later greetings may be contextual and should reach the agent.
-const isSimpleGreeting = (text: string) =>
-  /^(hi|hello|hey|good morning|good afternoon|good evening)[!.? ]*$/i.test(text.trim());
-
 const welcome: Msg = {
   id: 'welcome',
   role: 'assistant',
@@ -145,7 +140,7 @@ export default function Home() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
   const [error, setError] = useState('');
-  const [activity, setActivity] = useState('');
+  const [showTyping, setShowTyping] = useState(false);
   const [threadId, setThreadId] = useState('');
   const [savedChats, setSavedChats] = useState<SavedChat[]>([]);
   const [historyReady, setHistoryReady] = useState(false);
@@ -310,10 +305,10 @@ export default function Home() {
 
   // Scroll only the conversation, never the document or the message composer.
   useEffect(() => {
-    if (messages.length === 1 && !activity) return;
+    if (messages.length === 1 && !showTyping) return;
     const panel = conversationRef.current;
     if (panel) panel.scrollTop = panel.scrollHeight;
-  }, [messages, activity]);
+  }, [messages, showTyping]);
 
   // Keep the review card in sync with the trusted backend state.
   // Polling also covers tool results that finish just after a chat stream.
@@ -387,7 +382,7 @@ export default function Home() {
     setMessages([welcome]);
     setDraft('');
     setError('');
-    setActivity('');
+    setShowTyping(false);
     setThreadId(uid());
 
     setCheckoutResult('');
@@ -405,7 +400,7 @@ export default function Home() {
     setMessages(chat.messages);
     setDraft('');
     setError('');
-    setActivity('');
+    setShowTyping(false);
     setCheckoutError('');
     setCheckoutResult('');
     setMobileMenuOpen(false);
@@ -429,7 +424,7 @@ export default function Home() {
 
     setDraft('');
     setError('');
-    setActivity('');
+    setShowTyping(true);
     setCheckoutError('');
     setBusy(true);
 
@@ -442,21 +437,6 @@ export default function Home() {
     const next = [...messages, user];
 
     setMessages(next);
-
-    // Instant local reply: no AI call, no cart mutation and no invented menu data.
-    // Chat persistence continues through the existing messages effect.
-    if (messages.every((message) => message.id === 'welcome') && isSimpleGreeting(content)) {
-      setMessages([
-        ...next,
-        {
-          id: uid(),
-          role: 'assistant',
-          content: 'Hey there! 👋 Welcome to Naija Bites. What would you like to eat today?',
-        },
-      ]);
-      setBusy(false);
-      return;
-    }
 
     const requestStartedAt = performance.now();
     let headersReceivedAt: number | null = null;
@@ -544,6 +524,7 @@ export default function Home() {
           typeof evt.delta === 'string'
         ) {
           gotText = true;
+          setShowTyping(false);
           if (firstTokenAt === null) firstTokenAt = performance.now();
           assistantText += evt.delta;
 
@@ -574,16 +555,6 @@ export default function Home() {
               },
             ];
           });
-        } else if (
-          evt.type === 'TOOL_CALL_START'
-        ) {
-          setActivity(
-            'Checking your order details…'
-          );
-        } else if (
-          evt.type === 'TOOL_CALL_END'
-        ) {
-          setActivity('');
         } else if (evt.type === 'RUN_ERROR') {
           throw new Error(
             evt.message ||
@@ -646,7 +617,7 @@ export default function Home() {
       );
     } finally {
       setBusy(false);
-      setActivity('');
+      setShowTyping(false);
       abort.current = null;
     }
   }
@@ -849,7 +820,7 @@ export default function Home() {
                 <button type="button" onClick={() => void send('Surprise me with a Nigerian food recommendation')} disabled={busy || confirming || !threadId}><span className="shortcut-icon"><Sparkles size={21}/></span><strong>Surprise me</strong><small>Find a new favourite</small><ArrowRight size={17} className="shortcut-arrow"/></button>
               </div>
             </section>}
-            {busy && <div className="working-row"><span className="message-avatar"><UtensilsCrossed size={15}/></span><div className="working-bubble"><span className="typing-dots"><i/><i/><i/></span><span>{activity || 'Putting something together…'}</span></div></div>}
+            {busy && showTyping && <div className="working-row" role="status" aria-live="polite" aria-label="Naija Bites is typing"><span className="message-avatar" aria-hidden="true"><UtensilsCrossed size={15}/></span><div className="working-bubble"><span className="typing-dots" aria-hidden="true"><i/><i/><i/></span><span>Naija Bites is typing</span></div></div>}
             {error && <div className="inline-alert" role="alert">{error}</div>}
             {checkout && reviewOpen && <section ref={checkoutCardRef} className="checkout-panel" aria-label="Review your order">
               <div className="checkout-top"><div><span className="checkout-kicker"><ShoppingBag size={15}/> YOUR ORDER</span><h2>Review your order</h2><p>Make sure everything looks right.</p></div><button className="icon-button" aria-label="Hide order review" title="Hide order review" onClick={() => setReviewOpen(false)}><X size={18}/></button></div>
