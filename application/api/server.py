@@ -266,6 +266,7 @@ app.add_middleware(
 
     allow_headers=[
         "Content-Type",
+        "X-Naija-Bites-Expected-Customer",
     ],
 )
 
@@ -313,6 +314,13 @@ async def protect_auth_cookie_requests(request: Request, call_next):
         origin = request.headers.get("origin")
         if origin is not None and origin not in AUTH_ALLOWED_ORIGINS:
             return JSONResponse({"detail": "Origin not allowed."}, status_code=403)
+        # The browser sends the account it believes is active. Refuse writes if
+        # another tab replaced the shared cookie after the frontend checked it.
+        expected_customer = request.headers.get("x-naija-bites-expected-customer")
+        if expected_customer is not None:
+            current = auth_service.authenticate_token(request.cookies.get(AUTH_COOKIE_NAME))
+            if current is None or str(current["id"]) != expected_customer:
+                return JSONResponse({"detail": "Account changed. Refresh before continuing."}, status_code=409)
         if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json" and request.url.path not in {"/auth/logout", "/agent"}:
             return JSONResponse({"detail": "JSON body required."}, status_code=415)
     return await call_next(request)
