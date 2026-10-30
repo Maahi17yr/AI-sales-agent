@@ -1045,3 +1045,30 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
     margin: 0;
   }
 }
+
+/* Wide desktop chat: use one shared horizontal rhythm for messages, composer,
+   and helper text. Keep message bubbles at a readable length; do not alter
+   sidebar, menu drawer, theme colours, or mobile layouts. */
+@media (min-width: 1024px) {
+  .site-shell .conversation-inner {
+    width: 100%;
+    max-width: none;
+    margin-inline: auto;
+    padding-left: clamp(1.25rem, 2.2vw, 2.5rem);
+    padding-right: clamp(1.25rem, 2.2vw, 2.5rem);
+  }
+  .site-shell .composer-area {
+    padding-left: clamp(1.25rem, 2.2vw, 2.5rem);
+    padding-right: clamp(1.25rem, 2.2vw, 2.5rem);
+  }
+  .site-shell .composer,
+  .site-shell .composer-intro {
+    width: 100%;
+    max-width: none;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .site-shell .message-content {
+    max-width: min(80%, 43rem);
+  }
+}
