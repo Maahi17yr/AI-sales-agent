@@ -922,36 +922,55 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
 .site-shell + .food-panel button:has(svg):not(:disabled),
 .food-panel button:has(svg):not(:disabled),
 .voice-dialog button:has(svg):not(:disabled) {
-  box-shadow: 0 0 0 1px #d7f66c3d, 0 0 13px 2px #d9fa6840;
+  box-shadow: 0 0 0 1px #d7f66c1e, 0 0 8px 1px #d9fa6820;
 }
 .site-shell button:has(svg):not(:disabled):not(.mobile-nav-backdrop):hover,
 .food-panel button:has(svg):not(:disabled):hover,
 .voice-dialog button:has(svg):not(:disabled):hover {
-  box-shadow: 0 0 0 1px #e3ff81a8, 0 0 20px 4px #dfff7199;
+  box-shadow: 0 0 0 1px #e3ff8154, 0 0 12px 2px #dfff714c;
 }
 .site-shell button:has(svg):not(:disabled):not(.mobile-nav-backdrop):focus-visible,
 .food-panel button:has(svg):not(:disabled):focus-visible,
 .voice-dialog button:has(svg):not(:disabled):focus-visible {
   outline: 3px solid #d8f66d;
   outline-offset: 3px;
-  box-shadow: 0 0 0 1px #e7ff92, 0 0 20px 5px #dfff71a6;
+  box-shadow: 0 0 0 1px #e7ff9280, 0 0 12px 3px #dfff7153;
 }
 /* Keep the lemon effect subtle on full-width navigation and cards. */
 .site-shell .side-link:has(svg):not(:disabled),
 .site-shell .shortcut-grid button:has(svg):not(:disabled),
 .site-shell .review-reopen:has(svg):not(:disabled),
 .food-panel .meal-add:has(svg):not(:disabled) {
-  box-shadow: inset 0 0 0 1px #d9f66c30, 0 0 9px #dfff712b;
+  box-shadow: inset 0 0 0 1px #d9f66c18, 0 0 5px #dfff7116;
 }
 .site-shell.theme-dark button:has(svg):not(:disabled):not(.mobile-nav-backdrop),
 .site-shell.theme-dark .food-panel button:has(svg):not(:disabled) {
-  box-shadow: 0 0 0 1px #dfff7159, 0 0 17px 3px #dfff7161;
+  box-shadow: 0 0 0 1px #dfff712c, 0 0 10px 2px #dfff7130;
 }
 .site-shell.theme-dark .side-link:has(svg):not(:disabled),
 .site-shell.theme-dark .shortcut-grid button:has(svg):not(:disabled),
 .site-shell.theme-dark .review-reopen:has(svg):not(:disabled) {
-  box-shadow: inset 0 0 0 1px #dfff714d, 0 0 10px #dfff713a;
+  box-shadow: inset 0 0 0 1px #dfff7126, 0 0 6px #dfff711d;
 }
 @media (prefers-reduced-motion: reduce) {
   .site-shell button:has(svg), .food-panel button:has(svg) { transition: none; }
 }
+
+/* History deletion feedback stays visible in the chat column, even with a collapsed rail. */
+.site-shell .history-notice {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: .7rem 1.1rem;
+  background: #fff3dc; color: #68451e;
+  border-bottom: 1px solid #e9c999;
+  font-size: .84rem; font-weight: 600; line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.site-shell .history-notice button {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 2rem; height: 2rem; border: 0; border-radius: .5rem;
+  background: #f4e2c5; color: inherit;
+}
+.site-shell.theme-dark .history-notice {
+  background: #423522; color: #ffe4ad; border-color: #765b31;
+}
+.site-shell.theme-dark .history-notice button { background: #5c4628; color: #ffe4ad; }
