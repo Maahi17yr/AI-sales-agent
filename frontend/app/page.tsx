@@ -25,6 +25,8 @@ import {
   X,
   MessageCircle,
   Mic,
+  Moon,
+  Sun,
   RefreshCw,
   LogOut,
   Menu,
@@ -154,6 +156,27 @@ export default function Home() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [foodPanelOpen, setFoodPanelOpen] = useState(false);
   const [voicePanelOpen, setVoicePanelOpen] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  // Keep the customer's preference across reloads, falling back to their OS theme.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('naija-bites-theme');
+      if (saved === 'light' || saved === 'dark') {
+        setTheme(saved);
+        return;
+      }
+    } catch { /* Storage can be unavailable in private browsing. */ }
+    setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  }, []);
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    try { window.localStorage.setItem('naija-bites-theme', next); }
+    catch { /* The toggle still works for this session. */ }
+  }
+
   // Desktop starts with the food menu visible; smaller screens use an opt-in drawer.
   // Only change the default when crossing the desktop breakpoint, not on every resize.
   useEffect(() => {
@@ -911,7 +934,7 @@ export default function Home() {
   }
 
   return (
-    <main className={`site-shell ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
+    <main className={`site-shell theme-${theme} ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
       {mobileMenuOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} />}
       <aside className="side-panel" id="main-navigation" aria-label="Main navigation">
         <div className="identity">
@@ -940,6 +963,7 @@ export default function Home() {
           <div className="agent-avatar"><ChefHat size={24}/><span className="avatar-online"/></div>
           <div className="agent-title"><h1>Your food companion <span className="header-sparkle">✳</span></h1><p><span className="live-dot"/> Naija Bites AI · Here to help you order</p></div>
           <button type="button" className="open-food-panel" onClick={() => setFoodPanelOpen(value => !value)} aria-label={foodPanelOpen ? 'Hide menu and order summary' : 'Show menu and order summary'} aria-controls="food-menu-panel" aria-expanded={foodPanelOpen}><ShoppingBag size={18}/><span>Menu & order</span></button>
+          <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} aria-pressed={theme === 'dark'}>{theme === 'dark' ? <Sun size={19}/> : <Moon size={19}/>}</button>
           <button className="mobile-logout" type="button" onClick={() => void logout()} aria-label="Sign out" title="Sign out"><LogOut size={17}/></button>
           <button className="new-chat" onClick={reset} disabled={busy || confirming} title="Start a fresh conversation"><RefreshCw size={16}/><span>New chat</span></button>
         </header>
