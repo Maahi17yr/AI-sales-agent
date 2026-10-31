@@ -51,7 +51,9 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const openRef = useRef(open);
+  const closeHandlerRef = useRef(onClose);
   openRef.current = open;
+  closeHandlerRef.current = onClose;
 
   useEffect(() => {
     const speechWindow = window as SpeechWindow;
@@ -79,7 +81,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') closeHandlerRef.current();
       if (event.key !== 'Tab' || !dialogRef.current) return;
       const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement>('button:not(:disabled), textarea:not(:disabled)'));
       const first = focusables[0];
@@ -95,7 +97,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
       previous?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   function startListening() {
     if (disabled || sending || listening) return;
