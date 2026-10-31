@@ -69,6 +69,9 @@ from data.database import repository
 from core.intelligence.agent import make_agent
 
 from core.services.checkout import CheckoutService
+from core.services.cart import CartService
+from core.services.discount_service import DiscountService
+from core import config
 from core.services.order_service import fingerprint
 
 
@@ -344,7 +347,8 @@ async def protect_auth_cookie_requests(request: Request, call_next):
             current = auth_service.authenticate_token(request.cookies.get(AUTH_COOKIE_NAME))
             if current is None or str(current["id"]) != expected_customer:
                 return JSONResponse({"detail": "Account changed. Refresh before continuing."}, status_code=409)
-        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json" and request.url.path not in {"/auth/logout", "/agent"}:
+        # DELETE /chats has no request body; JSON is required only for body-bearing writes.
+        if request.method in {"POST", "PUT", "PATCH"} and request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json" and request.url.path not in {"/auth/logout", "/agent"}:
             return JSONResponse({"detail": "JSON body required."}, status_code=415)
     return await call_next(request)
 
@@ -388,6 +392,17 @@ def list_customer_chats(request: Request):
          "messages": json.loads(row["messages"]), "updatedAt": row["updated_at"]}
         for row in rows
     ]})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.delete("/chats")
+def clear_customer_chats(request: Request):
+    """Permanently clear only the signed-in customer's saved conversations."""
+    customer_id = _require_authenticated_customer(request)["id"]
+    with get_connection() as conn:
+        conn.execute("DELETE FROM customer_chats WHERE customer_id = ?", (customer_id,))
+    response = JSONResponse({"cleared": True})
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -454,6 +469,40 @@ async def ping():
 # ------------------------------------------
 # AI AGENT ENDPOINT
 # ------------------------------------------
+
+@app.get("/menu")
+def menu(request: Request):
+    """Catalogue prices and approved bulk discount tiers (no per-item sale)."""
+    _customer_session(request)
+    return {
+        "discount_policy": {
+            "enabled": config.DISCOUNTS_ENABLED,
+            "min_order": config.MIN_ORDER_FOR_DISCOUNT,
+            "max_percent": config.MAX_DISCOUNT_PERCENT,
+            "tiers": [
+                {"minimum": minimum, "percent": percent}
+                for minimum, percent in sorted(config.BULK_DISCOUNT_TIERS.items())
+            ] if config.DISCOUNTS_ENABLED else [],
+        },
+        "products": [
+            {"id": p["id"], "name": p["name"], "category": p["category"],
+             "description": p["description"], "price": p["price"]}
+            for p in repository.get_all_products()
+        ],
+    }
+
+
+@app.get("/cart")
+def current_cart(request: Request):
+    """The existing discount service decides eligibility and amounts."""
+    session_id = _customer_session(request)
+    cart = CartService(session_id).view_cart()
+    discount = DiscountService(session_id).calculate_discount()
+    return {**cart, "discount_percent": discount["discount_percent"],
+            "discount": discount["discount_amount"],
+            "discount_eligible": discount["eligible"],
+            "discount_message": discount["message"]}
+
 
 @app.post("/agent")
 async def run_agent(

@@ -115,6 +115,32 @@ class AuthenticationAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(chats), 1)
         self.assertEqual(chats[0]["messages"], payload["messages"])
 
+    async def test_clear_history_accepts_bodyless_delete_and_is_account_scoped(self):
+        chat_a = "b4d99882-1e9a-45b8-8b17-59ad66a4b303"
+        chat_b = "c4d99882-1e9a-45b8-8b17-59ad66a4b304"
+        payload = {"title": "Dinner", "messages": [
+            {"id": "m1", "role": "user", "content": "Jollof rice"}
+        ]}
+        self.assertEqual((await self.client.delete("/chats")).status_code, 401)
+        await self.register()
+        await self.login()
+        self.assertEqual((await self.client.put("/chats/" + chat_a, json=payload)).status_code, 200)
+        await self.client.post("/auth/logout")
+        await self.register(email="other.customer@example.test")
+        await self.login(email="other.customer@example.test")
+        self.assertEqual((await self.client.put("/chats/" + chat_b, json=payload)).status_code, 200)
+        await self.client.post("/auth/logout")
+        await self.login()
+        # A DELETE without a JSON body must pass the content-type guard.
+        cleared = await self.client.delete("/chats")
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        self.assertEqual(cleared.json(), {"cleared": True})
+        self.assertEqual((await self.client.get("/chats")).json()["chats"], [])
+        await self.client.post("/auth/logout")
+        await self.login(email="other.customer@example.test")
+        remaining = (await self.client.get("/chats")).json()["chats"]
+        self.assertEqual([chat["id"] for chat in remaining], [chat_b])
+
     async def test_stale_tab_cannot_write_to_another_account(self):
         await self.register()
         await self.login()

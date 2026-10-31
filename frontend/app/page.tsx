@@ -4,6 +4,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { useAuth } from './auth-provider';
+import FoodPanel from './food-panel';
+import VoiceChatPanel from './voice-chat-panel';
 
 import {
   ChefHat,
@@ -22,6 +24,9 @@ import {
   Sparkles,
   X,
   MessageCircle,
+  Mic,
+  Moon,
+  Sun,
   RefreshCw,
   LogOut,
   Menu,
@@ -110,6 +115,16 @@ const API = '/api/backend';
 
 const uid = () => crypto.randomUUID();
 
+// Remove model-internal planning, including incomplete streaming think blocks.
+function customerFacingText(text: string): string {
+  return text
+    .replace(/<(?:think|thinking)\b[^>]*>[\s\S]*?<\/(?:think|thinking)\s*>/gi, '')
+    .replace(/<(?:think|thinking)\b[^>]*>[\s\S]*$/gi, '')
+    .replace(/<\/?(?:think|thinking)\b[^>]*>/gi, '')
+    .replace(/<(?:t|th|thi|thin|think|thinki|thinkin|thinking)$/gi, '')
+    .trimStart();
+}
+
 const welcome: Msg = {
   id: 'welcome',
   role: 'assistant',
@@ -137,14 +152,81 @@ export default function Home() {
 
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarHoverExpanded, setSidebarHoverExpanded] = useState(false);
+  const sidebarHoverTimer = useRef<number | null>(null);
+
+  function cancelSidebarHover() {
+    if (sidebarHoverTimer.current !== null) {
+      window.clearTimeout(sidebarHoverTimer.current);
+      sidebarHoverTimer.current = null;
+    }
+    setSidebarHoverExpanded(false);
+  }
+
+  function startSidebarHover() {
+    if (!sidebarCollapsed || !window.matchMedia('(min-width: 1440px) and (hover: hover) and (pointer: fine)').matches) return;
+    if (sidebarHoverTimer.current !== null) window.clearTimeout(sidebarHoverTimer.current);
+    sidebarHoverTimer.current = window.setTimeout(() => {
+      setSidebarHoverExpanded(true);
+      sidebarHoverTimer.current = null;
+    }, 500);
+  }
+
+  useEffect(() => () => {
+    if (sidebarHoverTimer.current !== null) window.clearTimeout(sidebarHoverTimer.current);
+  }, []);
+
+  const [foodPanelOpen, setFoodPanelOpen] = useState(false);
+  const [voicePanelOpen, setVoicePanelOpen] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  // Keep the customer's preference across reloads, falling back to their OS theme.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('naija-bites-theme');
+      if (saved === 'light' || saved === 'dark') {
+        setTheme(saved);
+        return;
+      }
+    } catch { /* Storage can be unavailable in private browsing. */ }
+    setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  }, []);
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    try { window.localStorage.setItem('naija-bites-theme', next); }
+    catch { /* The toggle still works for this session. */ }
+  }
+
+  // Desktop starts with the food menu visible; smaller screens use an opt-in drawer.
+  // Only change the default when crossing the desktop breakpoint, not on every resize.
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const syncPanel = () => setFoodPanelOpen(desktop.matches);
+    syncPanel();
+    desktop.addEventListener('change', syncPanel);
+    return () => desktop.removeEventListener('change', syncPanel);
+  }, []);
   const [online, setOnline] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [showTyping, setShowTyping] = useState(false);
   const [threadId, setThreadId] = useState('');
   const [savedChats, setSavedChats] = useState<SavedChat[]>([]);
   const [historyReady, setHistoryReady] = useState(false);
+  const [clearingHistory, setClearingHistory] = useState(false);
+  const [historyNotice, setHistoryNotice] = useState('');
+  const clearingHistoryRef = useRef(false);
+  const pendingHistoryWrites = useRef(new Set<Promise<unknown>>());
+
+  function trackHistoryWrite(promise: Promise<unknown>) {
+    pendingHistoryWrites.current.add(promise);
+    void promise.finally(() => pendingHistoryWrites.current.delete(promise)).catch(() => {});
+    return promise;
+  }
+
 
   const [checkout, setCheckout] =
     useState<PendingCheckout | null>(null);
@@ -160,6 +242,7 @@ export default function Home() {
   const [paymentToastSuccess, setPaymentToastSuccess] = useState(false);
 
   const conversationRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const checkoutCardRef = useRef<HTMLElement>(null);
   const lastCheckoutFingerprint = useRef<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -174,6 +257,30 @@ export default function Home() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [mobileMenuOpen]);
+
+  // Keep the chat composer above mobile on-screen keyboards, including iOS Safari.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const updateHeight = () => document.documentElement.style.setProperty(
+      '--app-height', `${viewport?.height ?? window.innerHeight}px`
+    );
+    updateHeight();
+    viewport?.addEventListener('resize', updateHeight);
+    window.addEventListener('resize', updateHeight);
+    return () => {
+      viewport?.removeEventListener('resize', updateHeight);
+      window.removeEventListener('resize', updateHeight);
+      document.documentElement.style.removeProperty('--app-height');
+    };
+  }, []);
+
+  // Grow the composer naturally without moving the page or hiding the send button.
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+  }, [draft]);
 
   // Stop an active agent stream when this authenticated view unmounts.
   useEffect(() => () => { abort.current?.abort(); }, []);
@@ -246,18 +353,19 @@ export default function Home() {
         setThreadId(uid());
         setMessages([welcome]);
       }
-      setHistoryReady(true);
       if (remoteAvailable) {
         for (const chat of toUpload) {
           if (cancelled) return;
           try {
-            await apiFetch('/chats/' + encodeURIComponent(chat.id), {
+            const saved = await apiFetch('/chats/' + encodeURIComponent(chat.id), {
               method: 'PUT', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ title: chat.title, messages: chat.messages }),
             });
+            if (!saved.ok) throw new Error('Cloud migration failed');
           } catch { /* Retain local copy for a later retry. */ }
         }
       }
+      if (!cancelled) setHistoryReady(true);
     };
     void load();
     return () => { cancelled = true; };
@@ -282,14 +390,16 @@ export default function Home() {
     const active = savedChats.find(chat => chat.id === threadId);
     if (!active) return;
     const timer = window.setTimeout(() => {
-      void apiFetch('/chats/' + encodeURIComponent(active.id), {
+      if (clearingHistoryRef.current) return;
+      const write = apiFetch('/chats/' + encodeURIComponent(active.id), {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: active.title, messages: active.messages }),
       }).then(response => {
         if (!response.ok) throw new Error('Cloud save failed');
       }).catch(() => {
-        setError('Unable to sync this conversation. Please check your connection.');
+        if (!clearingHistoryRef.current) setError('Unable to sync this conversation. Please check your connection.');
       });
+      trackHistoryWrite(write);
     }, 1500);
     return () => window.clearTimeout(timer);
   }, [historyReady, savedChats, threadId, apiFetch]);
@@ -417,6 +527,48 @@ export default function Home() {
     setMobileMenuOpen(false);
   }
 
+  async function clearAllHistory() {
+    if (busy || confirming || paymentBusy || clearingHistoryRef.current || !historyReady || savedChats.length === 0) return;
+    if (!window.confirm('Permanently delete all saved conversations? This cannot be undone. Your cart and orders will not be deleted.')) return;
+    clearingHistoryRef.current = true;
+    setClearingHistory(true);
+    setHistoryNotice('');
+    // Wait for pending cloud saves, otherwise a late PUT can recreate deleted chats.
+    setHistoryReady(false);
+    try {
+      await Promise.allSettled(Array.from(pendingHistoryWrites.current));
+      const response = await apiFetch('/chats', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 405) {
+          throw new Error('Clear history is not available on the running backend yet. Update and restart the backend, then try again.');
+        }
+        throw new Error(`Could not clear history (server returned ${response.status}). Please try again.`);
+      }
+      const data = await response.json();
+      if (data?.cleared !== true) throw new Error('The server did not confirm that your history was deleted.');
+      try {
+        window.localStorage.removeItem(historyKey(customer.id));
+        window.sessionStorage.removeItem(paymentChatKey(customer.id));
+      } catch { /* Storage may be disabled. */ }
+      setSavedChats([]);
+      setThreadId(uid());
+      setMessages([welcome]);
+      setDraft('');
+      setShowTyping(false);
+      setError('');
+      setCheckoutError('');
+      setCheckoutResult('');
+      setMobileMenuOpen(false);
+      setHistoryNotice('Chat history cleared successfully.');
+    } catch (error) {
+      setHistoryNotice(error instanceof Error ? error.message : 'Unable to clear history. Please try again.');
+    } finally {
+      clearingHistoryRef.current = false;
+      setHistoryReady(true);
+      setClearingHistory(false);
+    }
+  }
+
   // ----------------------------------------
   // SEND MESSAGE TO AGENT
   // ----------------------------------------
@@ -539,7 +691,8 @@ export default function Home() {
           if (firstTokenAt === null) firstTokenAt = performance.now();
           assistantText += evt.delta;
 
-          const textSnapshot = assistantText;
+          const textSnapshot = customerFacingText(assistantText);
+          if (!textSnapshot.trim()) return;
 
           setMessages((current) => {
             const exists = current.some(
@@ -830,9 +983,9 @@ export default function Home() {
   }
 
   return (
-    <main className={`site-shell ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
+    <main className={`site-shell theme-${theme} ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''} ${sidebarCollapsed && !sidebarHoverExpanded ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
       {mobileMenuOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} />}
-      <aside className="side-panel" id="main-navigation" aria-label="Main navigation">
+      <aside className="side-panel" id="main-navigation" aria-label="Main navigation" onMouseEnter={startSidebarHover} onMouseLeave={cancelSidebarHover}>
         <div className="identity">
           <button type="button" className="sidebar-close-mobile" onClick={() => setMobileMenuOpen(false)} aria-label="Close navigation"><X size={20}/></button>
           <span className="identity-mark"><UtensilsCrossed size={20} strokeWidth={2.2} /></span>
@@ -843,7 +996,7 @@ export default function Home() {
         <button className="side-link selected" title="Food chat" onClick={() => { setMobileMenuOpen(false); document.getElementById('message-input')?.focus(); }}><MessageCircle size={18}/><span className="side-link-text">Food chat</span><ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" title="Explore menu" onClick={() => { setMobileMenuOpen(false); void send('Show me the menu'); }} disabled={busy || confirming || !threadId}><UtensilsCrossed size={18}/><span className="side-link-text">Explore menu</span><ArrowRight size={16} className="side-link-arrow"/></button>
         <button className="side-link" title="My cart" onClick={() => { setMobileMenuOpen(false); void send('Show me my cart'); }} disabled={busy || confirming || !threadId}><ShoppingBag size={18}/><span className="side-link-text">My cart</span><ArrowRight size={16} className="side-link-arrow"/></button>
-        <div className="chat-history" aria-label="Recent conversations"><div className="chat-history-heading"><span className="side-caption">RECENT CHATS</span><span className="chat-history-count">{savedChats.length}</span></div>{savedChats.length ? <div className="chat-history-list">{savedChats.map(chat => <button key={chat.id} type="button" className={`chat-history-item ${threadId === chat.id ? 'active' : ''}`} title={chat.title} aria-current={threadId === chat.id ? 'page' : undefined} disabled={busy || confirming} onClick={() => openChat(chat)}><MessageCircle size={16}/><span>{chat.title}</span></button>)}</div> : <p className="chat-history-empty">Your conversations will appear here.</p>}</div>
+        <div className="chat-history" aria-label="Recent conversations"><div className="chat-history-heading"><span className="side-caption">RECENT CHATS</span><div className="chat-history-actions"><span className="chat-history-count">{savedChats.length}</span>{savedChats.length > 0 && <button type="button" className="chat-history-clear" onClick={() => void clearAllHistory()} disabled={busy || confirming || paymentBusy || clearingHistory} title="Clear all conversation history" aria-label="Clear all saved conversations"><Trash2 size={15}/><span>Clear all</span></button>}</div></div>{savedChats.length ? <div className="chat-history-list">{savedChats.map(chat => <button key={chat.id} type="button" className={`chat-history-item ${threadId === chat.id ? 'active' : ''}`} title={chat.title} aria-current={threadId === chat.id ? 'page' : undefined} disabled={busy || confirming} onClick={() => openChat(chat)}><MessageCircle size={16}/><span>{chat.title}</span></button>)}</div> : <p className="chat-history-empty">Your conversations will appear here.</p>}</div>
         <div className="account-panel"><span className="account-label">SIGNED IN AS</span><strong>{customer.name}</strong><span className="account-email">{customer.email}</span><button className="account-logout" type="button" onClick={() => void logout()}><LogOut size={15}/> Sign out</button></div>
         <div className="side-help"><div className="side-help-icon"><Sparkles size={20}/></div><span className="side-help-eyebrow">YOUR PERSONAL FOOD GUIDE</span><strong>Good food, zero stress.</strong><p>Tell us what you’re craving. We’ll help you find the right bite.</p><button type="button" className="side-help-action" onClick={() => void send("Help me choose something delicious")} disabled={busy || confirming || !threadId}>Get inspired <ArrowRight size={15}/></button></div>
         <div className="sidebar-foot"><span className={`connect-dot ${online ? 'up' : ''}`}/><span>{online === null ? 'Connecting…' : online ? 'Ready to take your order' : 'Connection unavailable'}</span></div>
@@ -853,14 +1006,17 @@ export default function Home() {
           <div className="demo-notice" role="note">Demo only · Paystack TEST payments · No real orders or deliveries. Use fictional details.</div>
         )}
         <header className="chat-header">
-          <button type="button" className="sidebar-toggle desktop-sidebar-toggle" onClick={() => setSidebarCollapsed(value => !value)} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-controls="main-navigation" aria-expanded={!sidebarCollapsed} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>{sidebarCollapsed ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</button>
+          <button type="button" className="sidebar-toggle desktop-sidebar-toggle" onClick={() => { cancelSidebarHover(); setSidebarCollapsed(value => !value); }} aria-label={sidebarCollapsed && !sidebarHoverExpanded ? 'Expand sidebar' : 'Collapse sidebar'} aria-controls="main-navigation" aria-expanded={!sidebarCollapsed || sidebarHoverExpanded} title={sidebarCollapsed && !sidebarHoverExpanded ? 'Expand sidebar' : 'Collapse sidebar'}>{sidebarCollapsed && !sidebarHoverExpanded ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</button>
           <button type="button" className="sidebar-toggle mobile-sidebar-toggle" onClick={() => setMobileMenuOpen(true)} aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileMenuOpen} title="Open navigation"><Menu size={21}/></button>
           <div className="mobile-brand"><span className="identity-mark small"><UtensilsCrossed size={18}/></span></div>
           <div className="agent-avatar"><ChefHat size={24}/><span className="avatar-online"/></div>
           <div className="agent-title"><h1>Your food companion <span className="header-sparkle">✳</span></h1><p><span className="live-dot"/> Naija Bites AI · Here to help you order</p></div>
+          <button type="button" className="open-food-panel" onClick={() => setFoodPanelOpen(value => !value)} aria-label={foodPanelOpen ? 'Hide menu and order summary' : 'Show menu and order summary'} aria-controls="food-menu-panel" aria-expanded={foodPanelOpen}><ShoppingBag size={18}/><span>Menu & order</span></button>
+          <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} aria-pressed={theme === 'dark'}>{theme === 'dark' ? <Sun size={19}/> : <Moon size={19}/>}</button>
           <button className="mobile-logout" type="button" onClick={() => void logout()} aria-label="Sign out" title="Sign out"><LogOut size={17}/></button>
           <button className="new-chat" onClick={reset} disabled={busy || confirming} title="Start a fresh conversation"><RefreshCw size={16}/><span>New chat</span></button>
         </header>
+        {historyNotice && <div className="history-notice" role="status" aria-live="polite">{historyNotice}<button type="button" aria-label="Dismiss history notification" onClick={() => setHistoryNotice('')}><X size={14}/></button></div>}
         <div className="conversation" id="conversation" ref={conversationRef}>
           <div className="conversation-inner">
             {messages.length === 1 ? (
@@ -882,7 +1038,7 @@ export default function Home() {
             ) : <div className="date-divider"><span>Today</span></div>}
             {messages.filter(message => message.id !== 'welcome').map((message) => <div key={message.id} className={`message-row ${message.role}`}>
               {message.role === 'assistant' && <span className="message-avatar"><UtensilsCrossed size={15}/></span>}
-              <div className="message-content"><div className="bubble"><MessageMarkup content={message.content}/></div><span className="message-meta">{message.role === 'assistant' ? 'Naija Bites' : 'You'}</span></div>
+              <div className="message-content"><div className="bubble"><MessageMarkup content={message.role === 'assistant' ? customerFacingText(message.content) : message.content}/></div><span className="message-meta">{message.role === 'assistant' ? 'Naija Bites' : 'You'}</span></div>
             </div>)}
             {messages.length === 1 && <section className="welcome-shortcuts" aria-label="Ways to get started">
               <div className="shortcuts-heading"><div><span className="shortcuts-eyebrow">NOT SURE WHERE TO START?</span><h3>What sounds good today?</h3></div><span>Pick a shortcut or type below</span></div>
@@ -920,10 +1076,20 @@ export default function Home() {
         </div>
         <div className="composer-area">
           <div className="composer-intro"><Sparkles size={15}/> Ask me anything about your next meal</div>
-          <form className="composer" onSubmit={(e) => {e.preventDefault();void send();}}><input id="message-input" aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy || confirming}/><button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <ArrowRight size={21}/>}</button></form>
+          <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+            <textarea ref={textareaRef} id="message-input" rows={1} aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} disabled={busy || confirming}/>
+            <button type="button" className="voice-launch" onClick={() => setVoicePanelOpen(true)} aria-label="Open voice chat preview" title="Voice chat preview"><Mic size={20}/></button>
+             <button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <Send size={20}/>}</button>
+          </form>
           <div className="composer-caption">A little chat, a lot of flavour. <span>✳</span> Naija Bites</div>
         </div>
       </section>
+      <VoiceChatPanel open={voicePanelOpen} onClose={() => setVoicePanelOpen(false)} />
+      <FoodPanel open={foodPanelOpen} onClose={() => setFoodPanelOpen(false)}
+        onOrder={(meal) => { void send(`I'd like one ${meal}, please.`); }}
+        onViewCart={() => { void send('Show me my current cart and help me check out.'); }}
+        apiFetch={apiFetch} refreshKey={messages.length + (busy ? 1 : 0)}
+        disabled={busy || confirming || !threadId} checkoutTotal={checkout?.summary.total}/>
       {paymentMessage && (
         <div
           className={`payment-toast ${paymentToastSuccess ? 'payment-toast--success' : 'payment-toast--warning'}`}
