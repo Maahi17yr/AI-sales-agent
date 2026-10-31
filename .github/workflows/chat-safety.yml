@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - main
+      - feature/owner-mode-phase1-auth
 
 permissions:
   contents: read
