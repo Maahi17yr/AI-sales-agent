@@ -28,7 +28,7 @@ def get_connection():
 
 
 def create_tables():
-    """Create the eight tables for customer operations."""
+    """Create and safely extend the customer and owner data schema."""
 
     with closing(get_connection()) as conn, conn:
         if os.getenv("DATABASE_URL", "").strip():
@@ -73,10 +73,27 @@ def create_tables():
                 name TEXT,
                 email TEXT UNIQUE COLLATE NOCASE,
                 password_hash TEXT,
+                role TEXT NOT NULL DEFAULT 'customer'
+                    CHECK (role IN ('customer', 'owner')),
                 phone TEXT UNIQUE,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Existing databases predate roles. Add the column without recreating
+        # customers or invalidating their orders and chat history.
+        if os.getenv("DATABASE_URL", "").strip():
+            role_exists = conn.execute("""
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'customers' AND column_name = 'role'
+            """).fetchone() is not None
+        else:
+            role_exists = any(row["name"] == "role"
+                              for row in conn.execute("PRAGMA table_info(customers)").fetchall())
+        if not role_exists:
+            conn.execute("""ALTER TABLE customers ADD COLUMN role TEXT NOT NULL
+                DEFAULT 'customer' CHECK (role IN ('customer', 'owner'))""")
 
         # 4. AUTHENTICATION SESSIONS
         conn.execute("""
@@ -87,6 +104,18 @@ def create_tables():
                 expires_at TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Restricted management changes are recorded independently of chats.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS owner_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor TEXT NOT NULL,
+                action TEXT NOT NULL,
+                target_customer_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (target_customer_id) REFERENCES customers(id)
             )
         """)
 
