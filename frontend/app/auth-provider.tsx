@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, Fragment, type FormEvent, type ReactNode } from 'react';
 import { ChefHat, LoaderCircle, ShieldCheck, UtensilsCrossed } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 
 // Always use the same-origin Next.js proxy; FastAPI owns authentication.
 const API = '/api/backend';
@@ -46,8 +47,9 @@ async function detail(response: Response): Promise<string> {
 // The backend decides the role. This only chooses the matching UI;
 // FastAPI must still enforce owner permissions on every owner endpoint.
 function RoleGate({ customer, children }: { customer: Customer; children: ReactNode }) {
-  const ownerPath = typeof window !== 'undefined' &&
-    (window.location.pathname === '/owner' || window.location.pathname.startsWith('/owner/'));
+  // usePathname is consistent across server rendering and hydration.
+  const pathname = usePathname();
+  const ownerPath = pathname === '/owner' || pathname.startsWith('/owner/');
   const redirect = (customer.role === 'owner') !== ownerPath;
   useEffect(() => {
     if (redirect) window.location.replace(customer.role === 'owner' ? '/owner' : '/');
