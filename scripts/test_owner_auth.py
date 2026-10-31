@@ -77,14 +77,7 @@ class OwnerAuthTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_migration_keeps_existing_customers(self):
         # Simulate a database created before role support.
-        with models.get_connection() as conn:
-            conn.execute("DROP TABLE owner_audit_log")
-            conn.execute("DROP TABLE auth_sessions")
-            conn.execute("DROP TABLE customer_chats")
-            conn.execute("DROP TABLE conversation_sessions")
-            conn.execute("DROP TABLE orders") if False else None
-            # SQLite cannot drop a referenced customers table while other tables exist.
-            # Rebuild the legacy customers schema in a standalone temporary database.
+        # Build a standalone legacy schema, then run the current additive migration.
         legacy_path = Path(self.temp.name) / "legacy.db"
         import sqlite3
         with sqlite3.connect(legacy_path) as legacy:
