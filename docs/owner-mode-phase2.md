@@ -5,7 +5,7 @@ Do not merge it before Phase 1 has been reviewed and merged.
 
 ## Implemented
 - Owner overview: verified payment revenue (all-time/today), 7-day sales, order counts, popular paid meals, low-stock alerts.
-- Owner orders: latest 50 orders and guarded status progression; verified paid orders can move through fulfilment.
+- Owner orders: latest 50 orders and guarded status progression; verified paid orders can move through fulfilment. Cancellation and stock restoration are deferred to a dedicated safe workflow.
 - Menu: view all products, edit price and visibility. Existing cart/checkout business rules remain authoritative.
 - Customers: latest 100 customers, order counts and verified spend. Passwords and password hashes are never returned.
 - In-app alerts for pending orders, confirmed orders and low stock. External notifications are deferred.
