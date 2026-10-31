@@ -52,7 +52,7 @@ jobs:
     timeout-minutes: 15
     env:
       NAIJA_BITES_ENV: development
-      NAIJA_BITES_DATA_DIR: ${{ runner.temp }}/naija-bites-owner-smoke
+      NAIJA_BITES_DATA_DIR: /tmp/naija-bites-owner-smoke
       NEXT_BACKEND_URL: http://127.0.0.1:8000
       NEXT_PUBLIC_DEMO_MODE: 'true'
     steps:
