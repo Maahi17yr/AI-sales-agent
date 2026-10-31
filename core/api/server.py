@@ -47,6 +47,7 @@ from typing import Literal
 from uuid import UUID
 import time
 from core.services import paystack_service, auth_service
+from core.api.owner import router as owner_router
 
 from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
@@ -90,7 +91,7 @@ class LoginRequest(BaseModel):
     password: str
 
 
-AUTH_COOKIE_NAME = "naija_bites_session"
+AUTH_COOKIE_NAME = auth_service.SESSION_COOKIE_NAME
 AUTH_COOKIE_MAX_AGE = auth_service.SESSION_DAYS * 24 * 60 * 60
 DEPLOYMENT_MODE = os.getenv("NAIJA_BITES_ENV", "development").strip().lower()
 DEMO_FRONTEND_ORIGIN = os.getenv("NAIJA_BITES_FRONTEND_ORIGIN", "").strip().rstrip("/")
@@ -271,6 +272,7 @@ app = FastAPI(
     version="0.2.0",
     lifespan=lifespan,
 )
+app.include_router(owner_router)
 
 
 # ------------------------------------------

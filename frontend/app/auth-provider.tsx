@@ -13,7 +13,7 @@ function connectionMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
 }
 
-export type Customer = { id: number; name: string; email: string; phone?: string | null };
+export type Customer = { id: number; name: string; email: string; role: 'customer' | 'owner'; phone?: string | null };
 
 type AuthContextValue = {
   customer: Customer;
@@ -41,6 +41,19 @@ async function detail(response: Response): Promise<string> {
     return 'The Naija Bites API is unavailable. Please try again shortly.';
   }
   return `Request failed (HTTP ${response.status}). Please try again.`;
+}
+
+// The backend decides the role. This only chooses the matching UI;
+// FastAPI must still enforce owner permissions on every owner endpoint.
+function RoleGate({ customer, children }: { customer: Customer; children: ReactNode }) {
+  const ownerPath = typeof window !== 'undefined' &&
+    (window.location.pathname === '/owner' || window.location.pathname.startsWith('/owner/'));
+  const redirect = (customer.role === 'owner') !== ownerPath;
+  useEffect(() => {
+    if (redirect) window.location.replace(customer.role === 'owner' ? '/owner' : '/');
+  }, [redirect, customer.role]);
+  if (redirect) return <main className="auth-shell"><div className="auth-loading" role="status">Opening your account…</div></main>;
+  return <Fragment key={customer.id}>{children}</Fragment>;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -215,5 +228,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     </main>
   );
 
-  return <AuthContext.Provider value={{ customer, apiFetch, logout }}><Fragment key={customer.id}>{children}</Fragment></AuthContext.Provider>;
+  return <AuthContext.Provider value={{ customer, apiFetch, logout }}><RoleGate customer={customer}>{children}</RoleGate></AuthContext.Provider>;
 }

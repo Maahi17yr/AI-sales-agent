@@ -16,6 +16,7 @@ from data.database.models import get_connection
 
 _hasher = PasswordHasher()
 SESSION_DAYS = 7
+SESSION_COOKIE_NAME = "naija_bites_session"
 
 
 def _email(value):
@@ -46,7 +47,7 @@ def register_customer(name, email, password):
         except (sqlite3.IntegrityError, UniqueViolation) as exc:
             raise ValueError("Email already registered.") from exc
         customer_id = cursor.lastrowid
-    return {"id": customer_id, "name": name.strip(), "email": email}
+    return {"id": customer_id, "name": name.strip(), "email": email, "role": "customer"}
 
 
 def _new_session(conn, customer_id):
@@ -66,7 +67,7 @@ def login_customer(email, password):
         raise ValueError("Invalid email or password.")
     with closing(get_connection()) as conn, conn:
         row = conn.execute(
-            "SELECT id, name, email, password_hash FROM customers WHERE email=?",
+            "SELECT id, name, email, password_hash, role FROM customers WHERE email=?",
             (email,),
         ).fetchone()
         if row is None or not row["password_hash"]:
@@ -76,7 +77,7 @@ def login_customer(email, password):
         except (VerifyMismatchError, VerificationError, InvalidHashError) as exc:
             raise ValueError("Invalid email or password.") from exc
         token = _new_session(conn, row["id"])
-    return {"customer": {"id": row["id"], "name": row["name"], "email": row["email"]}, "session_token": token}
+    return {"customer": {"id": row["id"], "name": row["name"], "email": row["email"], "role": row["role"]}, "session_token": token}
 
 
 def authenticate_token(token):
@@ -84,7 +85,7 @@ def authenticate_token(token):
         return None
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     with closing(get_connection()) as conn, conn:
-        row = conn.execute("""SELECT c.id, c.name, c.email
+        row = conn.execute("""SELECT c.id, c.name, c.email, c.role
             FROM auth_sessions s JOIN customers c ON c.id=s.customer_id
             WHERE s.token_hash=? AND s.expires_at>?""",
             (token_hash, datetime.now(timezone.utc).isoformat()),
