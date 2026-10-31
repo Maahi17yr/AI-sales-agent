@@ -31,3 +31,7 @@ dashboard endpoints. This is **not** a publicly accessible staging deployment.
 Vercel previews currently use the production backend configuration, so do not
 perform owner writes from a preview until a separate staging backend and database
 have been configured and verified.
+
+The CI suite also tests the additive role migration, promotion, and dashboard
+queries against a disposable PostgreSQL 16 service. No real Render database
+is accessed.
