@@ -22,3 +22,12 @@ Full payment reporting, Owner AI, conversation oversight, promotions and busines
 ## Reporting rules
 Paid revenue uses only `payments.status = 'paid'` rows and stored paid amounts.
 The 7-day trend uses UTC calendar days. The dashboard never estimates or invents revenue.
+
+## Pre-production smoke testing
+GitHub Actions runs a disposable local full-stack smoke test (Next.js dev proxy,
+FastAPI development backend, isolated temporary SQLite). It exercises registration,
+customer denial, trusted promotion, session revocation, owner login and read-only
+dashboard endpoints. This is **not** a publicly accessible staging deployment.
+Vercel previews currently use the production backend configuration, so do not
+perform owner writes from a preview until a separate staging backend and database
+have been configured and verified.
