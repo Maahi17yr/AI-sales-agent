@@ -45,7 +45,7 @@ const upcoming = [
   { title: 'Settings', icon: Settings2 },
 ];
 const nextStatus: Record<string, string | undefined> = {
-  pending_payment: 'cancelled', confirmed: 'preparing',
+  confirmed: 'preparing',
   preparing: 'out_for_delivery', out_for_delivery: 'delivered',
 };
 const money = (amount: number) => '₦' + Number(amount || 0).toLocaleString('en-NG');
@@ -202,7 +202,7 @@ export default function OwnerHome() {
             <div className="owner-heading"><div><span className="owner-eyebrow">FULFILMENT</span><h1>Orders</h1><p>Latest 50 orders. Advance only eligible, verified orders.</p></div></div>
             <div className="owner-panel"><div className="owner-section-title"><h2>Recent orders</h2><span>{orders.length} shown</span></div>
               <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Order status</th><th>Action</th></tr></thead><tbody>
-                {orders.map(order => <tr key={order.id}><td><strong>#{order.id}</strong><small>{order.created_at}</small></td><td>{order.customer_name || 'Customer'}<small>{order.delivery_area}</small></td><td>{money(order.total)}</td><td><span className={'owner-pill ' + (order.payment_status === 'paid' ? 'green' : 'neutral')}>{human(order.payment_status)}</span></td><td><span className="owner-pill neutral">{human(order.status)}</span></td><td>{nextStatus[order.status] && (order.status === 'pending_payment' || order.payment_status === 'paid') ? <button className="owner-small-btn" disabled={busy} onClick={() => void changeOrder(order)}>{human(nextStatus[order.status]!)}</button> : <span className="owner-muted">—</span>}</td></tr>)}
+                {orders.map(order => <tr key={order.id}><td><strong>#{order.id}</strong><small>{order.created_at}</small></td><td>{order.customer_name || 'Customer'}<small>{order.delivery_area}</small></td><td>{money(order.total)}</td><td><span className={'owner-pill ' + (order.payment_status === 'paid' ? 'green' : 'neutral')}>{human(order.payment_status)}</span></td><td><span className="owner-pill neutral">{human(order.status)}</span></td><td>{nextStatus[order.status] && order.payment_status === 'paid' ? <button className="owner-small-btn" disabled={busy} onClick={() => void changeOrder(order)}>{human(nextStatus[order.status]!)}</button> : <span className="owner-muted">—</span>}</td></tr>)}
               </tbody></table></div>{!orders.length && <p className="owner-empty">No orders yet.</p>}
             </div>
           </>}
