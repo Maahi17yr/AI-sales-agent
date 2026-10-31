@@ -10,7 +10,8 @@ from data.database.models import get_connection
 
 
 ORDER_NEXT = {
-    "pending_payment": {"cancelled"},
+    # Cancellation/restocking needs a dedicated inventory-safe workflow.
+    "pending_payment": set(),
     "confirmed": {"preparing"},
     "preparing": {"out_for_delivery"},
     "out_for_delivery": {"delivered"},
@@ -115,7 +116,7 @@ def list_customers(limit=100):
         return _rows(conn, """
             SELECT c.id, c.name, c.email, c.phone, c.created_at,
                    COUNT(o.id) AS order_count,
-                   COALESCE(SUM(CASE WHEN p.status = 'paid' THEN o.total ELSE 0 END), 0) AS paid_spend
+                   COALESCE(SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END), 0) AS paid_spend
             FROM customers c
             LEFT JOIN orders o ON o.customer_id = c.id
             LEFT JOIN payments p ON p.order_id = o.id
