@@ -290,6 +290,7 @@ app.add_middleware(
         "GET",
         "POST",
         "PUT",
+        "PATCH",
     ],
 
     allow_headers=[

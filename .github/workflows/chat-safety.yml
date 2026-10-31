@@ -25,7 +25,7 @@ jobs:
           cache: pip
       - run: python -m pip install -r requirements.txt
       - name: Test authentication, owner access, customer isolation, and chat persistence
-        run: python -m unittest scripts.test_auth_api scripts.test_owner_auth -v
+        run: python -m unittest scripts.test_auth_api scripts.test_owner_auth scripts.test_owner_dashboard -v
 
   frontend-build:
     runs-on: ubuntu-latest
@@ -46,3 +46,68 @@ jobs:
           NEXT_BACKEND_URL: https://naija-bites-demo-api.onrender.com
           NEXT_PUBLIC_DEMO_MODE: 'true'
         run: npm run build
+
+  owner-staging-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NAIJA_BITES_ENV: development
+      NAIJA_BITES_DATA_DIR: /tmp/naija-bites-owner-smoke
+      NEXT_BACKEND_URL: http://127.0.0.1:8000
+      NEXT_PUBLIC_DEMO_MODE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: python -m pip install -r requirements.txt
+      - run: cd frontend && npm ci
+      - name: Start disposable local backend and frontend
+        run: |
+          mkdir -p "$NAIJA_BITES_DATA_DIR"
+          python -m data.database.models
+          python -m uvicorn core.api.server:app --host 127.0.0.1 --port 8000 > /tmp/owner-backend.log 2>&1 &
+          (cd frontend && npm run dev -- --hostname 127.0.0.1) > /tmp/owner-frontend.log 2>&1 &
+      - name: Smoke test customer and owner journeys through Next.js proxy
+        run: python scripts/test_owner_staging_smoke.py
+      - name: Show server logs on failure
+        if: failure()
+        run: |
+          tail -100 /tmp/owner-backend.log || true
+          tail -100 /tmp/owner-frontend.log || true
+
+  owner-postgres-migration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: naija_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d naija_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/naija_test
+      NAIJA_BITES_POSTGRES_CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Verify legacy schema migration and owner access on PostgreSQL
+        run: python -m unittest scripts.test_owner_postgres -v
