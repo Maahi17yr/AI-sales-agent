@@ -71,6 +71,7 @@ from data.database import repository
 from core.intelligence.agent import make_agent
 
 from core.services.checkout import CheckoutService
+from core.services.checkout_state import get_checkout_state
 from core.services.cart import CartService
 from core.services.discount_service import DiscountService
 from core import config
@@ -200,6 +201,14 @@ class PreferenceDecision(BaseModel):
 class CheckoutApproval(BaseModel):
     customer_approved: StrictBool
     reviewed_fingerprint: str
+    checkout_id: str | None = Field(default=None, max_length=100)
+
+
+class CheckoutPrepareRequest(BaseModel):
+    customer_name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=1, max_length=32)
+    delivery_address: str = Field(min_length=1, max_length=500)
+    delivery_area: str = Field(min_length=1, max_length=120)
 
 
 # ------------------------------------------
@@ -546,6 +555,12 @@ async def run_agent(
                     if first_event_ms is None:
                         first_event_ms = round((time.perf_counter() - started) * 1000)
                     yield encoder.encode(event)
+                # Structured, trusted UI action after the agent has finished.
+                # This is independent of whatever the model says in its reply.
+                state = get_checkout_state(session_id)
+                yield "data: " + json.dumps({
+                    "type": "CHECKOUT_STATE", "checkout": state,
+                }, separators=(",", ":")) + "\n\n"
         except Exception:
             outcome = "error"
             raise
@@ -641,24 +656,27 @@ async def get_checkout(request: Request):
     """
 
     session_id = _customer_session(request)
+    return get_checkout_state(session_id)
 
-    pending = read_pending_checkout(session_id)
 
-    if pending is None:
+@app.post("/checkout/prepare")
+async def prepare_checkout_direct(payload: CheckoutPrepareRequest, request: Request):
+    """Recovery path when the AI failed to invoke its preparation tool.
 
-        return {
-            "success": True,
-            "pending": False,
-            "summary": None,
-            "fingerprint": None,
-        }
-
-    return {
-        "success": True,
-        "pending": True,
-        "summary": pending["summary"],
-        "fingerprint": pending["fingerprint"],
-    }
+    Uses the same trusted validation and saved state as the agent tool. This
+    never confirms an order, charges a payment or trusts AI-generated totals.
+    """
+    session_id = _customer_session(request)
+    async with _agent_lock(session_id):
+        result = CheckoutService(session_id).prepare_checkout(
+            customer_name=payload.customer_name,
+            phone=payload.phone,
+            delivery_address=payload.delivery_address,
+            delivery_area=payload.delivery_area,
+        )
+        if not result.get("success"):
+            raise HTTPException(status_code=409, detail=result.get("message", "Could not prepare checkout."))
+        return get_checkout_state(session_id)
 
 
 # ------------------------------------------
@@ -711,6 +729,7 @@ async def confirm_checkout(
         reviewed_fingerprint=(
             approval.reviewed_fingerprint
         ),
+        checkout_id=approval.checkout_id,
     )
 
     if not result.get("success"):
