@@ -75,7 +75,6 @@ from core.services.checkout_state import get_checkout_state
 from core.services.cart import CartService
 from core.services.discount_service import DiscountService
 from core import config
-from core.services.order_service import fingerprint
 
 
 # ------------------------------------------
@@ -583,63 +582,6 @@ async def run_agent(
             "X-Accel-Buffering": "no",
         },
     )
-
-
-# ------------------------------------------
-# READ PENDING CHECKOUT
-# ------------------------------------------
-
-def read_pending_checkout(session_id: str):
-    """
-    Retrieve the pending checkout from SQLite.
-
-    The frontend must display this database
-    summary rather than an AI-generated summary.
-    """
-
-    conn = get_connection()
-
-    try:
-
-        row = conn.execute(
-            """
-            SELECT cart_data
-            FROM conversation_sessions
-            WHERE session_id = ?
-            """,
-            (session_id,),
-        ).fetchone()
-
-        if row is None:
-            return None
-
-        cart = json.loads(row["cart_data"])
-
-        pending = cart.get("pending_checkout")
-
-        if not isinstance(pending, dict):
-            return None
-
-        summary = pending.get("summary")
-        saved_fingerprint = pending.get("fingerprint")
-
-        if not isinstance(summary, dict):
-            return None
-
-        if not isinstance(saved_fingerprint, str):
-            return None
-
-        # Validate stored summary integrity.
-        if fingerprint(summary) != saved_fingerprint:
-            return None
-
-        return {
-            "summary": summary,
-            "fingerprint": saved_fingerprint,
-        }
-
-    finally:
-        conn.close()
 
 
 # ------------------------------------------
