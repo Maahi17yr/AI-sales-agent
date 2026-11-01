@@ -50,6 +50,10 @@ def main():
         }))
         customer_id = login["customer"]["id"]
         session_id = f"customer-{customer_id}"
+        # The first authenticated checkout read creates the trusted
+        # conversation session; only then can the fixture populate its cart.
+        initial_empty = require(client.get(API + "/checkout"))
+        assert not initial_empty["pending"]
 
         # The data is fictional and lives only in the disposable CI database.
         with get_connection() as conn:
