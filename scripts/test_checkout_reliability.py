@@ -124,6 +124,31 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stale.status_code, 409)
         self.assertEqual((await self.client.get("/checkout")).json()["checkout_id"], new_ready["checkout_id"])
 
+    async def test_agent_stream_emits_trusted_checkout_event_without_model_text(self):
+        """Even an empty assistant response must still carry checkout UI state."""
+        ready = (await self.prepare()).json()
+
+        class FakeStrandsAgent:
+            def __init__(self, **kwargs):
+                pass
+
+            async def run(self, input_data):
+                if False:
+                    yield None
+
+        with patch("core.api.server.StrandsAgent", FakeStrandsAgent), \
+             patch("core.api.server.make_agent", return_value=object()):
+            response = await self.client.post("/agent", json={
+                "threadId": "1d5414a4-617e-4ac5-a5ae-000000000001",
+                "runId": "1d5414a4-617e-4ac5-a5ae-000000000002",
+                "parentRunId": None, "state": {}, "messages": [],
+                "tools": [], "context": [], "forwardedProps": {},
+            }, headers={"accept": "text/event-stream"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn('"type":"CHECKOUT_STATE"', response.text)
+        self.assertIn(ready["checkout_id"], response.text)
+        self.assertIn('"status":"ready_for_review"', response.text)
+
     async def test_failed_preparation_never_creates_an_order(self):
         bad = await self.client.post("/checkout/prepare", json={
             "customer_name": "Test Customer", "phone": "invalid",
