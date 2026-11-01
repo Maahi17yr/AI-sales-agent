@@ -112,4 +112,4 @@ jobs:
           cache: pip
       - run: python -m pip install -r requirements.txt
       - name: Verify legacy schema migration and owner access on PostgreSQL
-        run: python -m unittest scripts.test_owner_postgres -v
+        run: python -m unittest scripts.test_owner_postgres scripts.test_checkout_postgres -v
