@@ -158,8 +158,18 @@ class OrderService:
                         and last.get('checkout_id') == checkout_id
                         and last.get('fingerprint') == approval_fingerprint
                         and isinstance(last.get('result'), dict)):
+                    order = conn.execute(
+                        "SELECT status FROM orders WHERE id = ? AND customer_id = ?",
+                        (last.get('order_id'), session['customer_id'])
+                    ).fetchone()
+                    if not order:
+                        raise ValueError('Previous order no longer exists.')
+                    replay = dict(last['result'])
+                    replay['status'] = order['status']
+                    if order['status'] != 'pending_payment':
+                        replay['message'] = 'This order has already moved beyond payment.'
                     conn.commit()
-                    return dict(last['result'])
+                    return replay
                 raise ValueError('No pending checkout. Refresh your order review.')
             if not isinstance(pending.get('summary'), dict):
                 raise ValueError('Saved checkout summary is invalid.')
