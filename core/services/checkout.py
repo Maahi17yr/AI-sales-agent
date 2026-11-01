@@ -1,5 +1,6 @@
 """Checkout preparation and trusted application-only confirmation."""
 import json
+import os
 from uuid import uuid4
 import sqlite3
 try:
@@ -24,8 +25,13 @@ class CheckoutService:
         conn = get_connection()
         try:
             conn.execute('BEGIN IMMEDIATE')
-            session = conn.execute('''SELECT customer_id, cart_data FROM conversation_sessions
-                                      WHERE session_id = ?''', (self.session_id,)).fetchone()
+            # Match confirmation's row lock so a concurrent preparation cannot
+            # resurrect an already-confirmed checkout on PostgreSQL.
+            lock_suffix = " FOR UPDATE" if os.getenv("DATABASE_URL", "").strip() else ""
+            session = conn.execute(
+                "SELECT customer_id, cart_data FROM conversation_sessions "
+                "WHERE session_id = ?" + lock_suffix, (self.session_id,)
+            ).fetchone()
             if not session:
                 raise ValueError('Customer session not found.')
             summary, _, _, _ = OrderService._build_summary_in_transaction(conn, session, fields)
