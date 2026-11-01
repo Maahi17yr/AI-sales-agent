@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import { useAuth } from './auth-provider';
 import FoodPanel from './food-panel';
-import VoiceChatPanel from './voice-chat-panel';
+import VoiceChatPanel, { type VoiceClip } from './voice-chat-panel';
+import VoiceNoteBubble from './voice-note-bubble';
 
 import {
   ChefHat,
@@ -180,6 +181,8 @@ export default function Home() {
 
   const [foodPanelOpen, setFoodPanelOpen] = useState(false);
   const [voicePanelOpen, setVoicePanelOpen] = useState(false);
+  // Audio is session-only. Cloud history keeps the text that the agent received.
+  const voiceClips = useRef(new Map<string, VoiceClip>());
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   // Keep the customer's preference across reloads, falling back to their OS theme.
@@ -283,7 +286,11 @@ export default function Home() {
   }, [draft]);
 
   // Stop an active agent stream when this authenticated view unmounts.
-  useEffect(() => () => { abort.current?.abort(); }, []);
+  useEffect(() => () => {
+    abort.current?.abort();
+    voiceClips.current.forEach(clip => URL.revokeObjectURL(clip.url));
+    voiceClips.current.clear();
+  }, []);
 
   // ----------------------------------------
   // INITIALIZATION
@@ -573,7 +580,7 @@ export default function Home() {
   // SEND MESSAGE TO AGENT
   // ----------------------------------------
 
-  async function send(quick?: string): Promise<string | undefined> {
+  async function send(quick?: string, voiceClip?: VoiceClip): Promise<string | undefined> {
     const content = (quick ?? draft).trim();
 
     if (
@@ -598,6 +605,7 @@ export default function Home() {
     };
 
     const next = [...messages, user];
+    if (voiceClip) voiceClips.current.set(user.id, voiceClip);
 
     setMessages(next);
 
@@ -1037,10 +1045,13 @@ export default function Home() {
                 </div>
               </section>
             ) : <div className="date-divider"><span>Today</span></div>}
-            {messages.filter(message => message.id !== 'welcome').map((message) => <div key={message.id} className={`message-row ${message.role}`}>
-              {message.role === 'assistant' && <span className="message-avatar"><UtensilsCrossed size={15}/></span>}
-              <div className="message-content"><div className="bubble"><MessageMarkup content={message.role === 'assistant' ? customerFacingText(message.content) : message.content}/></div><span className="message-meta">{message.role === 'assistant' ? 'Naija Bites' : 'You'}</span></div>
-            </div>)}
+            {messages.filter(message => message.id !== 'welcome').map((message) => {
+              const clip = voiceClips.current.get(message.id);
+              return <div key={message.id} className={`message-row ${message.role}`}>
+                {message.role === 'assistant' && <span className="message-avatar"><UtensilsCrossed size={15}/></span>}
+                <div className="message-content"><div className={`bubble ${clip ? 'bubble--voice' : ''}`}>{clip ? <VoiceNoteBubble clip={clip} transcript={message.content}/> : <MessageMarkup content={message.role === 'assistant' ? customerFacingText(message.content) : message.content}/>}</div><span className="message-meta">{message.role === 'assistant' ? 'Naija Bites' : 'You'}</span></div>
+              </div>;
+            })}
             {messages.length === 1 && <section className="welcome-shortcuts" aria-label="Ways to get started">
               <div className="shortcuts-heading"><div><span className="shortcuts-eyebrow">NOT SURE WHERE TO START?</span><h3>What sounds good today?</h3></div><span>Pick a shortcut or type below</span></div>
               <div className="shortcut-grid">
@@ -1085,7 +1096,7 @@ export default function Home() {
           <div className="composer-caption">A little chat, a lot of flavour. <span>✳</span> Naija Bites</div>
         </div>
       </section>
-      <VoiceChatPanel open={voicePanelOpen} onClose={() => setVoicePanelOpen(false)} onSend={send} disabled={busy || confirming || !threadId} />
+      <VoiceChatPanel open={voicePanelOpen} onClose={() => setVoicePanelOpen(false)} onSend={(text, clip) => { void send(text, clip); }} disabled={busy || confirming || !threadId} />
       <FoodPanel open={foodPanelOpen} onClose={() => setFoodPanelOpen(false)}
         onOrder={(meal) => { void send(`I'd like one ${meal}, please.`); }}
         onViewCart={() => { void send('Show me my current cart and help me check out.'); }}
