@@ -63,10 +63,13 @@ def get_checkout_state(session_id: str) -> dict:
                 (last["order_id"], row["customer_id"]),
             ).fetchone()
             if order and order["status"] == "pending_payment":
-                state.update(
-                    status="payment_pending",
-                    payment_order_id=order["id"],
-                )
+                state.update(status="payment_pending", payment_order_id=order["id"])
+            elif order and order["status"] in (
+                "confirmed", "preparing", "out_for_delivery", "delivered"
+            ):
+                # A verified payment transitions the order out of pending
+                # payment. Never offer to pay a completed order again.
+                state["status"] = "paid"
         return state
     finally:
         conn.close()
