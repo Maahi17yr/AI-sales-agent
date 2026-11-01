@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, Fragment, type FormEvent, type ReactNode } from 'react';
-import { ChefHat, LoaderCircle, ShieldCheck, UtensilsCrossed } from 'lucide-react';
+import { ChefHat, Eye, EyeOff, LoaderCircle, ShieldCheck, UtensilsCrossed } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
 // Always use the same-origin Next.js proxy; FastAPI owns authentication.
@@ -67,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const customerRef = useRef<Customer | null>(null);
   useEffect(() => { customerRef.current = customer; }, [customer]);
 
@@ -196,6 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!response.ok) throw new Error(await detail(response));
       const data: { customer: Customer } = await response.json();
       setPassword('');
+      setShowPassword(false);
       customerRef.current = data.customer;
       setCustomer(data.customer);
       window.localStorage.setItem('naija-bites-auth-change', String(Date.now()));
@@ -221,11 +223,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         <form className="auth-form" onSubmit={submit}>
           {mode === 'register' && <label>Full name<input name="name" autoComplete="name" value={name} onChange={e => setName(e.target.value)} minLength={2} maxLength={120} required placeholder="Your name"/></label>}
           <label>Email address<input name="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com"/></label>
-          <label>Password<input name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={e => setPassword(e.target.value)} required minLength={mode === 'register' ? 12 : undefined} placeholder="Enter your password"/></label>
+          <label>Password<div className="auth-password-field"><input name="password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={e => setPassword(e.target.value)} required minLength={mode === 'register' ? 12 : undefined} placeholder="Enter your password"/><button className="auth-password-toggle" type="button" onClick={() => setShowPassword(visible => !visible)} aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} title={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={19}/> : <Eye size={19}/>}</button></div></label>
           {notice && <p className="auth-notice" role="alert">{notice}</p>}
           <button className="auth-submit" type="submit" disabled={submitting}>{submitting ? <LoaderCircle className="spin" size={18}/> : <ShieldCheck size={18}/>} {submitting ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}</button>
         </form>
-        <p className="auth-switch">{mode === 'login' ? 'New to Naija Bites?' : 'Already have an account?'} <button type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setNotice(''); setPassword(''); }} disabled={submitting}>{mode === 'login' ? 'Create an account' : 'Sign in'}</button></p>
+        <p className="auth-switch">{mode === 'login' ? 'New to Naija Bites?' : 'Already have an account?'} <button type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setNotice(''); setPassword(''); setShowPassword(false); }} disabled={submitting}>{mode === 'login' ? 'Create an account' : 'Sign in'}</button></p>
       </section>
     </main>
   );
