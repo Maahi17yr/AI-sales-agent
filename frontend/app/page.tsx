@@ -1088,15 +1088,18 @@ export default function Home() {
         </div>
         <div className="composer-area">
           <div className="composer-intro"><Sparkles size={15}/> Ask me anything about your next meal</div>
-          <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-            <textarea ref={textareaRef} id="message-input" rows={1} aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} disabled={busy || confirming}/>
-            <button type="button" className="voice-launch" onClick={() => setVoicePanelOpen(true)} aria-label="Open voice chat" title="Voice chat"><Mic size={20}/></button>
-             <button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <Send size={20}/>}</button>
-          </form>
+          {voicePanelOpen ? (
+            <VoiceChatPanel open={voicePanelOpen} onClose={() => setVoicePanelOpen(false)} onSend={(text, clip) => { void send(text, clip); }} disabled={busy || confirming || !threadId} />
+          ) : (
+            <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+              <textarea ref={textareaRef} id="message-input" rows={1} aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} disabled={busy || confirming}/>
+              <button type="button" className="voice-launch" onClick={() => setVoicePanelOpen(true)} disabled={busy || confirming || !threadId} aria-label="Record voice note" title="Record voice note"><Mic size={20}/></button>
+              <button type="submit" aria-label="Send message" disabled={!draft.trim() || busy || confirming || !threadId}>{busy ? <LoaderCircle size={19} className="spin"/> : <Send size={20}/>}</button>
+            </form>
+          )}
           <div className="composer-caption">A little chat, a lot of flavour. <span>✳</span> Naija Bites</div>
         </div>
       </section>
-      <VoiceChatPanel open={voicePanelOpen} onClose={() => setVoicePanelOpen(false)} onSend={(text, clip) => { void send(text, clip); }} disabled={busy || confirming || !threadId} />
       <FoodPanel open={foodPanelOpen} onClose={() => setFoodPanelOpen(false)}
         onOrder={(meal) => { void send(`I'd like one ${meal}, please.`); }}
         onViewCart={() => { void send('Show me my current cart and help me check out.'); }}
