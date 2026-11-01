@@ -1116,6 +1116,40 @@ export default function Home() {
             </section>}
             {busy && showTyping && <div className="working-row" role="status" aria-live="polite" aria-label="Naija Bites is typing"><span className="message-avatar" aria-hidden="true"><UtensilsCrossed size={15}/></span><div className="working-bubble"><span className="typing-dots" aria-hidden="true"><i/><i/><i/></span><span>Naija Bites is typing</span></div></div>}
             {error && <div className="inline-alert" role="alert">{error}</div>}
+            {!checkout && !paymentOrder && cartHasItems && !busy && (
+              <section className="checkout-recovery" aria-label="Order review recovery">
+                <div className="checkout-recovery-heading">
+                  <ShoppingBag size={19}/>
+                  <div><strong>Ready to review your order?</strong><p>You can open a verified order review without restarting this chat.</p></div>
+                </div>
+                {!recoveryOpen ? (
+                  <button type="button" className="review-reopen" onClick={() => setRecoveryOpen(true)}>
+                    Prepare order review <ArrowRight size={16}/>
+                  </button>
+                ) : (
+                  <form className="checkout-recovery-form" onSubmit={e => { e.preventDefault(); void prepareCheckoutDirect(); }}>
+                    <label>Delivery name
+                      <input required maxLength={120} value={recoveryForm.customer_name} onChange={e => setRecoveryForm(prev => ({...prev, customer_name: e.target.value}))}/>
+                    </label>
+                    <label>Delivery phone
+                      <input required type="tel" maxLength={32} value={recoveryForm.phone} onChange={e => setRecoveryForm(prev => ({...prev, phone: e.target.value}))}/>
+                    </label>
+                    <label>Full delivery address
+                      <input required maxLength={500} value={recoveryForm.delivery_address} onChange={e => setRecoveryForm(prev => ({...prev, delivery_address: e.target.value}))}/>
+                    </label>
+                    <label>Delivery area (e.g. Lekki Phase 1)
+                      <input required maxLength={120} value={recoveryForm.delivery_area} onChange={e => setRecoveryForm(prev => ({...prev, delivery_area: e.target.value}))}/>
+                    </label>
+                    <div className="checkout-recovery-actions">
+                      <button type="button" className="secondary-action" onClick={() => setRecoveryOpen(false)}>Cancel</button>
+                      <button type="submit" className="primary-action" disabled={recoveryBusy || confirming}>
+                        {recoveryBusy ? 'Preparing…' : 'Review order'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </section>
+            )}
             {checkout && reviewOpen && <section ref={checkoutCardRef} className="checkout-panel" aria-label="Review your order">
               <div className="checkout-top"><div><span className="checkout-kicker"><ShoppingBag size={15}/> YOUR ORDER</span><h2>Review your order</h2><p>Make sure everything looks right.</p></div><button className="icon-button" aria-label="Hide order review" title="Hide order review" onClick={() => setReviewOpen(false)}><X size={18}/></button></div>
               <div className="checkout-body">
@@ -1136,7 +1170,7 @@ export default function Home() {
                 <button className="primary-action" onClick={() => void payNow()} disabled={paymentBusy || !paymentEmail.includes('@')}>{paymentBusy ? 'Opening Paystack…' : 'Pay Now (Test Mode)'}</button>
               </div>
             </section>}
-             {checkoutError && <div className="inline-alert" role="alert">{checkoutError}</div>}
+             {checkoutError && <div className="inline-alert" role="alert">{checkoutError} <button type="button" className="checkout-retry" onClick={() => void refreshCheckout()}>Retry sync</button></div>}
 
           </div>
         </div>
