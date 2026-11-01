@@ -893,10 +893,12 @@ export default function Home() {
       checkoutSyncSequence.current++;
       setCheckout(null);
       setCartHasItems(false);
-      setPaymentOrder(result.order_id);
+      setPaymentOrder(result.status === 'pending_payment' ? result.order_id : null);
 
       setCheckoutResult(
-        `Order #${result.order_id} placed! Total: ${formatMoney(result.total)}. Payment is still pending.`
+        result.status === 'pending_payment'
+          ? `Order #${result.order_id} placed! Total: ${formatMoney(result.total)}. Payment is still pending.`
+          : `Order #${result.order_id} was already processed. Current status: ${result.status}.`
       );
     } catch (err) {
       setCheckoutError(
