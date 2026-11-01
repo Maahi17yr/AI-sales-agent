@@ -656,6 +656,7 @@ export default function Home() {
     const assistantId = uid();
     let assistantText = '';
     let gotText = false;
+    let gotCheckoutEvent = false;
 
     const controller = new AbortController();
     abort.current = controller;
@@ -732,6 +733,7 @@ export default function Home() {
         }
 
         if (evt.type === 'CHECKOUT_STATE' && evt.checkout) {
+          gotCheckoutEvent = true;
           checkoutSyncSequence.current++;
           applyCheckoutState(evt.checkout);
           return;
@@ -809,7 +811,7 @@ export default function Home() {
         processFrame(buffer);
       }
 
-      if (!gotText) {
+      if (!gotText && !gotCheckoutEvent) {
         throw new Error(
           'No text response received. Check the backend logs.'
         );
