@@ -49,6 +49,8 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const closedRef = useRef(false);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   function releaseStream() {
     streamRef.current?.getTracks().forEach(track => track.stop());
@@ -98,7 +100,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {
@@ -118,7 +120,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
       previewUrlRef.current = '';
       previous?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   async function startCapture() {
     if (recording || processing || disabled) return;
