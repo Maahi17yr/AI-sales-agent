@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from './auth-provider';
 import FoodPanel from './food-panel';
@@ -89,13 +89,18 @@ type CheckoutSummary = {
 type PendingCheckout = {
   summary: CheckoutSummary;
   fingerprint: string;
+  checkout_id: string | null;
 };
 
 type CheckoutResponse = {
   success: boolean;
   pending: boolean;
+  status: 'cart' | 'ready_for_review' | 'payment_pending';
   summary: CheckoutSummary | null;
   fingerprint: string | null;
+  checkout_id: string | null;
+  cart_has_items: boolean;
+  payment_order_id: number | null;
 };
 
 type ConfirmationResponse = {
@@ -238,6 +243,13 @@ export default function Home() {
   const [checkoutResult, setCheckoutResult] = useState('');
   const [checkoutError, setCheckoutError] = useState('');
   const [reviewOpen, setReviewOpen] = useState(true);
+  const [cartHasItems, setCartHasItems] = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryForm, setRecoveryForm] = useState({
+    customer_name: customer.name, phone: customer.phone || '',
+    delivery_address: '', delivery_area: '',
+  });
   const [paymentOrder, setPaymentOrder] = useState<number | null>(null);
   const [paymentEmail, setPaymentEmail] = useState('');
   const [paymentBusy, setPaymentBusy] = useState(false);
@@ -248,6 +260,8 @@ export default function Home() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const checkoutCardRef = useRef<HTMLElement>(null);
   const lastCheckoutFingerprint = useRef<string | null>(null);
+  // Late polling responses must not hide a newer checkout card.
+  const checkoutSyncSequence = useRef(0);
   const abort = useRef<AbortController | null>(null);
   const paymentReturnStarted = useRef(false);
 
@@ -438,64 +452,90 @@ export default function Home() {
     if (panel) panel.scrollTop = panel.scrollHeight;
   }, [messages, showTyping]);
 
-  // Keep the review card in sync with the trusted backend state.
-  // Polling also covers tool results that finish just after a chat stream.
+  // Database state is authoritative; SSE pushes immediate changes and REST
+  // restores checkout after refresh, reconnect or a missed stream event.
+  const applyCheckoutState = useCallback((data: CheckoutResponse) => {
+    if (data.success !== true || typeof data.pending !== 'boolean') return;
+    setCartHasItems(Boolean(data.cart_has_items));
+    if (data.pending && data.summary && data.fingerprint) {
+      const token = data.checkout_id || data.fingerprint;
+      if (lastCheckoutFingerprint.current !== token) {
+        lastCheckoutFingerprint.current = token;
+        setReviewOpen(true);
+        setRecoveryOpen(false);
+        window.setTimeout(() => checkoutCardRef.current?.scrollIntoView({
+          behavior: 'smooth', block: 'nearest',
+        }), 150);
+      }
+      setCheckout({
+        summary: data.summary, fingerprint: data.fingerprint,
+        checkout_id: data.checkout_id || null,
+      });
+    } else {
+      lastCheckoutFingerprint.current = null;
+      setCheckout(null);
+    }
+    setPaymentOrder(data.payment_order_id || null);
+    setCheckoutError('');
+  }, []);
+
+  const refreshCheckout = useCallback(async (signal?: AbortSignal) => {
+    const sequence = ++checkoutSyncSequence.current;
+    try {
+      const response = await apiFetch('/checkout', { cache: 'no-store', signal });
+      if (!response.ok) throw new Error(`Checkout returned HTTP ${response.status}`);
+      const data: CheckoutResponse = await response.json();
+      if (signal?.aborted || sequence !== checkoutSyncSequence.current) return;
+      applyCheckoutState(data);
+    } catch (err) {
+      if (signal?.aborted || sequence !== checkoutSyncSequence.current) return;
+      console.error('Checkout sync failed:', err);
+      // A temporary outage must not discard a visible checkout.
+      setCheckoutError('Could not sync checkout. Retry below without restarting your chat.');
+    }
+  }, [apiFetch, applyCheckoutState]);
+
   useEffect(() => {
     if (confirming) return;
-    let disposed = false;
-    let activeController: AbortController | null = null;
-
-    async function refreshCheckout() {
-      if (disposed) return;
-      activeController?.abort();
-      const controller = new AbortController();
-      activeController = controller;
-
-      try {
-        const response = await apiFetch('/checkout', {
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`Checkout returned HTTP ${response.status}`);
-
-        const data: CheckoutResponse = await response.json();
-        if (disposed || controller.signal.aborted) return;
-
-        if (data.pending && data.summary && data.fingerprint) {
-          if (lastCheckoutFingerprint.current !== data.fingerprint) {
-            lastCheckoutFingerprint.current = data.fingerprint;
-            setReviewOpen(true);
-            window.setTimeout(() => {
-              if (!disposed) checkoutCardRef.current?.scrollIntoView({
-                behavior: 'smooth',
-                block: 'nearest',
-              });
-            }, 150);
-          }
-          setCheckout({ summary: data.summary, fingerprint: data.fingerprint });
-        } else {
-          lastCheckoutFingerprint.current = null;
-          setCheckout(null);
-        }
-        setCheckoutError('');
-      } catch (err) {
-        if (disposed || controller.signal.aborted) return;
-        console.error('Checkout fetch failed:', err);
-        setCheckoutError('Could not load the current checkout summary.');
-      }
-    }
-
-    void refreshCheckout();
-    const interval = window.setInterval(() => {
-      if (!busy && !confirming) void refreshCheckout();
-    }, 3000);
-
-    return () => {
-      disposed = true;
-      window.clearInterval(interval);
-      activeController?.abort();
+    const controller = new AbortController();
+    void refreshCheckout(controller.signal);
+    const syncIfVisible = () => {
+      if (!document.hidden && !busy && !confirming) void refreshCheckout(controller.signal);
     };
-  }, [busy, confirming, apiFetch]);
+    const interval = window.setInterval(syncIfVisible, 15000);
+    window.addEventListener('focus', syncIfVisible);
+    window.addEventListener('online', syncIfVisible);
+    document.addEventListener('visibilitychange', syncIfVisible);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+      window.removeEventListener('focus', syncIfVisible);
+      window.removeEventListener('online', syncIfVisible);
+      document.removeEventListener('visibilitychange', syncIfVisible);
+    };
+  }, [busy, confirming, refreshCheckout]);
+
+  async function prepareCheckoutDirect() {
+    if (recoveryBusy || busy || confirming) return;
+    setRecoveryBusy(true);
+    setCheckoutError('');
+    try {
+      const response = await apiFetch('/checkout/prepare', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(recoveryForm),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(
+        typeof data.detail === 'string' ? data.detail : 'Could not prepare order review.'
+      );
+      checkoutSyncSequence.current++;
+      applyCheckoutState(data as CheckoutResponse);
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : 'Could not prepare order review.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
 
   // ----------------------------------------
   // RESET CHAT
@@ -682,11 +722,18 @@ export default function Home() {
           type?: string;
           delta?: string;
           message?: string;
+          checkout?: CheckoutResponse;
         };
 
         try {
           evt = JSON.parse(data);
         } catch {
+          return;
+        }
+
+        if (evt.type === 'CHECKOUT_STATE' && evt.checkout) {
+          checkoutSyncSequence.current++;
+          applyCheckoutState(evt.checkout);
           return;
         }
 
@@ -792,6 +839,8 @@ export default function Home() {
       setBusy(false);
       setShowTyping(false);
       abort.current = null;
+      // Reconcile if the stream ended before sending its checkout event.
+      void refreshCheckout();
     }
   }
 
@@ -803,6 +852,8 @@ export default function Home() {
     if (!checkout || confirming || busy) return;
 
     const reviewedFingerprint = checkout.fingerprint;
+    const reviewedCheckoutId = checkout.checkout_id;
+    checkoutSyncSequence.current++;
 
     setConfirming(true);
     setCheckoutError('');
@@ -819,6 +870,7 @@ export default function Home() {
           body: JSON.stringify({
             customer_approved: true,
             reviewed_fingerprint: reviewedFingerprint,
+            checkout_id: reviewedCheckoutId,
           }),
         }
       );
@@ -836,7 +888,9 @@ export default function Home() {
 
       const result = data as ConfirmationResponse;
 
+      checkoutSyncSequence.current++;
       setCheckout(null);
+      setCartHasItems(false);
       setPaymentOrder(result.order_id);
 
       setCheckoutResult(
