@@ -109,6 +109,10 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
         paid_state = (await self.client.get("/checkout")).json()
         self.assertIsNone(paid_state["payment_order_id"])
         self.assertEqual(paid_state["status"], "paid")
+        paid_replay = await self.client.post("/checkout/confirm", json=approval)
+        self.assertEqual(paid_replay.status_code, 200, paid_replay.text)
+        self.assertEqual(paid_replay.json()["order_id"], order_id)
+        self.assertEqual(paid_replay.json()["status"], "confirmed")
 
     async def test_stale_approval_is_rejected_after_cart_change(self):
         ready = (await self.prepare()).json()
