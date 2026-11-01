@@ -1,5 +1,6 @@
 """Checkout preparation and trusted application-only confirmation."""
 import json
+from uuid import uuid4
 import sqlite3
 try:
     from psycopg import Error as PostgresError
@@ -29,14 +30,26 @@ class CheckoutService:
                 raise ValueError('Customer session not found.')
             summary, _, _, _ = OrderService._build_summary_in_transaction(conn, session, fields)
             cart = json.loads(session['cart_data'])
-            cart['pending_checkout'] = {'summary': summary, 'fingerprint': fingerprint(summary)}
+            summary_fingerprint = fingerprint(summary)
+            previous = cart.get('pending_checkout')
+            # A retry for the same unchanged summary is the same review, not
+            # a new order. Preserve its token to make confirmation idempotent.
+            checkout_id = (previous.get('checkout_id')
+                           if isinstance(previous, dict)
+                           and previous.get('fingerprint') == summary_fingerprint
+                           and isinstance(previous.get('checkout_id'), str)
+                           else str(uuid4()))
+            cart['pending_checkout'] = {
+                'summary': summary, 'fingerprint': summary_fingerprint,
+                'checkout_id': checkout_id,
+            }
             conn.execute('''UPDATE conversation_sessions
                             SET cart_data = ?, awaiting_confirmation = 0,
                                 updated_at = CURRENT_TIMESTAMP WHERE session_id = ?''',
                          (json.dumps(cart), self.session_id))
             conn.commit()
             return {'success': True, 'requires_confirmation': True,
-                    'order_created': False, 'summary': summary,
+                    'order_created': False, 'summary': summary, 'checkout_id': checkout_id,
                     'message': 'Please review and explicitly approve this order.'}
         except (ValueError, KeyError, TypeError, json.JSONDecodeError, sqlite3.Error, PostgresError) as error:
             conn.rollback()
@@ -44,7 +57,7 @@ class CheckoutService:
         finally:
             conn.close()
 
-    def confirm_checkout(self, customer_approved=False, reviewed_fingerprint=None):
+    def confirm_checkout(self, customer_approved=False, reviewed_fingerprint=None, checkout_id=None):
         """APPLICATION-ONLY: call after a trusted UI/terminal confirmation event.
 
         The application must retain the fingerprint returned from the exact summary
@@ -52,4 +65,4 @@ class CheckoutService:
         """
         if customer_approved is not True or not isinstance(reviewed_fingerprint, str):
             return {'success': False, 'message': 'Explicit approval of the reviewed order is required.'}
-        return OrderService(self.session_id)._commit_approved_checkout(reviewed_fingerprint)
+        return OrderService(self.session_id)._commit_approved_checkout(reviewed_fingerprint, checkout_id=checkout_id)
