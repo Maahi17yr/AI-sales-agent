@@ -24,6 +24,7 @@ import uuid
 import os
 import asyncio
 import logging
+import re
 
 from contextlib import asynccontextmanager
 
@@ -108,20 +109,24 @@ EXTRA_FRONTEND_ORIGINS = {
     for origin in os.getenv("NAIJA_BITES_EXTRA_ALLOWED_ORIGINS", "").split(",")
     if origin.strip()
 }
-# Exact temporary Vercel deployment URL for the current frontend preview.
-# Keep the origin check strict: do not use a wildcard for preview deployments.
-# Remove this entry once the preview is promoted to the stable frontend URL.
-CURRENT_PREVIEW_ORIGINS = {
-    # Stable alias for the chat-preview branch, unchanged across deployments.
-    "https://ai-sales-agent-uerh-git-fix-account-chat-sync-prev-c8a4b3-huhm2.vercel.app",
-    # Older preview URL retained temporarily for existing payment returns.
-    "https://ai-sales-agent-uerh-n1g0p73jw-huhm2.vercel.app",
-}
+# Vercel generates a new hostname for every deployment. Restrict these origins
+# to this project's name AND team slug; never allow arbitrary *.vercel.app.
+# This also accepts the project's stable default hostname.
+VERCEL_PROJECT_ORIGIN_RE = re.compile(
+    r"https://ai-sales-agent-uerh(?:-[a-z0-9-]+-huhm2)?\.vercel\.app"
+)
 AUTH_ALLOWED_ORIGINS = (
-    ({DEMO_FRONTEND_ORIGIN} | EXTRA_FRONTEND_ORIGINS | CURRENT_PREVIEW_ORIGINS)
+    ({DEMO_FRONTEND_ORIGIN} | EXTRA_FRONTEND_ORIGINS)
     if DEPLOYMENT_MODE == "demo"
     else LOCAL_ORIGINS
 )
+
+
+def is_allowed_frontend_origin(origin: str) -> bool:
+    return origin in AUTH_ALLOWED_ORIGINS or (
+        DEPLOYMENT_MODE == "demo"
+        and VERCEL_PROJECT_ORIGIN_RE.fullmatch(origin) is not None
+    )
 
 
 def _auth_cookie_secure() -> bool:
@@ -283,6 +288,7 @@ app.add_middleware(
     CORSMiddleware,
 
     allow_origins=sorted(AUTH_ALLOWED_ORIGINS),
+    allow_origin_regex=VERCEL_PROJECT_ORIGIN_RE.pattern if DEPLOYMENT_MODE == "demo" else None,
 
     allow_credentials=True,
 
@@ -341,7 +347,7 @@ async def protect_auth_cookie_requests(request: Request, call_next):
     # remain usable for local testing.
     if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.url.path != "/payments/webhook":
         origin = request.headers.get("origin")
-        if origin is not None and origin not in AUTH_ALLOWED_ORIGINS:
+        if origin is not None and not is_allowed_frontend_origin(origin):
             return JSONResponse({"detail": "Origin not allowed."}, status_code=403)
         # The browser sends the account it believes is active. Refuse writes if
         # another tab replaced the shared cookie after the frontend checked it.
@@ -800,7 +806,7 @@ async def memory_decision(decision: PreferenceDecision, request: Request):
 def initialize_payment(payload: PaymentInitialize, request: Request):
     # A proxy may omit the browser Origin; accept only explicitly approved origins.
     origin = payload.frontend_origin or request.headers.get("origin")
-    if origin is not None and origin not in AUTH_ALLOWED_ORIGINS:
+    if origin is not None and not is_allowed_frontend_origin(origin):
         raise HTTPException(status_code=403, detail="Payment return origin not allowed.")
     try:
         return paystack_service.initialize(
