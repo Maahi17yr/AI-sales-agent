@@ -95,7 +95,7 @@ type PendingCheckout = {
 type CheckoutResponse = {
   success: boolean;
   pending: boolean;
-  status: 'cart' | 'ready_for_review' | 'payment_pending';
+  status: 'cart' | 'ready_for_review' | 'payment_pending' | 'paid';
   summary: CheckoutSummary | null;
   fingerprint: string | null;
   checkout_id: string | null;
