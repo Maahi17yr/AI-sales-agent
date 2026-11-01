@@ -76,6 +76,8 @@ jobs:
           (cd frontend && npm run dev -- --hostname 127.0.0.1) > /tmp/owner-frontend.log 2>&1 &
       - name: Smoke test customer and owner journeys through Next.js proxy
         run: python scripts/test_owner_staging_smoke.py
+      - name: Smoke test checkout review, refresh recovery, and payment state through Next.js proxy
+        run: python scripts/test_checkout_staging_smoke.py
       - name: Show server logs on failure
         if: failure()
         run: |
