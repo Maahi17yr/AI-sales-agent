@@ -1186,3 +1186,37 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
 @media (prefers-reduced-motion: reduce) {
   .voice-note-preview.is-recording .voice-note-preview-wave i { animation: none; }
 }
+
+
+/* Resilient checkout recovery: shown only when the server reports cart items
+   without a prepared review. It never fabricates a total from chat text. */
+.checkout-recovery {
+  margin: 14px 0;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line, #d8e4d7);
+  background: var(--panel, #fff);
+  box-shadow: 0 9px 24px rgba(25, 47, 30, .09);
+}
+.checkout-recovery-heading { display: flex; align-items: flex-start; gap: 12px; }
+.checkout-recovery-heading > svg { flex: 0 0 auto; margin-top: 3px; }
+.checkout-recovery-heading strong { font-size: 14px; }
+.checkout-recovery-heading p { margin: 5px 0 10px; font-size: 12px; opacity: .78; }
+.checkout-recovery .review-reopen { margin: 4px 0 0; }
+.checkout-recovery-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.checkout-recovery-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 650; }
+.checkout-recovery-form input {
+  min-width: 0; width: 100%; border: 1px solid #bdcfbe; border-radius: 10px;
+  padding: 11px 12px; background: #fff; color: #24382b; font: inherit; font-size: 14px;
+}
+.checkout-recovery-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 9px; }
+.checkout-retry {
+  margin-left: 8px; border: 1px solid currentColor; border-radius: 8px;
+  background: transparent; color: inherit; padding: 4px 9px;
+  font: inherit; cursor: pointer;
+}
+.site-shell.theme-dark .checkout-recovery { background: #243b2b; border-color: #4c6651; color: #edf5ee; }
+.site-shell.theme-dark .checkout-recovery-form input { background: #304b36; border-color: #6a876e; color: #fff; }
+@media (max-width: 600px) {
+  .checkout-recovery-form { grid-template-columns: 1fr; }
+}
