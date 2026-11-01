@@ -106,7 +106,9 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT quantity FROM inventory WHERE product_id = ?", (self.product_id,)
             ).fetchone()[0], 8)
             conn.execute("UPDATE orders SET status = 'confirmed' WHERE id = ?", (order_id,))
-        self.assertIsNone((await self.client.get("/checkout")).json()["payment_order_id"])
+        paid_state = (await self.client.get("/checkout")).json()
+        self.assertIsNone(paid_state["payment_order_id"])
+        self.assertEqual(paid_state["status"], "paid")
 
     async def test_stale_approval_is_rejected_after_cart_change(self):
         ready = (await self.prepare()).json()
