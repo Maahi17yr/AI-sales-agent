@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AudioLines, Mic, Play, Send, Square, Trash2, X } from 'lucide-react';
+import { Mic, Play, Send, Square, Trash2 } from 'lucide-react';
 
 export type VoiceClip = { url: string; duration: number };
 
@@ -39,6 +39,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const [previewUrl, setPreviewUrl] = useState('');
   const [error, setError] = useState('');
   const [playing, setPlaying] = useState(false);
+  const [sendAfterStop, setSendAfterStop] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recognizerRef = useRef<SpeechRecognizer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -48,7 +49,8 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const startedRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const closedRef = useRef(false);
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const startCaptureRef = useRef<() => Promise<void>>(async () => {});
+  const swipeStartX = useRef<number | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -73,6 +75,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   }
 
   function discard() {
+    setSendAfterStop(false);
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
     try { recognizerRef.current?.abort(); } catch { /* Already stopped. */ }
@@ -98,7 +101,6 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     if (!open) return;
     closedRef.current = false;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onCloseRef.current();
     };
@@ -189,6 +191,12 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     }
   }
 
+  startCaptureRef.current = startCapture;
+  // Tapping the microphone starts recording immediately in the chat composer.
+  useEffect(() => {
+    if (open) void startCaptureRef.current();
+  }, [open]);
+
   function sendNote() {
     if (recording || processing || disabled || !previewUrl || !transcript.trim()) return;
     transferredRef.current = previewUrl;
@@ -196,44 +204,81 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     onClose();
   }
 
+  // Sending while recording stops capture first. The audio and final transcript
+  // are committed only after MediaRecorder has produced the playable clip.
+  useEffect(() => {
+    if (!sendAfterStop || recording || processing || !previewUrl || disabled) return;
+    if (!transcript.trim()) return; // Allow recognition to finish or the user to edit.
+    setSendAfterStop(false);
+    sendNote();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendAfterStop, recording, processing, previewUrl, transcript, disabled]);
+
+  function handlePrimaryAction() {
+    if (recording) {
+      setSendAfterStop(true);
+      stopCapture();
+    } else if (previewUrl) {
+      sendNote();
+    } else {
+      void startCapture();
+    }
+  }
+
   if (!open) return null;
   return (
-    <div className="voice-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !recording) onClose(); }}>
-      <section className="voice-dialog voice-note-dialog" role="dialog" aria-modal="true" aria-labelledby="voice-title" aria-describedby="voice-description">
-        <button ref={closeRef} type="button" className="voice-close" onClick={onClose} aria-label="Close voice note"><X size={20}/></button>
-        <div className="voice-eyebrow"><AudioLines size={17}/> NAIJA BITES VOICE NOTE</div>
-        <h2 id="voice-title">Say it. We'll handle it.</h2>
-        <p id="voice-description">Record a voice note and send it as an instruction to Naija Bites.</p>
-
-        <div className={`voice-note-preview ${recording ? 'is-recording' : ''}`}>
-          <button className="voice-note-preview-play" type="button" onClick={() => {
+    <div className="voice-composer-wrap">
+      <section className="composer voice-inline-panel" aria-label="Voice note composer" onTouchStart={event => { swipeStartX.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={event => { const x = event.changedTouches[0]?.clientX; if (swipeStartX.current !== null && x !== undefined && swipeStartX.current - x > 75) onClose(); swipeStartX.current = null; }}>
+        <button type="button" className="voice-inline-cancel" onClick={onClose} aria-label="Cancel and discard voice note" title="Discard voice note">
+          <Trash2 size={19}/>
+        </button>
+        <span className={`voice-inline-mic ${recording ? 'is-recording' : ''}`} aria-label={recording ? 'Recording' : 'Voice note'}>
+          <Mic size={21}/>
+        </span>
+        <div className="voice-inline-middle">
+          <div className={`voice-inline-wave ${recording ? 'is-recording' : ''}`} aria-hidden="true">
+            {Array.from({ length: 32 }, (_, i) => <i key={i} style={{ height: `${6 + (i * 17 + i * i * 7) % 25}px` }}/>)}
+          </div>
+          <span className="voice-inline-timer" aria-label={`Recording duration ${formatTime(elapsed)}`}>{formatTime(elapsed)}</span>
+          <span className="voice-inline-swipe-hint" aria-hidden="true">‹ Slide to cancel</span>
+        </div>
+        {recording && (
+          <button type="button" className="voice-inline-stop" onClick={stopCapture} aria-label="Stop recording to preview" title="Stop recording">
+            <Square size={16} fill="currentColor"/>
+          </button>
+        )}
+        {!recording && previewUrl && (
+          <button type="button" className="voice-inline-play" onClick={() => {
             if (!audioRef.current) return;
             if (playing) { audioRef.current.pause(); setPlaying(false); }
             else void audioRef.current.play().then(() => setPlaying(true)).catch(() => setError('Could not play this recording.'));
-          }} disabled={!previewUrl || recording} aria-label={playing ? 'Pause voice note' : 'Play voice note'}>
-            {recording ? <Square size={17}/> : previewUrl ? <Play size={20} fill="currentColor"/> : <Mic size={20}/>}
+          }} aria-label={playing ? 'Pause voice note' : 'Preview voice note'} title="Preview voice note">
+            <Play size={18} fill="currentColor"/>
           </button>
-          <div className="voice-note-preview-wave" aria-hidden="true">
-            {Array.from({ length: 26 }, (_, i) => <i key={i} style={{ height: `${9 + (i * 17 + i * i * 7) % 26}px` }}/>)}
-          </div>
-          <span className="voice-note-time">{formatTime(elapsed)}</span>
-          {previewUrl && <audio ref={audioRef} src={previewUrl} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} preload="metadata"/>}
-        </div>
-        <p className="voice-status" role="status">{recording ? 'Recording… tap stop when finished' : processing ? 'Preparing voice note…' : previewUrl ? 'Voice note ready to send' : 'Tap the microphone to start'}</p>
-        <div className="voice-note-actions">
-          {recording ? (
-            <button type="button" className="voice-note-record is-active" onClick={stopCapture}><Square size={18}/> Stop recording</button>
-          ) : (
-            <button type="button" className="voice-note-record" onClick={() => void startCapture()} disabled={processing || disabled}><Mic size={18}/> {previewUrl ? 'Record again' : 'Record voice note'}</button>
-          )}
-          {previewUrl && !recording && <button type="button" className="voice-note-discard" onClick={discard} aria-label="Discard voice note"><Trash2 size={19}/></button>}
-        </div>
-        <label className="voice-transcript-label" htmlFor="voice-transcript">What Naija Bites will understand</label>
-        <textarea id="voice-transcript" className="voice-transcript" rows={2} value={transcript} onChange={event => setTranscript(event.target.value)} placeholder="Your spoken instruction appears here…" disabled={recording || processing || disabled}/>
-        <button className="voice-send" type="button" onClick={sendNote} disabled={!previewUrl || !transcript.trim() || recording || processing || disabled}><Send size={18}/> Send voice note</button>
-        {error && <p className="voice-error" role="alert">{error}</p>}
-        <p className="voice-footnote">The agent acts on the transcript. Audio playback stays in this browser session; voice recordings are not uploaded or saved to cloud history. Browser speech recognition may use your browser provider.</p>
+        )}
+        <button type="button" className="voice-inline-send" onClick={handlePrimaryAction}
+          disabled={processing || disabled || sendAfterStop || (!recording && !!previewUrl && !transcript.trim())}
+          aria-label={recording ? 'Finish and send voice note' : previewUrl ? 'Send voice note' : 'Try recording again'}
+          title={recording ? 'Finish and send' : previewUrl ? 'Send voice note' : 'Record'}>
+          {processing || sendAfterStop ? <span className="voice-inline-sending">···</span> : <Send size={21}/>}
+        </button>
       </section>
+      {previewUrl && <audio ref={audioRef} src={previewUrl} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} preload="metadata"/>}
+      {(error || (previewUrl && !transcript.trim())) && (
+        <div className="voice-inline-help" role="status">
+          {error && <span className="voice-inline-error">{error}</span>}
+          {previewUrl && !transcript.trim() && <label htmlFor="voice-inline-text">Enter what you said so Naija Bites can understand your note:</label>}
+          {previewUrl && !transcript.trim() && <input id="voice-inline-text" value={transcript} onChange={event => setTranscript(event.target.value)} placeholder="Your spoken words"/>}
+        </div>
+      )}
+      {previewUrl && transcript.trim() && (
+        <details className="voice-inline-transcript">
+          <summary>Edit transcript</summary>
+          <label htmlFor="voice-inline-edit">Words sent to Naija Bites</label>
+          <textarea id="voice-inline-edit" rows={2} value={transcript} onChange={event => setTranscript(event.target.value)}/>
+        </details>
+      )}
+      <span className="sr-only">Voice notes are stored in this browser session; only the transcript is sent to the AI.</span>
     </div>
   );
 }
