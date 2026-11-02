@@ -50,6 +50,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const closedRef = useRef(false);
   const startCaptureRef = useRef<() => Promise<void>>(async () => {});
+  const swipeStartX = useRef<number | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -227,7 +228,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   if (!open) return null;
   return (
     <div className="voice-composer-wrap">
-      <section className="composer voice-inline-panel" aria-label="Voice note composer">
+      <section className="composer voice-inline-panel" aria-label="Voice note composer" onTouchStart={event => { swipeStartX.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={event => { const x = event.changedTouches[0]?.clientX; if (swipeStartX.current !== null && x !== undefined && swipeStartX.current - x > 75) onClose(); swipeStartX.current = null; }}>
         <button type="button" className="voice-inline-cancel" onClick={onClose} aria-label="Cancel and discard voice note" title="Discard voice note">
           <Trash2 size={19}/>
         </button>
@@ -239,6 +240,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
             {Array.from({ length: 32 }, (_, i) => <i key={i} style={{ height: `${6 + (i * 17 + i * i * 7) % 25}px` }}/>)}
           </div>
           <span className="voice-inline-timer" aria-label={`Recording duration ${formatTime(elapsed)}`}>{formatTime(elapsed)}</span>
+          <span className="voice-inline-swipe-hint" aria-hidden="true">‹ Slide to cancel</span>
         </div>
         {recording && (
           <button type="button" className="voice-inline-stop" onClick={stopCapture} aria-label="Stop recording to preview" title="Stop recording">
