@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Mic, Play, Send, Square, Trash2, X } from 'lucide-react';
+import { Mic, Play, Send, Square, Trash2 } from 'lucide-react';
 
 export type VoiceClip = { url: string; duration: number };
 
