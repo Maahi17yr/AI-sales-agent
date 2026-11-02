@@ -881,7 +881,8 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
   background: #294936;
   border-color: #3c6147;
   color: #f6faef;
-  box-shadow: 0 6px 18px #142e1b20;
+  /* Match the AI bubble's floating elevation, with depth suited to dark green. */
+  box-shadow: 0 14px 30px rgba(25, 47, 30, .23), 0 4px 10px rgba(25, 47, 30, .12);
 }
 .site-shell.theme-light .message-row:not(.user) .bubble {
   background: #fffefa;
@@ -900,7 +901,7 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
   background: #eaf4d8;
   border-color: #cfe5b3;
   color: #1d3425;
-  box-shadow: 0 5px 22px #070e0866;
+  box-shadow: 0 14px 30px rgba(2, 10, 5, .38), 0 4px 10px rgba(2, 10, 5, .2);
 }
 .site-shell.theme-dark .message-row:not(.user) .bubble {
   background: #25372d;
