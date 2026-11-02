@@ -118,6 +118,30 @@ def main():
         assert pending_payment["payment_order_id"] == order_id, pending_payment
         assert not pending_payment["pending"]
 
+        # Regression: a concurrent chat save can replace the session cart
+        # after confirmation. The payment card must still be recoverable
+        # from the customer's durable order, even on a fresh page load.
+        with get_connection() as conn:
+            original_cart = conn.execute(
+                "SELECT cart_data FROM conversation_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()["cart_data"]
+            conn.execute(
+                "UPDATE conversation_sessions SET cart_data = ? WHERE session_id = ?",
+                (json.dumps({"items": []}), session_id),
+            )
+        with httpx.Client(timeout=25, cookies=client.cookies) as refreshed_payment:
+            restored_payment = require(refreshed_payment.get(API + "/checkout"))
+            assert restored_payment["status"] == "payment_pending", restored_payment
+            assert restored_payment["payment_order_id"] == order_id, restored_payment
+
+        # Restore the fixture to also verify completed-payment replay.
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE conversation_sessions SET cart_data = ? WHERE session_id = ?",
+                (original_cart, session_id),
+            )
+
         with get_connection() as conn:
             assert conn.execute("SELECT COUNT(*) FROM orders WHERE customer_id = ?", (customer_id,)).fetchone()[0] == 1
             assert conn.execute(
@@ -131,7 +155,7 @@ def main():
         paid_replay = require(client.post(API + "/checkout/confirm", json=approval))
         assert paid_replay["order_id"] == order_id and paid_replay["status"] == "confirmed", paid_replay
 
-        print("PASS: Next.js proxy, durable review, refresh, idempotent confirm, payment recovery and paid state")
+        print("PASS: Next.js proxy, durable review, refresh, idempotent confirm, payment panel recovery after chat overwrite, and paid state")
 
 
 if __name__ == "__main__":
