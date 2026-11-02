@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from './auth-provider';
 import FoodPanel from './food-panel';
@@ -89,13 +89,18 @@ type CheckoutSummary = {
 type PendingCheckout = {
   summary: CheckoutSummary;
   fingerprint: string;
+  checkout_id: string | null;
 };
 
 type CheckoutResponse = {
   success: boolean;
   pending: boolean;
+  status: 'cart' | 'ready_for_review' | 'payment_pending' | 'paid';
   summary: CheckoutSummary | null;
   fingerprint: string | null;
+  checkout_id: string | null;
+  cart_has_items: boolean;
+  payment_order_id: number | null;
 };
 
 type ConfirmationResponse = {
@@ -238,6 +243,13 @@ export default function Home() {
   const [checkoutResult, setCheckoutResult] = useState('');
   const [checkoutError, setCheckoutError] = useState('');
   const [reviewOpen, setReviewOpen] = useState(true);
+  const [cartHasItems, setCartHasItems] = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryForm, setRecoveryForm] = useState({
+    customer_name: customer.name, phone: customer.phone || '',
+    delivery_address: '', delivery_area: '',
+  });
   const [paymentOrder, setPaymentOrder] = useState<number | null>(null);
   const [paymentEmail, setPaymentEmail] = useState('');
   const [paymentBusy, setPaymentBusy] = useState(false);
@@ -248,6 +260,8 @@ export default function Home() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const checkoutCardRef = useRef<HTMLElement>(null);
   const lastCheckoutFingerprint = useRef<string | null>(null);
+  // Late polling responses must not hide a newer checkout card.
+  const checkoutSyncSequence = useRef(0);
   const abort = useRef<AbortController | null>(null);
   const paymentReturnStarted = useRef(false);
 
@@ -438,64 +452,100 @@ export default function Home() {
     if (panel) panel.scrollTop = panel.scrollHeight;
   }, [messages, showTyping]);
 
-  // Keep the review card in sync with the trusted backend state.
-  // Polling also covers tool results that finish just after a chat stream.
+  // Database state is authoritative; SSE pushes immediate changes and REST
+  // restores checkout after refresh, reconnect or a missed stream event.
+  const applyCheckoutState = useCallback((data: CheckoutResponse) => {
+    if (data.success !== true || typeof data.pending !== 'boolean') return;
+    setCartHasItems(Boolean(data.cart_has_items));
+    if (data.pending && data.summary && data.fingerprint) {
+      const token = data.checkout_id || data.fingerprint;
+      if (lastCheckoutFingerprint.current !== token) {
+        lastCheckoutFingerprint.current = token;
+        setReviewOpen(true);
+        setRecoveryOpen(false);
+        window.setTimeout(() => checkoutCardRef.current?.scrollIntoView({
+          behavior: 'smooth', block: 'nearest',
+        }), 150);
+      }
+      setCheckout({
+        summary: data.summary, fingerprint: data.fingerprint,
+        checkout_id: data.checkout_id || null,
+      });
+    } else {
+      lastCheckoutFingerprint.current = null;
+      setCheckout(null);
+    }
+    setPaymentOrder(current => {
+      // After a successful confirmation, an in-flight SSE event or a stale
+      // checkout read can temporarily report "cart". Do not let that erase
+      // the payment screen; only an authoritative paid/new-review state
+      // should close it.
+      if (data.status === 'paid' || data.status === 'ready_for_review') return null;
+      if (data.status === 'payment_pending' && data.payment_order_id) {
+        return data.payment_order_id;
+      }
+      return current;
+    });
+    setCheckoutError('');
+  }, []);
+
+  const refreshCheckout = useCallback(async (signal?: AbortSignal) => {
+    const sequence = ++checkoutSyncSequence.current;
+    try {
+      const response = await apiFetch('/checkout', { cache: 'no-store', signal });
+      if (!response.ok) throw new Error(`Checkout returned HTTP ${response.status}`);
+      const data: CheckoutResponse = await response.json();
+      if (signal?.aborted || sequence !== checkoutSyncSequence.current) return;
+      applyCheckoutState(data);
+    } catch (err) {
+      if (signal?.aborted || sequence !== checkoutSyncSequence.current) return;
+      console.error('Checkout sync failed:', err);
+      // A temporary outage must not discard a visible checkout.
+      setCheckoutError('Could not sync checkout. Retry below without restarting your chat.');
+    }
+  }, [apiFetch, applyCheckoutState]);
+
   useEffect(() => {
     if (confirming) return;
-    let disposed = false;
-    let activeController: AbortController | null = null;
-
-    async function refreshCheckout() {
-      if (disposed) return;
-      activeController?.abort();
-      const controller = new AbortController();
-      activeController = controller;
-
-      try {
-        const response = await apiFetch('/checkout', {
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`Checkout returned HTTP ${response.status}`);
-
-        const data: CheckoutResponse = await response.json();
-        if (disposed || controller.signal.aborted) return;
-
-        if (data.pending && data.summary && data.fingerprint) {
-          if (lastCheckoutFingerprint.current !== data.fingerprint) {
-            lastCheckoutFingerprint.current = data.fingerprint;
-            setReviewOpen(true);
-            window.setTimeout(() => {
-              if (!disposed) checkoutCardRef.current?.scrollIntoView({
-                behavior: 'smooth',
-                block: 'nearest',
-              });
-            }, 150);
-          }
-          setCheckout({ summary: data.summary, fingerprint: data.fingerprint });
-        } else {
-          lastCheckoutFingerprint.current = null;
-          setCheckout(null);
-        }
-        setCheckoutError('');
-      } catch (err) {
-        if (disposed || controller.signal.aborted) return;
-        console.error('Checkout fetch failed:', err);
-        setCheckoutError('Could not load the current checkout summary.');
-      }
-    }
-
-    void refreshCheckout();
-    const interval = window.setInterval(() => {
-      if (!busy && !confirming) void refreshCheckout();
-    }, 3000);
-
-    return () => {
-      disposed = true;
-      window.clearInterval(interval);
-      activeController?.abort();
+    const controller = new AbortController();
+    void refreshCheckout(controller.signal);
+    const syncIfVisible = () => {
+      if (!document.hidden && !busy && !confirming) void refreshCheckout(controller.signal);
     };
-  }, [busy, confirming, apiFetch]);
+    const interval = window.setInterval(syncIfVisible, 15000);
+    window.addEventListener('focus', syncIfVisible);
+    window.addEventListener('online', syncIfVisible);
+    document.addEventListener('visibilitychange', syncIfVisible);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+      window.removeEventListener('focus', syncIfVisible);
+      window.removeEventListener('online', syncIfVisible);
+      document.removeEventListener('visibilitychange', syncIfVisible);
+    };
+  }, [busy, confirming, refreshCheckout]);
+
+  async function prepareCheckoutDirect() {
+    if (recoveryBusy || busy || confirming) return;
+    setRecoveryBusy(true);
+    setCheckoutError('');
+    try {
+      const response = await apiFetch('/checkout/prepare', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(recoveryForm),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(
+        typeof data.detail === 'string' ? data.detail : 'Could not prepare order review.'
+      );
+      checkoutSyncSequence.current++;
+      applyCheckoutState(data as CheckoutResponse);
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : 'Could not prepare order review.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
 
   // ----------------------------------------
   // RESET CHAT
@@ -616,6 +666,7 @@ export default function Home() {
     const assistantId = uid();
     let assistantText = '';
     let gotText = false;
+    let gotCheckoutEvent = false;
 
     const controller = new AbortController();
     abort.current = controller;
@@ -682,11 +733,19 @@ export default function Home() {
           type?: string;
           delta?: string;
           message?: string;
+          checkout?: CheckoutResponse;
         };
 
         try {
           evt = JSON.parse(data);
         } catch {
+          return;
+        }
+
+        if (evt.type === 'CHECKOUT_STATE' && evt.checkout) {
+          gotCheckoutEvent = true;
+          checkoutSyncSequence.current++;
+          applyCheckoutState(evt.checkout);
           return;
         }
 
@@ -762,7 +821,7 @@ export default function Home() {
         processFrame(buffer);
       }
 
-      if (!gotText) {
+      if (!gotText && !gotCheckoutEvent) {
         throw new Error(
           'No text response received. Check the backend logs.'
         );
@@ -792,6 +851,8 @@ export default function Home() {
       setBusy(false);
       setShowTyping(false);
       abort.current = null;
+      // Reconcile if the stream ended before sending its checkout event.
+      void refreshCheckout();
     }
   }
 
@@ -803,6 +864,8 @@ export default function Home() {
     if (!checkout || confirming || busy) return;
 
     const reviewedFingerprint = checkout.fingerprint;
+    const reviewedCheckoutId = checkout.checkout_id;
+    checkoutSyncSequence.current++;
 
     setConfirming(true);
     setCheckoutError('');
@@ -819,6 +882,7 @@ export default function Home() {
           body: JSON.stringify({
             customer_approved: true,
             reviewed_fingerprint: reviewedFingerprint,
+            checkout_id: reviewedCheckoutId,
           }),
         }
       );
@@ -836,11 +900,15 @@ export default function Home() {
 
       const result = data as ConfirmationResponse;
 
+      checkoutSyncSequence.current++;
       setCheckout(null);
-      setPaymentOrder(result.order_id);
+      setCartHasItems(false);
+      setPaymentOrder(result.status === 'pending_payment' ? result.order_id : null);
 
       setCheckoutResult(
-        `Order #${result.order_id} placed! Total: ${formatMoney(result.total)}. Payment is still pending.`
+        result.status === 'pending_payment'
+          ? `Order #${result.order_id} placed! Total: ${formatMoney(result.total)}. Payment is still pending.`
+          : `Order #${result.order_id} was already processed. Current status: ${result.status}.`
       );
     } catch (err) {
       setCheckoutError(
@@ -1062,6 +1130,40 @@ export default function Home() {
             </section>}
             {busy && showTyping && <div className="working-row" role="status" aria-live="polite" aria-label="Naija Bites is typing"><span className="message-avatar" aria-hidden="true"><UtensilsCrossed size={15}/></span><div className="working-bubble"><span className="typing-dots" aria-hidden="true"><i/><i/><i/></span><span>Naija Bites is typing</span></div></div>}
             {error && <div className="inline-alert" role="alert">{error}</div>}
+            {!checkout && !paymentOrder && cartHasItems && !busy && (
+              <section className="checkout-recovery" aria-label="Order review recovery">
+                <div className="checkout-recovery-heading">
+                  <ShoppingBag size={19}/>
+                  <div><strong>Ready to review your order?</strong><p>You can open a verified order review without restarting this chat.</p></div>
+                </div>
+                {!recoveryOpen ? (
+                  <button type="button" className="review-reopen" onClick={() => setRecoveryOpen(true)}>
+                    Prepare order review <ArrowRight size={16}/>
+                  </button>
+                ) : (
+                  <form className="checkout-recovery-form" onSubmit={e => { e.preventDefault(); void prepareCheckoutDirect(); }}>
+                    <label>Delivery name
+                      <input required maxLength={120} value={recoveryForm.customer_name} onChange={e => setRecoveryForm(prev => ({...prev, customer_name: e.target.value}))}/>
+                    </label>
+                    <label>Delivery phone
+                      <input required type="tel" maxLength={32} value={recoveryForm.phone} onChange={e => setRecoveryForm(prev => ({...prev, phone: e.target.value}))}/>
+                    </label>
+                    <label>Full delivery address
+                      <input required maxLength={500} value={recoveryForm.delivery_address} onChange={e => setRecoveryForm(prev => ({...prev, delivery_address: e.target.value}))}/>
+                    </label>
+                    <label>Delivery area (e.g. Lekki Phase 1)
+                      <input required maxLength={120} value={recoveryForm.delivery_area} onChange={e => setRecoveryForm(prev => ({...prev, delivery_area: e.target.value}))}/>
+                    </label>
+                    <div className="checkout-recovery-actions">
+                      <button type="button" className="secondary-action" onClick={() => setRecoveryOpen(false)}>Cancel</button>
+                      <button type="submit" className="primary-action" disabled={recoveryBusy || confirming}>
+                        {recoveryBusy ? 'Preparing…' : 'Review order'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </section>
+            )}
             {checkout && reviewOpen && <section ref={checkoutCardRef} className="checkout-panel" aria-label="Review your order">
               <div className="checkout-top"><div><span className="checkout-kicker"><ShoppingBag size={15}/> YOUR ORDER</span><h2>Review your order</h2><p>Make sure everything looks right.</p></div><button className="icon-button" aria-label="Hide order review" title="Hide order review" onClick={() => setReviewOpen(false)}><X size={18}/></button></div>
               <div className="checkout-body">
@@ -1082,7 +1184,7 @@ export default function Home() {
                 <button className="primary-action" onClick={() => void payNow()} disabled={paymentBusy || !paymentEmail.includes('@')}>{paymentBusy ? 'Opening Paystack…' : 'Pay Now (Test Mode)'}</button>
               </div>
             </section>}
-             {checkoutError && <div className="inline-alert" role="alert">{checkoutError}</div>}
+             {checkoutError && <div className="inline-alert" role="alert">{checkoutError} <button type="button" className="checkout-retry" onClick={() => void refreshCheckout()}>Retry sync</button></div>}
 
           </div>
         </div>
