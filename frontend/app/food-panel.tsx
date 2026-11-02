@@ -34,6 +34,52 @@ const foodIcons: Record<string, string> = {
 };
 const foodEmoji = (category: string) => foodIcons[category] || '🍲';
 
+// Curated, individually researched Wikimedia Commons photographs for every
+// food in the current Nigerian menu. File pages identify the photographer and
+// Creative Commons licence. These are representative images, not actual stock.
+const mealPhotoFiles: { match: RegExp; file: string }[] = [
+  { match: /party.*jollof|jollof/, file: 'Party Nigerian jollof rice.jpg' },
+  { match: /fried rice/, file: 'Fried rice with chicken and coslow.jpg' },
+  { match: /white rice.*stew|rice and stew/, file: 'White rice and stew (Banga stew) (Nigerian dish).jpg' },
+  { match: /ofada|ayamase/, file: 'OfadaRice with assorted meat and egg.png' },
+  { match: /coconut rice/, file: 'COCONUT RICE AND SALAD.jpg' },
+  { match: /beans.*plantain/, file: 'Beans and plantain (African good).jpg' },
+  { match: /yam porridge|asaro/, file: 'Asaro Yam porridge.jpg' },
+  { match: /ewa agoyin|ewa aganyin/, file: 'Ewa Aganyin.jpg' },
+  { match: /moi.?moi/, file: 'Images of a local dish in Nigeria called Moi-Moi.jpg' },
+  { match: /boiled yam.*egg|yam.*egg sauce/, file: 'Boiled Yam and Egg Sauce.jpg' },
+  { match: /egusi/, file: 'Ẹgusi Soup.jpg' },
+  { match: /efo riro/, file: 'Efo riro.jpg' },
+  { match: /ogbono/, file: 'Ogbono Soup.jpg' },
+  { match: /afang/, file: 'Freshly Cooked Afang Soup.jpg' },
+  { match: /edikang|edikan/, file: 'Edikang ikong.jpg' },
+  { match: /^eba$|^garri swallow$/, file: 'Eba Swallow.jpg' },
+  { match: /pounded yam|iyan/, file: 'Pounded yam (Iyàn).jpg' },
+  { match: /amala/, file: 'Amala;Swallow food.jpg' },
+  { match: /semo|semovita/, file: 'Semo.jpg' },
+  { match: /fried chicken/, file: 'Fried chicken in serving tray.jpg' },
+  { match: /fried fish/, file: 'Fried fish ready.jpg' },
+  { match: /assorted meat/, file: 'Assorted meat.jpg' },
+  { match: /^beef$|^beef meat$/, file: 'Cooked beef meat.jpg' },
+  { match: /ponmo|pomo|kpomo/, file: 'Cooked Ponmo with pepper and vegetables.jpg' },
+  { match: /fried plantain|^dodo$/, file: 'Fried Plantain (Dòdò).jpg' },
+  { match: /coleslaw|coslaw/, file: 'Coleslaw.jpg' },
+  { match: /extra stew|^stew$/, file: 'TomatoStew.jpg' },
+  { match: /boiled egg/, file: 'Boiled egg.jpg' },
+  { match: /small chops/, file: 'SmallChops.jpg' },
+  { match: /puff.?puff/, file: 'Puff-Puff.jpg' },
+];
+function photoForMeal(meal: Meal): { src: string; creditUrl: string } | null {
+  const name = meal.name.toLowerCase().trim();
+  const match = mealPhotoFiles.find(photo => photo.match.test(name));
+  if (!match) return null;
+  const file = encodeURIComponent(match.file.replace(/ /g, '_'));
+  return {
+    src: `https://commons.wikimedia.org/wiki/Special:FilePath/${file}?width=640`,
+    creditUrl: `https://commons.wikimedia.org/wiki/File:${file}`,
+  };
+}
+
 export default function FoodPanel({
   open, onClose, onOrder, onViewCart, apiFetch, refreshKey, disabled, checkoutTotal,
 }: Props) {
@@ -122,11 +168,15 @@ export default function FoodPanel({
             {loading ? <div className="food-empty" role="status"><LoaderCircle className="spin" size={22}/> Loading today’s menu…</div> :
               error ? <p className="food-empty" role="alert">{error}</p> :
               filtered.length === 0 ? <p className="food-empty">No meals match that search.</p> :
-              <div className="meal-grid">{filtered.map(meal => (
+              <div className="meal-grid">{filtered.map(meal => {
+                const photo = photoForMeal(meal);
+                return (
                 <article className="meal-card" key={meal.id}>
-                  <div className="meal-art" role="img" aria-label={`Illustration of ${meal.name}`}>
+                  <div className="meal-art" role="img" aria-label={photo ? `Representative photo of ${meal.name}` : `Illustration of ${meal.name}`}>
                     <span aria-hidden="true">{foodEmoji(meal.category)}</span>
+                    {photo && <img className="meal-photo" src={photo.src} alt="" loading="lazy" decoding="async" onError={event => { event.currentTarget.style.display = 'none'; }} />}
                   </div>
+                  {photo && <a className="meal-photo-credit" href={photo.creditUrl} target="_blank" rel="noopener noreferrer" aria-label={`View photographer and photo licence for ${meal.name}`}>Photo & licence</a>}
                   <div className="meal-card-body">
                     <span className="meal-category">{meal.category}</span>
                     <h3>{meal.name}</h3>
@@ -135,7 +185,7 @@ export default function FoodPanel({
                     <button type="button" className="meal-add" disabled={disabled} onClick={() => { onOrder(meal.name); onClose(); }}>Ask to order <ArrowRight size={15}/></button>
                   </div>
                 </article>
-              ))}</div>
+              );})}</div>
             }
           </div>
         ) : (

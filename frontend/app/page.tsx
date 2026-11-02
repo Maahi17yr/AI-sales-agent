@@ -1037,9 +1037,9 @@ export default function Home() {
                   <button className="hero-cta" type="button" onClick={() => void send('Show me the menu')} disabled={busy || confirming || !threadId}>Explore the menu <ArrowRight size={18}/></button>
                   <div className="hero-footnote"><span className="hero-footnote-dot"/> Made for Nigerian cravings, powered by AI</div>
                 </div>
-                <div className="hero-visual" aria-hidden="true">
+                <div className="hero-visual">
                   <div className="hero-orbit orbit-one"/><div className="hero-orbit orbit-two"/>
-                  <div className="hero-food-plate"><span>🍛</span></div>
+                  <div className="hero-food-plate"><img className="hero-food-photo" src="https://commons.wikimedia.org/wiki/Special:FilePath/Jollof_rice_and_plantain_with_fish_and_chicken.jpg?width=800" alt="Nigerian jollof rice with plantain and chicken" loading="eager" decoding="async" /></div><a className="hero-photo-credit" href="https://commons.wikimedia.org/wiki/File:Jollof_rice_and_plantain_with_fish_and_chicken.jpg" target="_blank" rel="noopener noreferrer">Photo &amp; licence</a>
                   <div className="hero-sticker sticker-top">Fresh ideas <Sparkles size={14}/></div>
                   <div className="hero-sticker sticker-bottom">Good food. Good mood.</div>
                 </div>
