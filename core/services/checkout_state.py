@@ -57,19 +57,31 @@ def get_checkout_state(session_id: str) -> dict:
                 return state
             logger.warning("checkout_state_invalid_pending_summary")
         last = cart.get("last_checkout")
+        order = None
         if isinstance(last, dict) and type(last.get("order_id")) is int:
             order = conn.execute(
                 "SELECT id, status FROM orders WHERE id = ? AND customer_id = ?",
                 (last["order_id"], row["customer_id"]),
             ).fetchone()
-            if order and order["status"] == "pending_payment":
-                state.update(status="payment_pending", payment_order_id=order["id"])
-            elif order and order["status"] in (
-                "confirmed", "preparing", "out_for_delivery", "delivered"
-            ):
-                # A verified payment transitions the order out of pending
-                # payment. Never offer to pay a completed order again.
-                state["status"] = "paid"
+
+        if order is None:
+            # Chat/agent session updates can overwrite the cart snapshot just
+            # after confirmation. The committed order itself is durable:
+            # recover the customer's newest order instead of making the
+            # payment card disappear on the next checkout-state refresh.
+            order = conn.execute(
+                "SELECT id, status FROM orders WHERE customer_id = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (row["customer_id"],),
+            ).fetchone()
+
+        if order and order["status"] == "pending_payment":
+            state.update(status="payment_pending", payment_order_id=order["id"])
+        elif order and order["status"] in (
+            "confirmed", "preparing", "out_for_delivery", "delivered"
+        ):
+            # Never offer to pay a completed order again.
+            state["status"] = "paid"
         return state
     finally:
         conn.close()
