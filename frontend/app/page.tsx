@@ -1039,7 +1039,7 @@ export default function Home() {
                 </div>
                 <div className="hero-visual" aria-hidden="true">
                   <div className="hero-orbit orbit-one"/><div className="hero-orbit orbit-two"/>
-                  <div className="hero-food-plate"><span>🍛</span></div>
+                  <div className="hero-food-plate"><img className="hero-food-photo" src="https://images.unsplash.com/photo-1664993101841-036f189719b6?auto=format&fit=crop&w=800&q=82" alt="" loading="eager" decoding="async" /></div>
                   <div className="hero-sticker sticker-top">Fresh ideas <Sparkles size={14}/></div>
                   <div className="hero-sticker sticker-bottom">Good food. Good mood.</div>
                 </div>
