@@ -1244,6 +1244,7 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
 .voice-inline-wave.is-recording i:nth-child(5n) { animation-delay: -.47s; }
 @keyframes voice-inline-wave { to { transform: scaleY(.45); opacity: .58; } }
 .voice-inline-timer { flex: 0 0 auto; color: var(--ink); font-size: .9rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.voice-inline-swipe-hint { flex: 0 0 auto; font-size: .78rem; color: #8190a0; white-space: nowrap; user-select: none; }
 .site-shell .voice-inline-panel .voice-inline-stop,
 .site-shell .voice-inline-panel .voice-inline-play {
   width: 2rem; min-width: 2rem; height: 2rem; min-height: 2rem;
@@ -1275,6 +1276,7 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
 .site-shell.theme-dark .voice-inline-panel .voice-inline-play { background: transparent; color: #d0d8d2; }
 .site-shell.theme-dark .voice-inline-help input,
 .site-shell.theme-dark .voice-inline-transcript textarea { background: #294231; color: #fff; border-color: #526958; }
+@media (max-width: 720px) { .voice-inline-swipe-hint { display: none; } }
 @media (max-width: 420px) {
   .site-shell .voice-inline-panel { gap: 5px; padding-inline: .35rem; }
   .site-shell .voice-inline-panel .voice-inline-cancel { width: 2.1rem; min-width: 2.1rem; }
