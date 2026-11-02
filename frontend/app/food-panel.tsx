@@ -34,6 +34,30 @@ const foodIcons: Record<string, string> = {
 };
 const foodEmoji = (category: string) => foodIcons[category] || '🍲';
 
+// Curated free-to-use Unsplash photos. Keep the fallback emoji for dishes
+// without a verified matching photo rather than showing the wrong food.
+const foodPhotos = {
+  jollof: 'https://images.unsplash.com/photo-1664993101841-036f189719b6?auto=format&fit=crop&w=700&q=78',
+  friedRice: 'https://images.unsplash.com/photo-1665332111329-dd9d7fa46c74?auto=format&fit=crop&w=700&q=78',
+  chickenRice: 'https://images.unsplash.com/photo-1664992960082-0ea299a9c53e?auto=format&fit=crop&w=700&q=78',
+  chicken: 'https://images.unsplash.com/photo-1763219802762-1d34ee0907c5?auto=format&fit=crop&w=700&q=78',
+  egusi: 'https://images.unsplash.com/photo-1763048443535-1243379234e2?auto=format&fit=crop&w=700&q=78',
+  puffPuff: 'https://images.unsplash.com/photo-1665833613236-7c1d087463b1?auto=format&fit=crop&w=700&q=78',
+  plantain: 'https://images.unsplash.com/photo-1783408356251-f4953f943bb2?auto=format&fit=crop&w=700&q=78',
+};
+function photoForMeal(meal: Meal): string | null {
+  const name = meal.name.toLowerCase();
+  if (/jollof/.test(name)) return foodPhotos.jollof;
+  if (/fried rice/.test(name)) return foodPhotos.friedRice;
+  if (/egusi/.test(name)) return foodPhotos.egusi;
+  if (/puff.?puff/.test(name)) return foodPhotos.puffPuff;
+  if (/plantain|dodo/.test(name)) return foodPhotos.plantain;
+  if (/grilled chicken|roast(ed)? chicken/.test(name)) return foodPhotos.chicken;
+  if (/chicken.*rice|rice.*chicken/.test(name)) return foodPhotos.chickenRice;
+  return null;
+}
+
+
 export default function FoodPanel({
   open, onClose, onOrder, onViewCart, apiFetch, refreshKey, disabled, checkoutTotal,
 }: Props) {
@@ -124,8 +148,9 @@ export default function FoodPanel({
               filtered.length === 0 ? <p className="food-empty">No meals match that search.</p> :
               <div className="meal-grid">{filtered.map(meal => (
                 <article className="meal-card" key={meal.id}>
-                  <div className="meal-art" role="img" aria-label={`Illustration of ${meal.name}`}>
+                  <div className="meal-art" role="img" aria-label={photoForMeal(meal) ? `Representative photo of ${meal.name}` : `Illustration of ${meal.name}`}>
                     <span aria-hidden="true">{foodEmoji(meal.category)}</span>
+                    {photoForMeal(meal) && <img className="meal-photo" src={photoForMeal(meal)!} alt="" loading="lazy" decoding="async" onError={event => { event.currentTarget.style.display = 'none'; }} />}
                   </div>
                   <div className="meal-card-body">
                     <span className="meal-category">{meal.category}</span>
