@@ -39,6 +39,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const [previewUrl, setPreviewUrl] = useState('');
   const [error, setError] = useState('');
   const [playing, setPlaying] = useState(false);
+  const [sendAfterStop, setSendAfterStop] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recognizerRef = useRef<SpeechRecognizer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -48,9 +49,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const startedRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const closedRef = useRef(false);
-  const closeRef = useRef<HTMLButtonElement>(null);
   const startCaptureRef = useRef<() => Promise<void>>(async () => {});
-  const touchStartY = useRef<number | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -75,6 +74,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   }
 
   function discard() {
+    setSendAfterStop(false);
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
     try { recognizerRef.current?.abort(); } catch { /* Already stopped. */ }
@@ -203,53 +203,80 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     onClose();
   }
 
+  // Sending while recording stops capture first. The audio and final transcript
+  // are committed only after MediaRecorder has produced the playable clip.
+  useEffect(() => {
+    if (!sendAfterStop || recording || processing || !previewUrl || disabled) return;
+    if (!transcript.trim()) return; // Allow recognition to finish or the user to edit.
+    setSendAfterStop(false);
+    sendNote();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendAfterStop, recording, processing, previewUrl, transcript, disabled]);
+
+  function handlePrimaryAction() {
+    if (recording) {
+      setSendAfterStop(true);
+      stopCapture();
+    } else if (previewUrl) {
+      sendNote();
+    } else {
+      void startCapture();
+    }
+  }
+
   if (!open) return null;
   return (
-    <section className="voice-inline-panel" aria-label="Record voice note" onTouchStart={event => {
-      if (event.target instanceof Element && event.target.closest('.voice-inline-grip')) touchStartY.current = event.touches[0]?.clientY ?? null;
-    }} onTouchEnd={event => {
-      const endY = event.changedTouches[0]?.clientY;
-      if (touchStartY.current !== null && endY !== undefined && endY - touchStartY.current > 65) onClose();
-      touchStartY.current = null;
-    }}>
-      <div className="voice-inline-grip" aria-hidden="true"><span/></div>
-      <div className="voice-inline-top">
-        <button ref={closeRef} type="button" className="voice-inline-cancel" onClick={onClose} aria-label="Cancel recording"><X size={19}/></button>
-        <span className="voice-inline-heading">{recording ? 'Recording voice note' : processing ? 'Preparing voice note' : previewUrl ? 'Your voice note' : 'Voice note'}</span>
-        <button type="button" className="voice-inline-discard" onClick={onClose} aria-label="Discard voice note"><Trash2 size={19}/></button>
-      </div>
-      <div className="voice-inline-mic"><Mic size={23}/></div>
-      <div className="voice-inline-timer" aria-live="off">{formatTime(elapsed)}</div>
-      <div className={`voice-inline-wave ${recording ? 'is-recording' : ''}`} aria-hidden="true">
-        {Array.from({ length: 35 }, (_, i) => <i key={i} style={{ height: `${7 + (i * 17 + i * i * 7) % 29}px` }}/>)}
-      </div>
-      <p className="voice-inline-status" role="status">{recording ? 'Speak naturally, then tap stop' : processing ? 'Preparing your recording…' : previewUrl ? 'Ready to send' : error ? 'Unable to start recording' : 'Starting microphone…'}</p>
-      <div className="voice-inline-actions">
-        {recording ? (
-          <button type="button" className="voice-inline-stop" onClick={stopCapture}><Square size={17} fill="currentColor"/> Stop</button>
-        ) : previewUrl ? (
-          <>
-            <button type="button" className="voice-inline-play" onClick={() => {
-              if (!audioRef.current) return;
-              if (playing) { audioRef.current.pause(); setPlaying(false); }
-              else void audioRef.current.play().then(() => setPlaying(true)).catch(() => setError('Could not play this recording.'));
-            }} aria-label={playing ? 'Pause recording' : 'Play recording'}><Play size={18} fill="currentColor"/> {playing ? 'Playing' : 'Listen'}</button>
-            <button type="button" className="voice-inline-send" onClick={sendNote} disabled={!transcript.trim() || processing || disabled}><Send size={18}/> Send</button>
-          </>
-        ) : (
-          <button type="button" className="voice-inline-stop" onClick={() => void startCapture()} disabled={processing || disabled}><Mic size={17}/> Try again</button>
+    <div className="voice-composer-wrap">
+      <section className="composer voice-inline-panel" aria-label="Voice note composer">
+        <button type="button" className="voice-inline-cancel" onClick={onClose} aria-label="Cancel and discard voice note" title="Discard voice note">
+          <Trash2 size={19}/>
+        </button>
+        <span className={`voice-inline-mic ${recording ? 'is-recording' : ''}`} aria-label={recording ? 'Recording' : 'Voice note'}>
+          <Mic size={21}/>
+        </span>
+        <div className="voice-inline-middle">
+          <div className={`voice-inline-wave ${recording ? 'is-recording' : ''}`} aria-hidden="true">
+            {Array.from({ length: 32 }, (_, i) => <i key={i} style={{ height: `${6 + (i * 17 + i * i * 7) % 25}px` }}/>)}
+          </div>
+          <span className="voice-inline-timer" aria-label={`Recording duration ${formatTime(elapsed)}`}>{formatTime(elapsed)}</span>
+        </div>
+        {recording && (
+          <button type="button" className="voice-inline-stop" onClick={stopCapture} aria-label="Stop recording to preview" title="Stop recording">
+            <Square size={16} fill="currentColor"/>
+          </button>
         )}
-      </div>
+        {!recording && previewUrl && (
+          <button type="button" className="voice-inline-play" onClick={() => {
+            if (!audioRef.current) return;
+            if (playing) { audioRef.current.pause(); setPlaying(false); }
+            else void audioRef.current.play().then(() => setPlaying(true)).catch(() => setError('Could not play this recording.'));
+          }} aria-label={playing ? 'Pause voice note' : 'Preview voice note'} title="Preview voice note">
+            <Play size={18} fill="currentColor"/>
+          </button>
+        )}
+        <button type="button" className="voice-inline-send" onClick={handlePrimaryAction}
+          disabled={processing || disabled || sendAfterStop || (!recording && !!previewUrl && !transcript.trim())}
+          aria-label={recording ? 'Finish and send voice note' : previewUrl ? 'Send voice note' : 'Try recording again'}
+          title={recording ? 'Finish and send' : previewUrl ? 'Send voice note' : 'Record'}>
+          {processing || sendAfterStop ? <span className="voice-inline-sending">···</span> : <Send size={21}/>}
+        </button>
+      </section>
       {previewUrl && <audio ref={audioRef} src={previewUrl} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} preload="metadata"/>}
-      {previewUrl && (
+      {(error || (previewUrl && !transcript.trim())) && (
+        <div className="voice-inline-help" role="status">
+          {error && <span className="voice-inline-error">{error}</span>}
+          {previewUrl && !transcript.trim() && <label htmlFor="voice-inline-text">Enter what you said so Naija Bites can understand your note:</label>}
+          {previewUrl && !transcript.trim() && <input id="voice-inline-text" value={transcript} onChange={event => setTranscript(event.target.value)} placeholder="Your spoken words"/>}
+        </div>
+      )}
+      {previewUrl && transcript.trim() && (
         <details className="voice-inline-transcript">
-          <summary>Check spoken words {transcript.trim() ? '' : '(required to send)'}</summary>
-          <label htmlFor="voice-inline-text">Naija Bites will understand this text:</label>
-          <textarea id="voice-inline-text" rows={2} value={transcript} onChange={event => setTranscript(event.target.value)} placeholder="Your spoken words appear here. Edit if needed."/>
+          <summary>Edit transcript</summary>
+          <label htmlFor="voice-inline-edit">Words sent to Naija Bites</label>
+          <textarea id="voice-inline-edit" rows={2} value={transcript} onChange={event => setTranscript(event.target.value)}/>
         </details>
       )}
-      {error && <p className="voice-inline-error" role="alert">{error}</p>}
-      <p className="voice-inline-hint">Swipe the handle down or tap <strong>×</strong> to cancel. Audio stays in this browser; the agent receives your spoken words as text.</p>
-    </section>
+      <span className="sr-only">Voice notes are stored in this browser session; only the transcript is sent to the AI.</span>
+    </div>
   );
 }
