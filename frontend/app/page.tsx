@@ -475,7 +475,17 @@ export default function Home() {
       lastCheckoutFingerprint.current = null;
       setCheckout(null);
     }
-    setPaymentOrder(data.payment_order_id || null);
+    setPaymentOrder(current => {
+      // After a successful confirmation, an in-flight SSE event or a stale
+      // checkout read can temporarily report "cart". Do not let that erase
+      // the payment screen; only an authoritative paid/new-review state
+      // should close it.
+      if (data.status === 'paid' || data.status === 'ready_for_review') return null;
+      if (data.status === 'payment_pending' && data.payment_order_id) {
+        return data.payment_order_id;
+      }
+      return current;
+    });
     setCheckoutError('');
   }, []);
 
