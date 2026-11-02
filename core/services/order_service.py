@@ -1,6 +1,7 @@
 """Application-only, atomic checkout with independently verified meal customization."""
 import hashlib
 import json
+import os
 import sqlite3
 try:
     from psycopg import Error as PostgresError
@@ -133,19 +134,47 @@ class OrderService:
                    'currency': config.CURRENCY}
         return summary, zone, meal_stock, ingredient_stock
 
-    def _commit_approved_checkout(self, approval_fingerprint):
+    def _commit_approved_checkout(self, approval_fingerprint, checkout_id=None):
         """Only trusted application code may call this after explicit customer approval."""
         conn = get_connection()
         try:
             conn.execute('BEGIN IMMEDIATE')
-            session = conn.execute('''SELECT customer_id, cart_data FROM conversation_sessions
-                WHERE session_id = ?''', (self.session_id,)).fetchone()
+            # PostgreSQL needs an explicit row lock; SQLite's BEGIN IMMEDIATE
+            # already serializes writers. This prevents double confirmation.
+            lock_suffix = " FOR UPDATE" if os.getenv("DATABASE_URL", "").strip() else ""
+            session = conn.execute(
+                "SELECT customer_id, cart_data FROM conversation_sessions "
+                "WHERE session_id = ?" + lock_suffix, (self.session_id,)
+            ).fetchone()
             if not session:
                 raise ValueError('Session not found.')
             cart = json.loads(session['cart_data'])
             pending = cart.get('pending_checkout')
-            if not isinstance(pending, dict) or not isinstance(pending.get('summary'), dict):
-                raise ValueError('No pending checkout.')
+            if not isinstance(pending, dict):
+                # A lost HTTP response or double click must return the SAME
+                # order, not create another or force a conversation restart.
+                last = cart.get('last_checkout')
+                if (checkout_id and isinstance(last, dict)
+                        and last.get('checkout_id') == checkout_id
+                        and last.get('fingerprint') == approval_fingerprint
+                        and isinstance(last.get('result'), dict)):
+                    order = conn.execute(
+                        "SELECT status FROM orders WHERE id = ? AND customer_id = ?",
+                        (last.get('order_id'), session['customer_id'])
+                    ).fetchone()
+                    if not order:
+                        raise ValueError('Previous order no longer exists.')
+                    replay = dict(last['result'])
+                    replay['status'] = order['status']
+                    if order['status'] != 'pending_payment':
+                        replay['message'] = 'This order has already moved beyond payment.'
+                    conn.commit()
+                    return replay
+                raise ValueError('No pending checkout. Refresh your order review.')
+            if not isinstance(pending.get('summary'), dict):
+                raise ValueError('Saved checkout summary is invalid.')
+            if checkout_id is not None and pending.get('checkout_id') != checkout_id:
+                raise ValueError('This review is outdated. Refresh your order review.')
             expected = pending.get('fingerprint')
             if not isinstance(expected, str) or expected != fingerprint(pending['summary']):
                 raise ValueError('Saved checkout summary is invalid.')
@@ -186,14 +215,26 @@ class OrderService:
                     (needed, ingredient_id, needed))
                 if updated.rowcount != 1:
                     raise ValueError('Ingredient stock changed during checkout.')
+            result = {'success': True, 'order_id': order_id, 'status': 'pending_payment',
+                      'subtotal': summary['subtotal'], 'delivery_fee': summary['delivery_fee'],
+                      'discount': summary['discount'], 'total': summary['total'],
+                      'currency': summary['currency'], 'message': 'Order created successfully.'}
+            # Keep the last confirmed checkout for refresh/payment recovery and
+            # replay of the exact same confirmation request. A new cart remains empty.
+            cart = {
+                'items': [],
+                'last_checkout': {
+                    'checkout_id': pending.get('checkout_id'),
+                    'fingerprint': expected,
+                    'order_id': order_id,
+                    'result': result,
+                },
+            }
             conn.execute('''UPDATE conversation_sessions
                 SET cart_data = ?, awaiting_confirmation = 0, updated_at = CURRENT_TIMESTAMP
-                WHERE session_id = ?''', (json.dumps({'items': []}), self.session_id))
+                WHERE session_id = ?''', (json.dumps(cart), self.session_id))
             conn.commit()
-            return {'success': True, 'order_id': order_id, 'status': 'pending_payment',
-                    'subtotal': summary['subtotal'], 'delivery_fee': summary['delivery_fee'],
-                    'discount': summary['discount'], 'total': summary['total'],
-                    'currency': summary['currency'], 'message': 'Order created successfully.'}
+            return result
         except (ValueError, KeyError, TypeError, json.JSONDecodeError, sqlite3.Error, PostgresError) as error:
             conn.rollback()
             return {'success': False, 'message': str(error)}
