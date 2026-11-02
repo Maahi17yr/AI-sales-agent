@@ -1308,3 +1308,19 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
   .meal-art .meal-photo { transition: none; }
   .meal-card:hover .meal-photo { transform: none; }
 }
+
+/* Compact attribution for Creative Commons photography. */
+.meal-photo-credit {
+  display: block; margin: .25rem .85rem 0; width: fit-content;
+  color: #647c5d; font-size: .64rem; line-height: 1.3;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.meal-photo-credit:hover { color: #244e32; }
+.hero-photo-credit {
+  position: absolute; z-index: 3; bottom: 10px; right: 14px;
+  padding: 5px 8px; border-radius: 9px;
+  color: #476640; background: rgba(255,255,255,.83);
+  font-size: 10px; text-decoration: underline; text-underline-offset: 2px;
+}
+.site-shell.theme-dark .meal-photo-credit { color: #b9d6a8; }
+.site-shell.theme-dark .hero-photo-credit { color: #eaf6df; background: rgba(27,49,33,.83); }
