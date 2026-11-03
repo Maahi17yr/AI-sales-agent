@@ -53,6 +53,7 @@ from core.api.owner import router as owner_router
 from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
 from ag_ui_strands import StrandsAgent
+from strands.hooks.events import AfterInvocationEvent
 
 
 # ------------------------------------------
@@ -543,14 +544,30 @@ async def run_agent(
         first_event_ms = None
         event_count = 0
         outcome = "completed"
-        strands_agent = None
+
+        def record_live_usage(event: AfterInvocationEvent) -> None:
+            # AG-UI builds a new per-thread Agent from our template. Only
+            # AfterInvocationEvent.result reports the tokens actually spent.
+            result = getattr(event, "result", None)
+            if result is None:
+                return
+            elapsed_ms = round((time.perf_counter() - started) * 1000)
+            try:
+                agent_usage_service.record_agent_usage(
+                    session_id, result, "completed", elapsed_ms,
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "agent_usage_record_failed error_type=%s", type(exc).__name__,
+                )
+
         try:
             async with _agent_lock(session_id):
-                strands_agent = make_agent(session_id)
                 agent = StrandsAgent(
-                    agent=strands_agent,
+                    agent=make_agent(session_id),
                     name="naija_bites",
                     description="Naija Bites food ordering assistant",
+                    hooks=[record_live_usage],
                 )
                 async for event in agent.run(input_data):
                     event_count += 1
@@ -572,16 +589,7 @@ async def run_agent(
                 "agent_stream_latency total_ms=%d first_event_ms=%s events=%d outcome=%s",
                 elapsed_ms, first_event_ms, event_count, outcome,
             )
-            if strands_agent is not None:
-                try:
-                    agent_usage_service.record_agent_usage(
-                        session_id, strands_agent, outcome, elapsed_ms,
-                    )
-                except Exception as exc:
-                    # Telemetry failure must not break a customer's order flow.
-                    logging.getLogger(__name__).warning(
-                        "agent_usage_record_failed error_type=%s", type(exc).__name__,
-                    )
+
 
     return StreamingResponse(
         stream(),
