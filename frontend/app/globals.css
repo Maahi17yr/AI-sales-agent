@@ -1358,3 +1358,30 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
 }
 .site-shell.theme-dark .meal-photo-credit { color: #b9d6a8; }
 .site-shell.theme-dark .hero-photo-credit { color: #eaf6df; background: rgba(27,49,33,.83); }
+
+
+/* Opt-in customer food memory. The review card never saves without approval. */
+.food-memory-area { margin: 14px 0 8px; max-width: 690px; width: 100%; }
+.food-memory-toggle { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: .79rem; color: #4c7658; background: transparent; border: 1px solid rgba(72,128,80,.22); border-radius: 20px; padding: 6px 11px; cursor: pointer; }
+.food-memory-toggle:hover { background: rgba(72,128,80,.06); }
+.food-memory-review, .food-memory-saved { background: #fafcf9; color: #223c2c; border: 1px solid #d7e9d8; border-radius: 16px; padding: 16px; margin-bottom: 10px; box-shadow: 0 6px 24px rgba(14,49,27,.04); }
+.food-memory-heading { display: flex; align-items: center; gap: 8px; font-size: .95rem; }
+.food-memory-review p, .food-memory-saved p { margin: 8px 0; font-size: .85rem; line-height: 1.45; opacity: .82; }
+.food-memory-detail { display: flex; flex-direction: column; gap: 3px; padding: 11px 12px; border-radius: 10px; background: rgba(42,111,61,.07); margin: 12px 0; overflow-wrap: anywhere; }
+.food-memory-detail span, .food-memory-row small { font-size: .75rem; opacity: .73; }
+.food-memory-detail strong, .food-memory-row strong { font-size: .88rem; font-weight: 600; }
+.food-memory-actions { display: flex; flex-wrap: wrap; gap: 9px; justify-content: flex-end; }
+.food-memory-actions button { display: inline-flex; align-items: center; gap: 6px; }
+.food-memory-saved { margin: 10px 0 0; }
+.food-memory-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid rgba(68,116,77,.12); }
+.food-memory-row:last-child { border-bottom: none; }
+.food-memory-row > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.food-memory-row button { display: inline-flex; align-items: center; justify-content: center; padding: 8px; border-radius: 9px; color: #68756c; border: 1px solid rgba(68,116,77,.15); background: transparent; cursor: pointer; }
+.food-memory-row button:hover { color: #bb3b3b; }
+.food-memory-row button:disabled, .food-memory-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.food-memory-notice { font-size: .8rem; margin: 9px 0; color: #356e48; }
+.theme-dark .food-memory-toggle { color: #b8dabb; border-color: rgba(177,215,179,.24); }
+.theme-dark .food-memory-toggle:hover { background: rgba(177,215,179,.07); }
+.theme-dark .food-memory-review, .theme-dark .food-memory-saved { background: #19291f; color: #e2efe3; border-color: #355441; }
+.theme-dark .food-memory-detail { background: rgba(147,197,148,.10); }
+.theme-dark .food-memory-notice { color: #bbe0be; }
