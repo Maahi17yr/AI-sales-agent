@@ -22,7 +22,11 @@ _TOKEN_KEYS = {
 
 def extract_token_usage(agent) -> dict | None:
     """Read the Strands Agent's real accumulated provider usage, not guesses."""
-    metrics = getattr(agent, "event_loop_metrics", None)
+    # An AgentResult is produced by the *running* agent inside AG-UI.
+    # The wrapper clones template agents, so do not rely on template metrics.
+    metrics = getattr(agent, "metrics", None)
+    if metrics is None:
+        metrics = getattr(agent, "event_loop_metrics", None)
     usage = getattr(metrics, "accumulated_usage", None)
     if not isinstance(usage, dict):
         return None
