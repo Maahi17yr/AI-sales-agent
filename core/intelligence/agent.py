@@ -20,7 +20,6 @@ from core.services.cart import CartService
 from core.tools.cart import make_cart_tools
 from core.tools.orders import make_order_tools
 from core.rag.tool import search_knowledge_base
-from core.memory.session import make_session_manager
 from core.memory.context import make_conversation_manager
 from core.memory import preferences
 from core.memory.tools import make_preference_tools
@@ -188,5 +187,6 @@ def make_agent(session_id: str) -> Agent:
         system_prompt=SYSTEM_PROMPT + cart_context + preference_context,
         conversation_manager=make_conversation_manager(),
         tools=tools,
-        session_manager=make_session_manager(session_id),
+        # AG-UI supplies a per-thread manager to the running agent.
+        # A template manager would be discarded by the AG-UI adapter.
     )
