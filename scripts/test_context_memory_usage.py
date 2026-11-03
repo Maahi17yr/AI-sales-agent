@@ -78,6 +78,20 @@ class ContextAndMemoryTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertEqual(wrong.status_code, 409)
 
+    async def test_chat_sessions_are_isolated_and_path_safe(self):
+        from core.memory.session import make_session_manager
+        with patch("strands.session.file_session_manager.FileSessionManager",
+                   side_effect=lambda **kwargs: kwargs):
+            first = make_session_manager(self.session_id, "../../thread-A")
+            same = make_session_manager(self.session_id, "../../thread-A")
+            different = make_session_manager(self.session_id, "thread-B")
+        self.assertEqual(first["session_id"], same["session_id"])
+        self.assertNotEqual(first["session_id"], different["session_id"])
+        self.assertTrue(first["session_id"].startswith("chat-"))
+        self.assertNotIn("..", first["session_id"])
+        with self.assertRaises(PermissionError):
+            make_session_manager("customer-not-authorized", "thread-A")
+
     async def test_token_totals_without_customer_text(self):
         agent = SimpleNamespace(event_loop_metrics=SimpleNamespace(accumulated_usage={
             "inputTokens": 120, "outputTokens": 35, "totalTokens": 155,
@@ -122,8 +136,7 @@ class ContextAndMemoryTests(unittest.IsolatedAsyncioTestCase):
         proposed = preferences.request_preference(self.session_id, "favorite_food", "egusi")
         with patch.dict(os.environ, {"BEDROCK_MODEL_ID": "fake-model"}), \
              patch.object(agent_module, "BedrockModel", return_value=object()), \
-             patch.object(agent_module, "Agent", side_effect=lambda **kwargs: kwargs), \
-             patch.object(agent_module, "make_session_manager", return_value=object()):
+             patch.object(agent_module, "Agent", side_effect=lambda **kwargs: kwargs):
             before = agent_module.make_agent(self.session_id)
             self.assertNotIn('"favorite_food": "egusi"', before["system_prompt"])
             saved = await self.client.post("/memory/decision", json={
