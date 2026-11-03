@@ -257,6 +257,29 @@ def create_tables():
             ON customer_chats(customer_id, updated_at)
         """)
 
+        # Per-request model token usage. No prompts, replies, or tool payloads.
+        # A customer-scoped FK prevents orphaned usage records.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS agent_usage_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL,
+                model_id TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0 CHECK(input_tokens >= 0),
+                output_tokens INTEGER NOT NULL DEFAULT 0 CHECK(output_tokens >= 0),
+                total_tokens INTEGER NOT NULL DEFAULT 0 CHECK(total_tokens >= 0),
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0 CHECK(cache_read_tokens >= 0),
+                cache_write_tokens INTEGER NOT NULL DEFAULT 0 CHECK(cache_write_tokens >= 0),
+                duration_ms INTEGER NOT NULL DEFAULT 0 CHECK(duration_ms >= 0),
+                outcome TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_agent_usage_events_created
+            ON agent_usage_events(created_at)
+        """)
+
         # Indexes for frequently accessed records
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_orders_customer
