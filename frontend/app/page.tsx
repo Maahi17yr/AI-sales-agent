@@ -103,6 +103,18 @@ type CheckoutResponse = {
   payment_order_id: number | null;
 };
 
+type MemoryProposal = {
+  key: string;
+  value: string;
+  request_id: string;
+};
+
+type PendingMemoryResponse = {
+  success: boolean;
+  pending: boolean;
+  proposal: MemoryProposal | null;
+};
+
 type ConfirmationResponse = {
   success: boolean;
   order_id: number;
@@ -250,6 +262,12 @@ export default function Home() {
     customer_name: customer.name, phone: customer.phone || '',
     delivery_address: '', delivery_area: '',
   });
+  // Approved food preferences are stored by the backend, never directly
+  // from an AI tool call or an unreviewed chat message.
+  const [memoryProposal, setMemoryProposal] = useState<MemoryProposal | null>(null);
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  const [memoryNotice, setMemoryNotice] = useState('');
+
   const [paymentOrder, setPaymentOrder] = useState<number | null>(null);
   const [paymentEmail, setPaymentEmail] = useState('');
   const [paymentBusy, setPaymentBusy] = useState(false);
@@ -259,6 +277,7 @@ export default function Home() {
   const conversationRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const checkoutCardRef = useRef<HTMLElement>(null);
+  const memoryCardRef = useRef<HTMLElement>(null);
   const lastCheckoutFingerprint = useRef<string | null>(null);
   // Late polling responses must not hide a newer checkout card.
   const checkoutSyncSequence = useRef(0);
@@ -524,6 +543,65 @@ export default function Home() {
       document.removeEventListener('visibilitychange', syncIfVisible);
     };
   }, [busy, confirming, refreshCheckout]);
+
+  const refreshMemory = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const response = await apiFetch('/memory/pending', { cache: 'no-store', signal });
+      if (!response.ok) return; // Never hide an existing approval card on outage.
+      const data: PendingMemoryResponse = await response.json();
+      if (signal?.aborted || !data.success) return;
+      setMemoryProposal(data.pending ? data.proposal : null);
+    } catch {
+      // The memory feature is optional; a temporary outage must never block orders.
+    }
+  }, [apiFetch]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void refreshMemory(controller.signal);
+    const onFocus = () => {
+      if (!document.hidden) void refreshMemory(controller.signal);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => {
+      controller.abort();
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [refreshMemory]);
+
+  useEffect(() => {
+    if (memoryProposal) memoryCardRef.current?.scrollIntoView({
+      behavior: 'smooth', block: 'nearest',
+    });
+  }, [memoryProposal]);
+
+  async function decideMemory(approved: boolean) {
+    if (!memoryProposal || memoryBusy) return;
+    setMemoryBusy(true);
+    setMemoryNotice('');
+    try {
+      const response = await apiFetch('/memory/decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: memoryProposal.request_id, approved,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.detail || 'Could not update your food preference.');
+      }
+      setMemoryProposal(null);
+      setMemoryNotice(approved
+        ? 'Your food preference was saved. You can ask me to forget it anytime.'
+        : 'Okay, I won’t save that food preference.');
+    } catch (error) {
+      setMemoryNotice(error instanceof Error ? error.message : 'Could not save your preference.');
+      void refreshMemory();
+    } finally {
+      setMemoryBusy(false);
+    }
+  }
 
   async function prepareCheckoutDirect() {
     if (recoveryBusy || busy || confirming) return;
@@ -851,8 +929,9 @@ export default function Home() {
       setBusy(false);
       setShowTyping(false);
       abort.current = null;
-      // Reconcile if the stream ended before sending its checkout event.
+      // Reconcile both checkout and memory approval after the agent finishes.
       void refreshCheckout();
+      void refreshMemory();
     }
   }
 
@@ -1164,6 +1243,22 @@ export default function Home() {
                 )}
               </section>
             )}
+            {memoryProposal && <section ref={memoryCardRef} className="checkout-panel" aria-label="Review food preference">
+              <div className="checkout-top"><div>
+                <span className="checkout-kicker"><Sparkles size={15}/> YOUR MEMORY</span>
+                <h2>Remember this preference?</h2>
+                <p>Only save it if you want Naija Bites to remember across conversations.</p>
+              </div></div>
+              <div className="checkout-body">
+                <p><strong>{memoryProposal.key.replace(/_/g, ' ')}</strong>: {memoryProposal.value}</p>
+                <p className="order-disclaimer"><ShieldCheck size={14}/> Nothing is saved until you approve it.</p>
+                <div className="checkout-actions">
+                  <button className="secondary-action" type="button" onClick={() => void decideMemory(false)} disabled={memoryBusy}>Not now</button>
+                  <button className="primary-action" type="button" onClick={() => void decideMemory(true)} disabled={memoryBusy}>{memoryBusy ? 'Saving…' : 'Save preference'}</button>
+                </div>
+              </div>
+            </section>}
+            {memoryNotice && <div className="inline-alert" role="status">{memoryNotice}</div>}
             {checkout && reviewOpen && <section ref={checkoutCardRef} className="checkout-panel" aria-label="Review your order">
               <div className="checkout-top"><div><span className="checkout-kicker"><ShoppingBag size={15}/> YOUR ORDER</span><h2>Review your order</h2><p>Make sure everything looks right.</p></div><button className="icon-button" aria-label="Hide order review" title="Hide order review" onClick={() => setReviewOpen(false)}><X size={18}/></button></div>
               <div className="checkout-body">

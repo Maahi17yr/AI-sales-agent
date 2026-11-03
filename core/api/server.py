@@ -52,7 +52,8 @@ from core.api.owner import router as owner_router
 
 from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
-from ag_ui_strands import StrandsAgent
+from ag_ui_strands import StrandsAgent, StrandsAgentConfig
+from strands.hooks.events import AfterInvocationEvent
 
 
 # ------------------------------------------
@@ -72,6 +73,8 @@ from core.intelligence.agent import make_agent
 
 from core.services.checkout import CheckoutService
 from core.services.checkout_state import get_checkout_state
+from core.services import agent_usage_service
+from core.memory.session import make_session_manager
 from core.services.cart import CartService
 from core.services.discount_service import DiscountService
 from core import config
@@ -537,17 +540,45 @@ async def run_agent(
     encoder = EventEncoder(accept=request.headers.get("accept"))
 
     async def stream():
-        # Log only timing and event counts; never log customer text or tokens.
+        # Only numeric model usage and timing are recorded; no customer text.
         started = time.perf_counter()
         first_event_ms = None
         event_count = 0
         outcome = "completed"
+
+        def record_live_usage(event: AfterInvocationEvent) -> None:
+            # AG-UI builds a new per-thread Agent from our template. Only
+            # AfterInvocationEvent.result reports the tokens actually spent.
+            result = getattr(event, "result", None)
+            if result is None:
+                return
+            elapsed_ms = round((time.perf_counter() - started) * 1000)
+            try:
+                agent_usage_service.record_agent_usage(
+                    session_id, result, "completed", elapsed_ms,
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "agent_usage_record_failed error_type=%s", type(exc).__name__,
+                )
+
         try:
             async with _agent_lock(session_id):
                 agent = StrandsAgent(
                     agent=make_agent(session_id),
                     name="naija_bites",
                     description="Naija Bites food ordering assistant",
+                    # The wrapper reconstructs the template per AG-UI thread.
+                    # Its template session manager would otherwise be ignored.
+                    config=StrandsAgentConfig(
+                        session_manager_provider=lambda thread: make_session_manager(
+                            session_id, thread.thread_id,
+                        ),
+                        # The persistent Strands session holds the model history.
+                        # Avoid replaying the entire UI transcript into it.
+                        replay_history_into_strands=False,
+                    ),
+                    hooks=[record_live_usage],
                 )
                 async for event in agent.run(input_data):
                     event_count += 1
@@ -564,13 +595,12 @@ async def run_agent(
             outcome = "error"
             raise
         finally:
+            elapsed_ms = round((time.perf_counter() - started) * 1000)
             logging.getLogger(__name__).info(
                 "agent_stream_latency total_ms=%d first_event_ms=%s events=%d outcome=%s",
-                round((time.perf_counter() - started) * 1000),
-                first_event_ms,
-                event_count,
-                outcome,
+                elapsed_ms, first_event_ms, event_count, outcome,
             )
+
 
     return StreamingResponse(
         stream(),

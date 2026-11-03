@@ -17,6 +17,15 @@ type Overview = {
   low_stock: { product_id: number; name: string; variant: string; quantity: number }[];
   sales_trend: { date: string; revenue: number }[];
 };
+type AgentUsage = {
+  period_days: number;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  total_duration_ms: number;
+};
+
 type Order = {
   id: number; customer_id: number; customer_name: string | null;
   status: string; payment_status: string; total: number;
@@ -55,6 +64,7 @@ export default function OwnerHome() {
   const { customer, apiFetch, logout } = useAuth();
   const [tab, setTab] = useState<Tab>('overview');
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [agentUsage, setAgentUsage] = useState<AgentUsage | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -86,6 +96,12 @@ export default function OwnerHome() {
       setOrders(orderData.orders);
       setProducts(menuData.products);
       setCustomers(customerData.customers);
+      // Usage statistics are optional; a monitoring outage must not prevent
+      // owners from managing orders and the menu.
+      try {
+        const usageResponse = await apiFetch('/owner/usage?days=7');
+        setAgentUsage(usageResponse.ok ? (await usageResponse.json()) as AgentUsage : null);
+      } catch { setAgentUsage(null); }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load dashboard.');
     } finally { setLoading(false); }
@@ -185,6 +201,18 @@ export default function OwnerHome() {
               <article className="owner-kpi"><span>Total orders</span><strong>{overview.order_count.toLocaleString()}</strong><small>All order statuses</small></article>
               <article className="owner-kpi"><span>Ready to prepare</span><strong>{overview.confirmed_orders}</strong><small>Confirmed orders</small></article>
             </div>
+            <article className="owner-panel" aria-label="AI model usage in the last seven days">
+              <div className="owner-section-title"><div>
+                <h2>AI usage · last 7 days</h2>
+                <p>Provider-reported token counts, without customer message content.</p>
+              </div></div>
+              {agentUsage ? <p>
+                <strong>{agentUsage.total_tokens.toLocaleString('en-NG')} tokens</strong>
+                {' · '}{agentUsage.requests.toLocaleString('en-NG')} agent requests
+                {' · '}{agentUsage.input_tokens.toLocaleString('en-NG')} input
+                {' / '}{agentUsage.output_tokens.toLocaleString('en-NG')} output
+              </p> : <p>Usage information is unavailable right now.</p>}
+            </article>
             <div className="owner-two-columns">
               <article className="owner-panel"><div className="owner-section-title"><div><h2>Sales this week</h2><p>Verified paid transactions · UTC</p></div><ChartNoAxesCombined size={20}/></div>
                 <div className="owner-chart" role="img" aria-label="Last seven days of verified payment revenue">{overview.sales_trend.map(day => <div className="owner-chart-day" key={day.date}><div className="owner-chart-bar-area"><div className="owner-chart-bar" style={{ height: `${Math.max(3, (day.revenue / maxSales) * 100)}%` }} title={`${day.date}: ${money(day.revenue)}`}/></div><small>{day.date.slice(5)}</small></div>)}</div>
