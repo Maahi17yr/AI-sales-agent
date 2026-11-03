@@ -72,6 +72,7 @@ from core.intelligence.agent import make_agent
 
 from core.services.checkout import CheckoutService
 from core.services.checkout_state import get_checkout_state
+from core.services import agent_usage_service
 from core.services.cart import CartService
 from core.services.discount_service import DiscountService
 from core import config
@@ -537,15 +538,17 @@ async def run_agent(
     encoder = EventEncoder(accept=request.headers.get("accept"))
 
     async def stream():
-        # Log only timing and event counts; never log customer text or tokens.
+        # Only numeric model usage and timing are recorded; no customer text.
         started = time.perf_counter()
         first_event_ms = None
         event_count = 0
         outcome = "completed"
+        strands_agent = None
         try:
             async with _agent_lock(session_id):
+                strands_agent = make_agent(session_id)
                 agent = StrandsAgent(
-                    agent=make_agent(session_id),
+                    agent=strands_agent,
                     name="naija_bites",
                     description="Naija Bites food ordering assistant",
                 )
@@ -564,13 +567,21 @@ async def run_agent(
             outcome = "error"
             raise
         finally:
+            elapsed_ms = round((time.perf_counter() - started) * 1000)
             logging.getLogger(__name__).info(
                 "agent_stream_latency total_ms=%d first_event_ms=%s events=%d outcome=%s",
-                round((time.perf_counter() - started) * 1000),
-                first_event_ms,
-                event_count,
-                outcome,
+                elapsed_ms, first_event_ms, event_count, outcome,
             )
+            if strands_agent is not None:
+                try:
+                    agent_usage_service.record_agent_usage(
+                        session_id, strands_agent, outcome, elapsed_ms,
+                    )
+                except Exception as exc:
+                    # Telemetry failure must not break a customer's order flow.
+                    logging.getLogger(__name__).warning(
+                        "agent_usage_record_failed error_type=%s", type(exc).__name__,
+                    )
 
     return StreamingResponse(
         stream(),
