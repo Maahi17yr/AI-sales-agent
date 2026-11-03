@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from './auth-provider';
 import FoodPanel from './food-panel';
+import MemoryPanel from './memory-panel';
 import VoiceChatPanel, { type VoiceClip } from './voice-chat-panel';
 import VoiceNoteBubble from './voice-note-bubble';
 
@@ -49,6 +50,8 @@ type WireMsg = Msg;
 
 type SavedChat = { id: string; title: string; messages: Msg[]; updatedAt: number };
 const MAX_SAVED_CHATS = 30;
+// Only recent turns travel to the agent; saved/displayed chat history is unaffected.
+const MAX_MODEL_CONTEXT_MESSAGES = 24;
 const historyKey = (customerId: number) => `naija-bites-chat-history-v1-${customerId}`;
 const paymentChatKey = (customerId: number) => `naija-bites-payment-chat-v1-${customerId}`;
 const chatTitle = (items: Msg[]) => items.find(m => m.role === 'user')?.content.slice(0, 52).trim() || 'New chat';
@@ -674,6 +677,7 @@ export default function Home() {
     try {
       const wire: WireMsg[] = next
         .filter((message) => message.id !== 'welcome')
+        .slice(-MAX_MODEL_CONTEXT_MESSAGES)
         .map((message) => ({
           id: message.id,
           role: message.role,
@@ -1185,6 +1189,11 @@ export default function Home() {
               </div>
             </section>}
              {checkoutError && <div className="inline-alert" role="alert">{checkoutError} <button type="button" className="checkout-retry" onClick={() => void refreshCheckout()}>Retry sync</button></div>}
+            <MemoryPanel
+              apiFetch={apiFetch}
+              refreshKey={messages.length + (busy ? 1 : 0)}
+              disabled={busy || confirming || paymentBusy}
+            />
 
           </div>
         </div>
