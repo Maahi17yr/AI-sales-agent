@@ -91,6 +91,15 @@ class ContextAndMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(totals["total_tokens"], 155)
         self.assertEqual(totals["cache_read_tokens"], 10)
         self.assertEqual(totals["total_duration_ms"], 810)
+        # AG-UI dispatches an AgentResult from its actual per-thread runner;
+        # the initial Agent template has no real token usage.
+        live_result = SimpleNamespace(metrics=SimpleNamespace(accumulated_usage={
+            "inputTokens": 90, "outputTokens": 20, "totalTokens": 110,
+        }))
+        self.assertTrue(agent_usage_service.record_agent_usage(
+            self.session_id, live_result, "completed", 350,
+        ))
+        self.assertEqual(agent_usage_service.recent_usage_summary(7)["total_tokens"], 265)
         self.assertNotIn("customer_id", totals)
         self.assertNotIn("messages", totals)
         self.assertEqual((await self.client.get("/owner/usage")).status_code, 403)
