@@ -72,6 +72,8 @@ from core.intelligence.agent import make_agent
 
 from core.services.checkout import CheckoutService
 from core.services.checkout_state import get_checkout_state
+from core.memory.context import bounded_chat_messages
+from core.memory.token_metrics import log_token_usage
 from core.services.cart import CartService
 from core.services.discount_service import DiscountService
 from core import config
@@ -534,6 +536,16 @@ async def run_agent(
     """
 
     session_id = _customer_session(request)
+    # Keep only the most recent customer-visible turns per model request.
+    # The Strands conversation manager separately summarizes older session
+    # history. This does not alter durable saved chat history.
+    bounded = bounded_chat_messages(input_data.messages)
+    if len(bounded) != len(input_data.messages):
+        logging.getLogger(__name__).info(
+            "agent_context_trimmed received=%d forwarded=%d",
+            len(input_data.messages), len(bounded),
+        )
+    input_data = input_data.model_copy(update={"messages": bounded})
     encoder = EventEncoder(accept=request.headers.get("accept"))
 
     async def stream():
@@ -542,10 +554,12 @@ async def run_agent(
         first_event_ms = None
         event_count = 0
         outcome = "completed"
+        model_agent = None
         try:
             async with _agent_lock(session_id):
+                model_agent = make_agent(session_id)
                 agent = StrandsAgent(
-                    agent=make_agent(session_id),
+                    agent=model_agent,
                     name="naija_bites",
                     description="Naija Bites food ordering assistant",
                 )
@@ -564,6 +578,8 @@ async def run_agent(
             outcome = "error"
             raise
         finally:
+            if model_agent is not None:
+                log_token_usage(logging.getLogger(__name__), model_agent)
             logging.getLogger(__name__).info(
                 "agent_stream_latency total_ms=%d first_event_ms=%s events=%d outcome=%s",
                 round((time.perf_counter() - started) * 1000),
