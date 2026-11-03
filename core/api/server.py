@@ -759,6 +759,24 @@ async def get_dev_customer(request: Request):
 
 
 # Customer identity is always resolved from the authenticated cookie.
+@app.get("/memory/preferences")
+async def memory_preferences(request: Request):
+    """Return only this customer's explicitly approved food preferences."""
+    from core.memory import preferences
+    return {"success": True, "preferences": preferences.get_preferences(_customer_session(request))}
+
+
+@app.delete("/memory/preferences/{key}")
+async def memory_forget(key: str, request: Request):
+    """Allow a signed-in customer to remove their saved food preference."""
+    from core.memory import preferences
+    try:
+        deleted = preferences.forget_preference(_customer_session(request), key)
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "deleted": deleted}
+
+
 @app.get("/memory/pending")
 async def memory_pending(request: Request):
     from core.memory import preferences
