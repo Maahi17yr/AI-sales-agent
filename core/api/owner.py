@@ -70,6 +70,16 @@ def owner_update_menu(product_id: int, payload: MenuUpdate, request: Request):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/usage")
+def owner_agent_usage(request: Request, days: int = 7):
+    """Private owner-only totals; never expose customer messages or identities."""
+    require_owner(request)
+    if days < 1 or days > 30:
+        raise HTTPException(status_code=422, detail="Days must be between 1 and 30.")
+    from core.services.agent_usage_service import recent_usage_summary
+    return recent_usage_summary(days)
+
+
 @router.get("/customers")
 def owner_customers(request: Request):
     require_owner(request)
