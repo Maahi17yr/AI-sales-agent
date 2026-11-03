@@ -42,18 +42,20 @@ class BoundedContextTests(unittest.TestCase):
     def test_agent_uses_only_approved_preferences_and_bounded_context(self):
         from core.intelligence import agent as agent_module
 
-        with patch.dict(os.environ, {"BEDROCK_MODEL_ID": "test-model"}), \\
-             patch.object(agent_module.repository, "get_session", return_value={"customer_id": 1}), \\
-             patch.object(agent_module.CartService, "view_cart", return_value={"items": []}), \\
-             patch.object(agent_module, "BedrockModel"), \\
-             patch.object(agent_module, "make_session_manager"), \\
-             patch.object(agent_module, "make_conversation_manager") as manager, \\
-             patch.object(agent_module, "make_cart_tools", return_value=[]), \\
-             patch.object(agent_module, "make_order_tools", return_value=[]), \\
-             patch.object(agent_module, "make_preference_tools", return_value=[]), \\
-             patch.object(agent_module.preferences, "get_preferences",
-                          return_value={"favorite_food": "Party Jollof Rice"}) as approved, \\
-             patch.object(agent_module, "Agent") as agent_factory:
+        with (
+            patch.dict(os.environ, {"BEDROCK_MODEL_ID": "test-model"}),
+            patch.object(agent_module.repository, "get_session", return_value={"customer_id": 1}),
+            patch.object(agent_module.CartService, "view_cart", return_value={"items": []}),
+            patch.object(agent_module, "BedrockModel"),
+            patch.object(agent_module, "make_session_manager"),
+            patch.object(agent_module, "make_conversation_manager") as manager,
+            patch.object(agent_module, "make_cart_tools", return_value=[]),
+            patch.object(agent_module, "make_order_tools", return_value=[]),
+            patch.object(agent_module, "make_preference_tools", return_value=[]),
+            patch.object(agent_module.preferences, "get_preferences",
+                         return_value={"favorite_food": "Party Jollof Rice"}) as approved,
+            patch.object(agent_module, "Agent") as agent_factory,
+        ):
             agent_module.make_agent("customer-1")
             cfg = agent_factory.call_args.kwargs
             self.assertIn("Party Jollof Rice", cfg["system_prompt"])
