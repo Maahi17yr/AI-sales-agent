@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from './auth-provider';
 import FoodPanel from './food-panel';
+import MemoryPanel from './memory-panel';
 import VoiceChatPanel, { type VoiceClip } from './voice-chat-panel';
 import VoiceNoteBubble from './voice-note-bubble';
 
@@ -1188,6 +1189,11 @@ export default function Home() {
               </div>
             </section>}
              {checkoutError && <div className="inline-alert" role="alert">{checkoutError} <button type="button" className="checkout-retry" onClick={() => void refreshCheckout()}>Retry sync</button></div>}
+            <MemoryPanel
+              apiFetch={apiFetch}
+              refreshKey={messages.length + (busy ? 1 : 0)}
+              disabled={busy || confirming || paymentBusy}
+            />
 
           </div>
         </div>
