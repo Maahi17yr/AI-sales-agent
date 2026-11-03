@@ -52,7 +52,7 @@ from core.api.owner import router as owner_router
 
 from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
-from ag_ui_strands import StrandsAgent
+from ag_ui_strands import StrandsAgent, StrandsAgentConfig
 from strands.hooks.events import AfterInvocationEvent
 
 
@@ -74,6 +74,7 @@ from core.intelligence.agent import make_agent
 from core.services.checkout import CheckoutService
 from core.services.checkout_state import get_checkout_state
 from core.services import agent_usage_service
+from core.memory.session import make_session_manager
 from core.services.cart import CartService
 from core.services.discount_service import DiscountService
 from core import config
@@ -567,6 +568,16 @@ async def run_agent(
                     agent=make_agent(session_id),
                     name="naija_bites",
                     description="Naija Bites food ordering assistant",
+                    # The wrapper reconstructs the template per AG-UI thread.
+                    # Its template session manager would otherwise be ignored.
+                    config=StrandsAgentConfig(
+                        session_manager_provider=lambda thread: make_session_manager(
+                            session_id, thread.thread_id,
+                        ),
+                        # The persistent Strands session holds the model history.
+                        # Avoid replaying the entire UI transcript into it.
+                        replay_history_into_strands=False,
+                    ),
                     hooks=[record_live_usage],
                 )
                 async for event in agent.run(input_data):
