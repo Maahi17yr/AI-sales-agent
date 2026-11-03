@@ -155,7 +155,24 @@ def main():
         paid_replay = require(client.post(API + "/checkout/confirm", json=approval))
         assert paid_replay["order_id"] == order_id and paid_replay["status"] == "confirmed", paid_replay
 
-        print("PASS: Next.js proxy, durable review, refresh, idempotent confirm, payment panel recovery after chat overwrite, and paid state")
+        # Real Next.js proxy memory approval: no model calls and no implicit save.
+        from core.memory import preferences
+        proposal = preferences.request_preference(session_id, "favorite_food", "Fictional Party Jollof")
+        memory_before = require(client.get(API + "/memory/preferences"))
+        assert memory_before["preferences"] == {}, memory_before
+        pending_memory = require(client.get(API + "/memory/pending"))
+        assert pending_memory["pending"] and pending_memory["proposal"]["request_id"] == proposal["request_id"]
+        accepted = require(client.post(API + "/memory/decision", json={
+            "request_id": proposal["request_id"], "approved": True,
+        }))
+        assert accepted["saved"] is True, accepted
+        remembered = require(client.get(API + "/memory/preferences"))
+        assert remembered["preferences"] == {"favorite_food": "Fictional Party Jollof"}, remembered
+        deleted = require(client.delete(API + "/memory/preferences/favorite_food"))
+        assert deleted["deleted"] is True, deleted
+        assert require(client.get(API + "/memory/preferences"))["preferences"] == {}
+
+        print("PASS: Next.js proxy, durable checkout/payment recovery, explicit memory approval, recall and deletion")
 
 
 if __name__ == "__main__":
