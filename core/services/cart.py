@@ -49,8 +49,9 @@ class CartService:
             for mod in item.get("modifications", []):
                 if mod["action"] == "add":
                     extra_totals[mod["ingredient_id"]] += mod["quantity"] * item["quantity"]
+        stocks = repository.get_stocks_by_variants(product_totals)
         for (product_id, variant), count in product_totals.items():
-            if repository.get_stock(product_id, variant) < count:
+            if stocks.get((product_id, variant), 0) < count:
                 return "Not enough meal stock for the full cart."
         if extra_totals:
             conn = get_connection()
@@ -128,8 +129,10 @@ class CartService:
 
     def view_cart(self):
         detailed, subtotal = [], 0
-        for item in self.get_cart():
-            product = repository.get_product(item["product_id"])
+        items = self.get_cart()
+        products = repository.get_products_by_ids(item["product_id"] for item in items)
+        for item in items:
+            product = products.get(item["product_id"])
             if not product:
                 continue
             mods = item.get("modifications", [])

@@ -46,6 +46,41 @@ def get_product(product_id):
     return to_dict(row)
 
 
+def get_products_by_ids(product_ids):
+    """Return existing products keyed by ID in one read, with no availability filter.
+
+    Preserve get_product semantics: an unavailable product can still appear in
+    the cart's display. Duplicate IDs are deduplicated, not duplicate lines.
+    """
+    ids = list(dict.fromkeys(product_ids))
+    if not ids:
+        return {}
+    with get_connection() as conn:
+        marks = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT * FROM products WHERE id IN ({marks})", ids
+        ).fetchall()
+    return {row["id"]: to_dict(row) for row in rows}
+
+
+def get_stocks_by_variants(product_variants):
+    """Return stock keyed by (product ID, variant); absent rows default to zero.
+
+    Exactly mirrors get_stock without applying an availability policy.
+    """
+    variants = list(dict.fromkeys(product_variants))
+    if not variants:
+        return {}
+    where = " OR ".join("(product_id = ? AND variant = ?)" for _ in variants)
+    params = [value for pair in variants for value in pair]
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT product_id, variant, quantity FROM inventory WHERE " + where,
+            params,
+        ).fetchall()
+    return {(row["product_id"], row["variant"]): row["quantity"] for row in rows}
+
+
 def search_products(query=None, category=None,
                     min_price=None, max_price=None):
     """Search products using optional filters."""
