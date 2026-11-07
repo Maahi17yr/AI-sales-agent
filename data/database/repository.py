@@ -46,39 +46,56 @@ def get_product(product_id):
     return to_dict(row)
 
 
-def get_products_by_ids(product_ids):
-    """Return existing products keyed by ID in one read, with no availability filter.
+# SQLite commonly permits 999 parameters; leave space for other adapters and
+# avoid unbounded SQL/parameter lists while keeping one read for normal carts.
+_BATCH_SIZE = 400
 
-    Preserve get_product semantics: an unavailable product can still appear in
-    the cart's display. Duplicate IDs are deduplicated, not duplicate lines.
+
+def _chunks(values):
+    for start in range(0, len(values), _BATCH_SIZE):
+        yield values[start:start + _BATCH_SIZE]
+
+
+def get_products_by_ids(product_ids):
+    """Read product records by ID, retaining unavailable rows for cart display.
+
+    Return a dict keyed by ID. An empty request doesn't open a connection.
+    All nonempty chunks reuse one read-only connection.
     """
     ids = list(dict.fromkeys(product_ids))
     if not ids:
         return {}
+    products = {}
     with get_connection() as conn:
-        marks = ",".join("?" for _ in ids)
-        rows = conn.execute(
-            f"SELECT * FROM products WHERE id IN ({marks})", ids
-        ).fetchall()
-    return {row["id"]: to_dict(row) for row in rows}
+        for subset in _chunks(ids):
+            marks = ",".join("?" for _ in subset)
+            rows = conn.execute(
+                f"SELECT * FROM products WHERE id IN ({marks})", subset
+            ).fetchall()
+            products.update((row["id"], to_dict(row)) for row in rows)
+    return products
 
 
 def get_stocks_by_variants(product_variants):
-    """Return stock keyed by (product ID, variant); absent rows default to zero.
+    """Batch stock reads; missing variants are interpreted as zero by caller.
 
-    Exactly mirrors get_stock without applying an availability policy.
+    Reuse a single connection across chunks, leaving all cart policies intact.
     """
     variants = list(dict.fromkeys(product_variants))
     if not variants:
         return {}
-    where = " OR ".join("(product_id = ? AND variant = ?)" for _ in variants)
-    params = [value for pair in variants for value in pair]
+    stocks = {}
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT product_id, variant, quantity FROM inventory WHERE " + where,
-            params,
-        ).fetchall()
-    return {(row["product_id"], row["variant"]): row["quantity"] for row in rows}
+        for subset in _chunks(variants):
+            where = " OR ".join("(product_id = ? AND variant = ?)" for _ in subset)
+            params = [value for pair in subset for value in pair]
+            rows = conn.execute(
+                "SELECT product_id, variant, quantity FROM inventory WHERE " + where,
+                params,
+            ).fetchall()
+            stocks.update(((row["product_id"], row["variant"]), row["quantity"])
+                          for row in rows)
+    return stocks
 
 
 def search_products(query=None, category=None,
