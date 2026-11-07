@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import platform
-import re
 import statistics
 import time
 from unittest.mock import patch
@@ -49,9 +48,7 @@ def main():
         raise ValueError("At least 30 measured iterations and nonnegative warmup required.")
     url = os.getenv("DATABASE_URL", "")
     if (os.getenv("NAIJA_BITES_POSTGRES_BENCH") != "1"
-        or not re.fullmatch(
-            r"postgresql://postgres:postgres@127\\.0\\.0\\.1:5432/naija_bench", url
-        )):
+        or url != "postgresql://postgres:postgres@127.0.0.1:5432/naija_bench"):
         raise RuntimeError("Refusing non-disposable PostgreSQL configuration.")
     if os.getenv("OBSERVABILITY_MODE", "off") != "off":
         raise RuntimeError("Raw observability must remain off.")
