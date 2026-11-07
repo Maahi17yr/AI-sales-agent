@@ -1,6 +1,6 @@
-import { beginJourney, currentJourney, finishJourney } from './request-metrics';
-
 'use client';
+
+import { beginJourney, currentJourney, finishJourney } from './request-metrics';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
