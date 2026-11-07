@@ -317,6 +317,34 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             handler.close()
             logger.setLevel(previous_level)
 
+    async def test_payment_and_db_metrics_do_not_expose_payloads(self):
+        from core.services import paystack_service
+        import contextlib
+
+        order_id, reference = await self._unpaid_payment_fixture()
+        output = io.StringIO()
+        logger = logging.getLogger("naija_bites.metrics")
+        handler = logging.StreamHandler(output)
+        previous_level = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        try:
+            with patch.object(paystack_service, "_request",
+                              return_value=self._provider_success(reference)):
+                response = await self.client.post("/payments/verify",
+                    json={"reference": reference})
+            self.assertEqual(response.status_code, 200, response.text)
+            self._assert_payment_and_stock(order_id, "paid", "confirmed")
+            log = output.getvalue()
+            self.assertIn("db_metric", log)
+            self.assertIn("db_request_summary", log)
+            self.assertNotIn(reference, log)
+            self.assertNotIn("SELECT", log)
+        finally:
+            logger.removeHandler(handler)
+            handler.close()
+            logger.setLevel(previous_level)
+
     async def test_invalid_webhook_signature_rejected_without_provider_call(self):
         from core.services import paystack_service
 

@@ -4,6 +4,8 @@ Enabled only when DATABASE_URL is configured. This is intentionally limited
 to our own schema and queries, not a general SQLite compatibility library.
 """
 import re
+import time
+from core.observability.metrics import record_db_query
 
 import psycopg
 from psycopg.rows import dict_row
@@ -81,6 +83,16 @@ class PostgresConnection:
             self._transaction_open = True
 
     def execute(self, sql, params=None):
+        started = time.perf_counter()
+        try:
+            result = self._execute_untimed(sql, params)
+        except Exception:
+            record_db_query("postgres", (time.perf_counter() - started) * 1000, False)
+            raise
+        record_db_query("postgres", (time.perf_counter() - started) * 1000, True)
+        return result
+
+    def _execute_untimed(self, sql, params=None):
         statement = sql.strip()
         if re.fullmatch(r"BEGIN(?:\s+IMMEDIATE)?\s*;?", statement, re.I):
             self._begin()

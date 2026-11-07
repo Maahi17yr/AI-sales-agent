@@ -4,11 +4,13 @@ import hmac
 import logging
 import os
 import secrets
+import time
 import sqlite3
 
 import httpx
 from data.database.models import get_connection
 from core.observability.correlation import current_ids
+from core.observability.metrics import record_duration
 
 API = "https://api.paystack.co"
 logger = logging.getLogger("naija_bites.payments")
@@ -46,6 +48,9 @@ def _key():
     return key
 
 def _request(method, path, payload=None):
+    started = time.perf_counter()
+    operation = "initialize" if method == "POST" else "verify"
+    outcome = "success"
     try:
         with httpx.Client(timeout=20) as client:
             response = client.request(
@@ -59,8 +64,12 @@ def _request(method, path, payload=None):
             raise ValueError("Paystack rejected the request.")
         return result["data"]
     except (httpx.HTTPError, ValueError) as exc:
-        _record_provider_failure(provider_failure_category(exc))
+        outcome = provider_failure_category(exc)
+        _record_provider_failure(outcome)
         raise ValueError("Payment provider request failed.") from None
+    finally:
+        record_duration("paystack", operation,
+                        (time.perf_counter() - started) * 1000, outcome)
 
 def _owned_order(conn, order_id, session_id):
     return conn.execute("""

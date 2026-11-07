@@ -3,6 +3,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 import os
+from core.observability.metrics import TimedSQLiteConnection
 
 # Optional storage root for hosted demo. Render free instances do not provide
 # durable disk storage: /tmp data can disappear on restart/redeploy.
@@ -24,7 +25,7 @@ def get_connection():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+    return TimedSQLiteConnection(conn)
 
 
 def create_tables():
