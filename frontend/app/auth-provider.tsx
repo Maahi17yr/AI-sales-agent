@@ -20,7 +20,7 @@ export type Customer = { id: number; name: string; email: string; role: 'custome
 
 type AuthContextValue = {
   customer: Customer;
-  apiFetch: (path: string, options?: RequestInit) => Promise<Response>;
+  apiFetch: (path: string, options?: RequestInit, journeyId?: string) => Promise<Response>;
   logout: () => Promise<void>;
 };
 
@@ -76,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshSession = useCallback(async () => {
     try {
       const response = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
+      recordRequest('auth', !response.ok);
       if (response.ok) {
         const data: { customer: Customer } = await response.json();
         customerRef.current = data.customer;
@@ -84,7 +85,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         customerRef.current = null;
         setCustomer(null);
       }
-    } catch { /* Keep current state on transient network failure. */ }
+    } catch {
+      recordRequest('auth', true);
+      /* Keep current state on transient network failure. */
+    }
   }, []);
 
   // Tabs on the same origin share the session cookie. Recheck when another tab
@@ -107,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshSession]);
 
-  const apiFetch = useCallback(async (path: string, options: RequestInit = {}) => {
+  const apiFetch = useCallback(async (path: string, options: RequestInit = {}, journeyId?: string) => {
     const expectedCustomerId = customerRef.current?.id;
     const headers = new Headers(options.headers);
     if (expectedCustomerId !== undefined) {
@@ -118,9 +122,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       let session: Response;
       try {
         session = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
-        recordRequest('auth', !session.ok);
+        recordRequest('auth', !session.ok, journeyId);
       } catch (error) {
-        recordRequest('auth', true);
+        recordRequest('auth', true, journeyId);
         throw error;
       }
       if (session.status === 401) {
@@ -144,9 +148,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         credentials: 'include',
         cache: options.cache ?? 'no-store',
       });
-      recordRequest(classifyRequest(path), !response.ok);
+      recordRequest(classifyRequest(path), !response.ok, journeyId);
     } catch (error) {
-      recordRequest(classifyRequest(path), true);
+      recordRequest(classifyRequest(path), true, journeyId);
       throw error;
     }
     if (response.status === 401) {

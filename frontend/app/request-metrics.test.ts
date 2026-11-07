@@ -1,29 +1,38 @@
-/** Isolated, executable request-count tests. Run with:
- * npx tsc --target es2020 --module commonjs --outDir /tmp/naija-request-test app/request-metrics.ts
- * node -e "require('/tmp/naija-request-test/request-metrics.js')"
- * This file is also checked by the production TypeScript build.
- */
-import { beginJourney, currentJourney, recordRequest, finishJourney, classifyRequest } from './request-metrics';
+import {
+  beginJourney, recordRequest, recordStreamOutcome, finishJourney,
+  backgroundSnapshot, resetBackgroundForTest, classifyRequest,
+} from './request-metrics';
+
+function assert(condition: boolean, label: string) {
+  if (!condition) throw new Error(label);
+}
 
 export function checkRequestMetrics(): void {
-  beginJourney('chat_turn');
-  recordRequest('auth', false);
-  recordRequest('agent', false);
-  recordRequest('checkout', true);
-  const chat = finishJourney();
-  if (chat.journey !== 'chat_turn' || chat.requests !== 3 || chat.errors !== 1
-      || chat.byStage.auth !== 1 || chat.byStage.checkout !== 1) {
-    throw new Error('Incorrect chat-turn baseline');
-  }
-  beginJourney('checkout');
-  recordRequest('auth', false);
-  recordRequest('checkout', false);
-  const checkout = finishJourney();
-  if (checkout.requests !== 2 || checkout.byStage.auth !== 1) throw new Error('Incorrect checkout baseline');
-  beginJourney('payment');
-  recordRequest('payment', false);
-  if (finishJourney().byStage.payment !== 1) throw new Error('Incorrect payment baseline');
-  if (currentJourney() !== null || classifyRequest('/payments/verify') !== 'payment') {
-    throw new Error('Request metrics cleanup failed');
-  }
+  resetBackgroundForTest();
+  const chat = beginJourney('chat_turn');
+  recordRequest('auth', false, chat);
+  const checkout = beginJourney('checkout');
+  recordRequest('auth', false, checkout);
+  recordRequest('checkout', false, checkout);
+  recordRequest('agent', false, chat);
+  recordStreamOutcome(chat, 'error');
+  recordRequest('chats', true);  // background request, not part of either journey
+
+  const checkoutEnd = finishJourney(checkout);
+  assert(checkoutEnd?.requests === 2 && checkoutEnd.errors === 0 &&
+         checkoutEnd.byStage.auth === 1, 'Overlapping checkout lost counts');
+  const chatEnd = finishJourney(chat);
+  assert(chatEnd?.requests === 2 && chatEnd.streamErrors === 1 &&
+         chatEnd.errors === 1 && chatEnd.byStage.agent === 1, 'Overlapping chat lost counts');
+  assert(finishJourney(chat) === null, 'Finished journey not removed');
+  assert(backgroundSnapshot().requests === 1 &&
+         backgroundSnapshot().errors === 1, 'Background request lost');
+
+  const payment = beginJourney('payment');
+  recordRequest('payment', false, payment);
+  recordStreamOutcome(payment, 'cancelled');
+  const end = finishJourney(payment);
+  assert(end?.requests === 1 && end.cancellations === 1 &&
+         end.errors === 0, 'Cancellation was treated as provider failure');
+  assert(classifyRequest('/payments/verify') === 'payment', 'Incorrect stage classification');
 }

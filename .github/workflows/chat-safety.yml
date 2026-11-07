@@ -42,6 +42,10 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: Run request-counter overlap regression
+        run: |
+          ./node_modules/.bin/tsc --target es2020 --module commonjs --skipLibCheck --outDir /tmp/naija-request-tests app/request-metrics.ts app/request-metrics.test.ts
+          node -e "require('/tmp/naija-request-tests/request-metrics.test.js').checkRequestMetrics()"
       - name: Build production frontend
         env:
           NEXT_BACKEND_URL: https://naija-bites-demo-api.onrender.com

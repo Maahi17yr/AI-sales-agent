@@ -1,33 +1,55 @@
-/** In-memory, privacy-safe request counters: never record URLs, bodies or cookies. */
+/** Independent, in-memory measurements; never record paths, payloads or identities. */
 export type Journey = 'chat_turn' | 'checkout' | 'payment';
 export type RequestStage = 'agent' | 'checkout' | 'payment' | 'auth' | 'chats' | 'menu' | 'cart' | 'other';
+type Counts = { requests: number; errors: number; cancellations: number;
+  streamErrors: number; byStage: Partial<Record<RequestStage, number>> };
+type RecordState = Counts & { journey: Journey };
+const journeys = new Map<string, RecordState>();
+let nextJourney = 0;
+const background: Counts = { requests: 0, errors: 0, cancellations: 0, streamErrors: 0, byStage: {} };
 
-type Observation = { stage: RequestStage; failed: boolean };
-const entries: Observation[] = [];
-let journey: Journey | null = null;
-
-export function beginJourney(kind: Journey): void {
-  journey = kind;
-  entries.length = 0;
+function empty(kind: Journey): RecordState {
+  return { journey: kind, requests: 0, errors: 0, cancellations: 0,
+    streamErrors: 0, byStage: {} };
 }
 
-export function currentJourney(): Journey | null { return journey; }
-
-export function recordRequest(stage: RequestStage, failed: boolean): void {
-  if (journey) entries.push({ stage, failed });
+export function beginJourney(kind: Journey): string {
+  const id = String(++nextJourney);
+  journeys.set(id, empty(kind));
+  return id;
 }
 
-export function finishJourney(): {
-  journey: Journey | null; requests: number; errors: number;
-  byStage: Partial<Record<RequestStage, number>>;
-} {
-  const byStage: Partial<Record<RequestStage, number>> = {};
-  for (const entry of entries) byStage[entry.stage] = (byStage[entry.stage] ?? 0) + 1;
-  const result = {journey, requests: entries.length,
-                  errors: entries.filter(e => e.failed).length, byStage};
-  journey = null;
-  entries.length = 0;
-  return result;
+export function recordRequest(stage: RequestStage, failed: boolean, journeyId?: string): void {
+  const item = (journeyId && journeys.get(journeyId)) || background;
+  item.requests += 1;
+  if (failed) item.errors += 1;
+  item.byStage[stage] = (item.byStage[stage] ?? 0) + 1;
+}
+
+export function recordStreamOutcome(journeyId: string, outcome: 'error' | 'cancelled'): void {
+  const item = journeys.get(journeyId);
+  if (!item) return;
+  if (outcome === 'error') { item.streamErrors += 1; item.errors += 1; }
+  else item.cancellations += 1;
+}
+
+export function finishJourney(id: string): RecordState | null {
+  const item = journeys.get(id);
+  if (!item) return null;
+  journeys.delete(id);
+  return { ...item, byStage: { ...item.byStage } };
+}
+
+export function backgroundSnapshot(): Counts {
+  return { ...background, byStage: { ...background.byStage } };
+}
+
+export function resetBackgroundForTest(): void {
+  background.requests = 0;
+  background.errors = 0;
+  background.cancellations = 0;
+  background.streamErrors = 0;
+  background.byStage = {};
 }
 
 export function classifyRequest(path: string): RequestStage {
