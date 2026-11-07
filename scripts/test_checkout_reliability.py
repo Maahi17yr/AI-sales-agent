@@ -396,6 +396,62 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.json()["order_status"], "confirmed")
         self._assert_payment_and_stock(order_id, "paid", "confirmed")
 
+    async def test_stream_metrics_include_db_queries_after_headers(self):
+        from core.observability import correlation
+
+        trace = str(uuid4())
+        log = io.StringIO()
+        logger = logging.getLogger("naija_bites.metrics")
+        handler = logging.StreamHandler(log)
+        old_level = logger.level
+        logger.setLevel(logging.INFO)
+        logger.addHandler(handler)
+        captured = []
+
+        class FakeEncoder:
+            def __init__(self, accept=None):
+                pass
+            def encode(self, event):
+                return "data: " + json.dumps(event) + "\\n\\n"
+            def get_content_type(self):
+                return "text/event-stream"
+
+        class FakeStrandsAgent:
+            def __init__(self, **kwargs):
+                pass
+            async def run(self, input_data):
+                captured.append(correlation.current_ids())
+                with models.get_connection() as conn:
+                    conn.execute("SELECT 1")
+                yield {"type": "RUN_STARTED"}
+                yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "fictional reply"}
+
+        try:
+            with patch("core.api.server.EventEncoder", FakeEncoder), \\
+                 patch("core.api.server.StrandsAgent", FakeStrandsAgent), \\
+                 patch("core.api.server.make_agent", return_value=object()):
+                response = await self.client.post("/agent", json={
+                    "threadId": str(uuid4()), "runId": str(uuid4()),
+                    "parentRunId": None, "state": {}, "messages": [],
+                    "tools": [], "context": [], "forwardedProps": {},
+                }, headers={"x-naija-trace-id": trace, "accept": "text/event-stream"})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(len(captured), 1)
+            self.assertEqual(captured[0][0], trace)
+            data = log.getvalue()
+            self.assertEqual(data.count("request_metric trace_id=" + trace), 1)
+            self.assertIn("stage=chat status=200", data)
+            self.assertIn("db_request_summary trace_id=" + trace, data)
+            import re
+            summary = re.search(r"db_request_summary trace_id=" + trace + r".*sqlite_queries=(\\d+)", data)
+            self.assertIsNotNone(summary, data)
+            self.assertGreaterEqual(int(summary.group(1)), 1)
+            self.assertNotIn("fictional reply", data)
+        finally:
+            logger.removeHandler(handler)
+            handler.close()
+            logger.setLevel(old_level)
+
     async def test_safe_correlation_across_chat_checkout_and_payment(self):
         from core.observability import correlation
 

@@ -362,6 +362,7 @@ async def correlate_requests(request: Request, call_next):
     tokens = correlation.bind(trace_id, request_id)
     db_tokens = metrics.start_request_db_metrics()
     started = time.perf_counter()
+    request.state.metric_started = started
     status = 500
     try:
         response = await call_next(request)
@@ -370,17 +371,21 @@ async def correlate_requests(request: Request, call_next):
         response.headers["X-Naija-Trace-ID"] = trace_id
         return response
     finally:
-        correlation.log_request(
-            trace_id, request_id, correlation.stage_for_path(request.url.path),
-            status, (time.perf_counter() - started) * 1000,
-        )
-        db_counts, db_total_ms = metrics.finish_request_db_metrics(db_tokens)
-        logging.getLogger("naija_bites.metrics").info(
-            "db_request_summary trace_id=%s request_id=%s sqlite_queries=%d "
-            "postgres_queries=%d db_total_ms=%.2f",
-            trace_id, request_id, db_counts.get("sqlite", 0),
-            db_counts.get("postgres", 0), db_total_ms,
-        )
+        # Streaming responses return headers before the agent finishes. The
+        # stream's own finally block emits its *complete* request metrics.
+        if request.url.path != "/agent":
+            correlation.log_request(
+                trace_id, request_id, correlation.stage_for_path(request.url.path),
+                status, (time.perf_counter() - started) * 1000,
+            )
+            db_counts, db_total_ms = metrics.snapshot_request_db_metrics()
+            logging.getLogger("naija_bites.metrics").info(
+                "db_request_summary trace_id=%s request_id=%s sqlite_queries=%d "
+                "postgres_queries=%d db_total_ms=%.2f",
+                trace_id, request_id, db_counts.get("sqlite", 0),
+                db_counts.get("postgres", 0), db_total_ms,
+            )
+        metrics.finish_request_db_metrics(db_tokens)
         correlation.reset(tokens)
 
 
@@ -584,7 +589,7 @@ async def run_agent(
 
     async def stream():
         # Log only timing and event counts; never log customer text or tokens.
-        started = time.perf_counter()
+        started = request.state.metric_started
         first_event_ms = None
         first_text_token_ms = None
         event_count = 0
@@ -612,22 +617,37 @@ async def run_agent(
                 yield "data: " + json.dumps({
                     "type": "CHECKOUT_STATE", "checkout": state,
                 }, separators=(",", ":")) + "\n\n"
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
         except Exception:
             outcome = "error"
             raise
         finally:
-            if model_agent is not None:
-                log_token_usage(logging.getLogger(__name__), model_agent)
-            logging.getLogger(__name__).info(
-                "agent_stream_latency total_ms=%d first_event_ms=%s "
-                "first_text_token_ms=%s events=%d outcome=%s",
-                round((time.perf_counter() - started) * 1000),
-                first_event_ms,
-                first_text_token_ms,
-                event_count,
-                outcome,
-            )
-            correlation.reset(trace_tokens)
+            try:
+                if model_agent is not None:
+                    log_token_usage(logging.getLogger(__name__), model_agent)
+            finally:
+                elapsed_ms = round((time.perf_counter() - started) * 1000)
+                logging.getLogger(__name__).info(
+                    "agent_stream_latency total_ms=%d first_event_ms=%s "
+                    "first_text_token_ms=%s events=%d outcome=%s",
+                    elapsed_ms, first_event_ms, first_text_token_ms,
+                    event_count, outcome,
+                )
+                correlation.log_request(
+                    request.state.trace_id, request.state.request_id,
+                    "chat", 200 if outcome == "completed" else 500, elapsed_ms,
+                )
+                db_counts, db_total_ms = metrics.snapshot_request_db_metrics()
+                logging.getLogger("naija_bites.metrics").info(
+                    "db_request_summary trace_id=%s request_id=%s sqlite_queries=%d "
+                    "postgres_queries=%d db_total_ms=%.2f stream_outcome=%s",
+                    request.state.trace_id, request.state.request_id,
+                    db_counts.get("sqlite", 0), db_counts.get("postgres", 0),
+                    db_total_ms, outcome,
+                )
+                correlation.reset(trace_tokens)
 
     return StreamingResponse(
         stream(),

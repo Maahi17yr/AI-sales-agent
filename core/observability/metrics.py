@@ -43,6 +43,13 @@ def start_request_db_metrics():
     return _db_counts.set(Counter()), _db_total.set([0.0])
 
 
+def snapshot_request_db_metrics():
+    """Read shared counters in the stream task, without resetting another task's tokens."""
+    counts = _db_counts.get()
+    total = _db_total.get()
+    return dict(counts or {}), round((total or [0.0])[0], 2)
+
+
 def finish_request_db_metrics(tokens):
     counts = _db_counts.get()
     total = _db_total.get()
