@@ -442,9 +442,11 @@ export default function Home() {
       signal: controller.signal,
     })
       .then((response) => {
+        recordRequest('other', !response.ok);
         setOnline(response.ok);
       })
       .catch((err) => {
+        recordRequest('other', true);
         if (err.name !== 'AbortError') {
           setOnline(false);
         }
