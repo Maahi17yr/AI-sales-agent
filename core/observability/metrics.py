@@ -108,8 +108,8 @@ def is_first_text_event(event):
 class FirstVisibleText:
     """Detect text that survives the frontend's hidden-thought filtering.
 
-    Hold at most 16 KiB in memory, never log text. Return unavailable (None)
-    rather than falsely reporting visible text if that bound is exceeded.
+    Hold at most 16 KiB in memory, never log text. Do not report a false first-text timestamp if the bound is exceeded;
+    expose the exceeded flag to mark measurement as unavailable.
     """
 
     def __init__(self):
@@ -126,14 +126,14 @@ class FirstVisibleText:
             return False
         self.buffer += delta
         visible = re.sub(
-            r"<(?:think|thinking)\\b[^>]*>.*?</(?:think|thinking)\\s*>",
+            r"<(?:think|thinking)\b[^>]*>.*?</(?:think|thinking)\s*>",
             "", self.buffer, flags=re.I | re.S,
         )
         visible = re.sub(
-            r"<(?:think|thinking)\\b[^>]*>.*$", "",
+            r"<(?:think|thinking)\b[^>]*>.*$", "",
             visible, flags=re.I | re.S,
         )
-        visible = re.sub(r"</?(?:think|thinking)\\b[^>]*>", "", visible, flags=re.I)
+        visible = re.sub(r"</?(?:think|thinking)\b[^>]*>", "", visible, flags=re.I)
         visible = re.sub(
             r"<(?:t|th|thi|thin|think|thinki|thinkin|thinking)$",
             "", visible, flags=re.I,
