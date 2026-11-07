@@ -5,6 +5,8 @@ import { ChefHat, Eye, EyeOff, LoaderCircle, ShieldCheck, UtensilsCrossed } from
 import { usePathname } from 'next/navigation';
 
 // Always use the same-origin Next.js proxy; FastAPI owns authentication.
+import { classifyRequest, recordRequest } from './request-metrics';
+
 const API = '/api/backend';
 
 function connectionMessage(error: unknown): string {
@@ -113,7 +115,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // Do not send account-changing requests from a stale tab under another user's cookie.
     if (options.method && !['GET', 'HEAD'].includes(options.method.toUpperCase())) {
-      const session = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
+      let session: Response;
+      try {
+        session = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
+        recordRequest('auth', !session.ok);
+      } catch (error) {
+        recordRequest('auth', true);
+        throw error;
+      }
       if (session.status === 401) {
         customerRef.current = null;
         setCustomer(null);
@@ -127,12 +136,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('The signed-in account changed in another tab. Please review your account before continuing.');
       }
     }
-    const response = await fetch(`${API}${path}`, {
-      ...options,
-      headers,
-      credentials: 'include',
-      cache: options.cache ?? 'no-store',
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API}${path}`, {
+        ...options,
+        headers,
+        credentials: 'include',
+        cache: options.cache ?? 'no-store',
+      });
+      recordRequest(classifyRequest(path), !response.ok);
+    } catch (error) {
+      recordRequest(classifyRequest(path), true);
+      throw error;
+    }
     if (response.status === 401) {
       customerRef.current = null;
       setCustomer(null);
