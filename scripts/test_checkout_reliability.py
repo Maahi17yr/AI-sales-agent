@@ -412,7 +412,7 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self, accept=None):
                 pass
             def encode(self, event):
-                return "data: " + json.dumps(event) + "\\n\\n"
+                return "data: " + json.dumps(event) + chr(10) * 2
             def get_content_type(self):
                 return "text/event-stream"
 
@@ -427,9 +427,9 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
                 yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "fictional reply"}
 
         try:
-            with patch("core.api.server.EventEncoder", FakeEncoder), \\
-                 patch("core.api.server.StrandsAgent", FakeStrandsAgent), \\
-                 patch("core.api.server.make_agent", return_value=object()):
+            with (patch("core.api.server.EventEncoder", FakeEncoder),
+                  patch("core.api.server.StrandsAgent", FakeStrandsAgent),
+                  patch("core.api.server.make_agent", return_value=object())):
                 response = await self.client.post("/agent", json={
                     "threadId": str(uuid4()), "runId": str(uuid4()),
                     "parentRunId": None, "state": {}, "messages": [],
@@ -443,7 +443,7 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("stage=chat status=200", data)
             self.assertIn("db_request_summary trace_id=" + trace, data)
             import re
-            summary = re.search(r"db_request_summary trace_id=" + trace + r".*sqlite_queries=(\\d+)", data)
+            summary = re.search(r"db_request_summary trace_id=" + trace + r".*sqlite_queries=([0-9]+)", data)
             self.assertIsNotNone(summary, data)
             self.assertGreaterEqual(int(summary.group(1)), 1)
             self.assertNotIn("fictional reply", data)
