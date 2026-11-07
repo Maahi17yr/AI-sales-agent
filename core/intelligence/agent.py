@@ -23,6 +23,8 @@ from core.memory.session import make_session_manager
 from core.memory.context import make_conversation_manager
 from core.memory import preferences
 from core.memory.tools import make_preference_tools
+from core.observability.correlation import current_ids
+from core.observability.hooks import ToolMonitoringHook
 
 
 
@@ -176,8 +178,10 @@ def make_agent(session_id: str) -> Agent:
           "automatically save new facts or preferences.\n"
     )
 
+    trace_id, request_id = current_ids()
     return Agent(
         model=model,
+        hooks=[ToolMonitoringHook(trace_id=trace_id, request_id=request_id)],
         system_prompt=SYSTEM_PROMPT + cart_context + preference_context,
         tools=tools,
         session_manager=make_session_manager(session_id),

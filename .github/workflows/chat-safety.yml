@@ -25,7 +25,7 @@ jobs:
           cache: pip
       - run: python -m pip install -r requirements.txt
       - name: Test authentication, owner access, customer isolation, and chat persistence
-        run: python -m unittest scripts.test_auth_api scripts.test_owner_auth scripts.test_owner_dashboard scripts.test_checkout_reliability scripts.test_checkout_logging scripts.test_owner_cli_config scripts.test_request_correlation scripts.test_context_memory -v
+        run: python -m unittest scripts.test_auth_api scripts.test_owner_auth scripts.test_owner_dashboard scripts.test_checkout_reliability scripts.test_checkout_logging scripts.test_owner_cli_config scripts.test_request_correlation scripts.test_tool_metrics scripts.test_context_memory -v
 
   frontend-build:
     runs-on: ubuntu-latest
