@@ -396,6 +396,62 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.json()["order_status"], "confirmed")
         self._assert_payment_and_stock(order_id, "paid", "confirmed")
 
+    async def test_stream_failure_logs_safe_outcome_without_false_http_status(self):
+        from core.api.server import run_agent, RunAgentInput
+        from types import SimpleNamespace
+        import time
+
+        class FakeEncoder:
+            def __init__(self, accept=None):
+                pass
+            def get_content_type(self):
+                return "text/event-stream"
+            def encode(self, event):
+                return "data: {}" + chr(10) * 2
+
+        class FakeStrandsAgent:
+            def __init__(self, **kwargs):
+                pass
+            async def run(self, input_data):
+                yield {"type": "RUN_STARTED"}
+                raise RuntimeError("fictional-sensitive-provider-value")
+
+        request = SimpleNamespace(
+            state=SimpleNamespace(trace_id=str(uuid4()), request_id=str(uuid4()),
+                                  metric_started=time.perf_counter()),
+            headers={"accept": "text/event-stream"},
+        )
+        output = io.StringIO()
+        logger = logging.getLogger("naija_bites.metrics")
+        handler = logging.StreamHandler(output)
+        oldlevel = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        try:
+            with (patch("core.api.server._customer_session", return_value="fictional-session"),
+                  patch("core.api.server.make_agent", return_value=object()),
+                  patch("core.api.server.EventEncoder", FakeEncoder),
+                  patch("core.api.server.StrandsAgent", FakeStrandsAgent)):
+                data = RunAgentInput.model_validate({
+                    "threadId": str(uuid4()), "runId": str(uuid4()),
+                    "parentRunId": None, "state": {}, "messages": [],
+                    "tools": [], "context": [], "forwardedProps": {},
+                })
+                response = await run_agent(data, request)
+                stream = response.body_iterator
+                await stream.__anext__()
+                with self.assertRaises(RuntimeError):
+                    await stream.__anext__()
+            message = output.getvalue()
+            self.assertIn("stage=chat status=200", message)
+            self.assertIn("outcome=error", message)
+            self.assertIn("stream_outcome=error", message)
+            self.assertNotIn("fictional-sensitive-provider-value", message)
+        finally:
+            logger.removeHandler(handler)
+            handler.close()
+            logger.setLevel(oldlevel)
+
     async def test_closed_stream_is_marked_cancelled_without_false_http_500(self):
         from core.api.server import run_agent, RunAgentInput
         from core.observability import correlation
