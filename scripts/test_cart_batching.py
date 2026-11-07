@@ -18,6 +18,11 @@ class CartBatchingTests(unittest.TestCase):
         self.db_patch = patch.object(models, "DB_PATH", Path(self.tmp.name) / "cart.db")
         self.db_patch.start()
         models.create_tables()
+        # The minimal application schema doesn't create the optional ingredient
+        # tables until menu/customization setup; provide this fictional fixture.
+        with models.get_connection() as conn:
+            conn.execute("CREATE TABLE ingredients (id INTEGER PRIMARY KEY, name TEXT NOT NULL, "
+                         "stock_quantity INTEGER NOT NULL DEFAULT 0, available INTEGER NOT NULL DEFAULT 1)")
         self.session = "fictional-cart-session"
         self.cart = CartService(self.session)
         self.ids = []
