@@ -10,6 +10,7 @@ on:
       - main
       - feature/owner-mode-phase1-auth
       - optimise/phase-0-1
+      - optimise/measurement-corrections-postgres-baseline-20261107
 
 permissions:
   contents: read
