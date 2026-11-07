@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
-from strands.hooks import HookProvider, HookRegistry, BeforeToolCallEvent, AfterToolCallEvent
+from strands.hooks import (HookProvider, HookRegistry, BeforeToolCallEvent,
+                           AfterToolCallEvent, BeforeModelCallEvent, AfterModelCallEvent)
+from core.observability.metrics import count_agent_operation
 
 logger = logging.getLogger("naija_bites.monitoring")
 
@@ -29,8 +31,19 @@ class ToolMonitoringHook(HookProvider):
     def register_hooks(self, registry: HookRegistry) -> None:
         registry.add_callback(BeforeToolCallEvent, self.before_tool)
         registry.add_callback(AfterToolCallEvent, self.after_tool)
+        registry.add_callback(BeforeModelCallEvent, self.before_model)
+        registry.add_callback(AfterModelCallEvent, self.after_model)
+
+    def before_model(self, event: BeforeModelCallEvent) -> None:
+        count_agent_operation("model")
+
+    def after_model(self, event: AfterModelCallEvent) -> None:
+        if getattr(event, "exception", None) is not None:
+            count_agent_operation("model", failed=True)
+
 
     def before_tool(self, event: BeforeToolCallEvent) -> None:
+        count_agent_operation("tool")
         try:
             tool = event.tool_use
             tool_id = tool.get("toolUseId")
@@ -49,6 +62,8 @@ class ToolMonitoringHook(HookProvider):
             result = getattr(event, "result", None)
             status = result.get("status") if isinstance(result, dict) else None
             failed = status == "error" or getattr(event, "exception", None) is not None
+            if failed:
+                count_agent_operation("tool", failed=True)
             duration = round((time.perf_counter() - start) * 1000, 2) if start is not None else None
             record = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),

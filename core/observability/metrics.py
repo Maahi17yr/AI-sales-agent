@@ -11,6 +11,37 @@ from core.observability.correlation import current_ids
 logger = logging.getLogger("naija_bites.metrics")
 _db_counts = ContextVar("naija_db_query_counts", default=None)
 _db_total = ContextVar("naija_db_total_ms", default=None)
+_agent_counts = ContextVar("naija_agent_call_counts", default=None)
+
+
+def begin_agent_counting():
+    return _agent_counts.set({
+        "model_calls": 0, "model_failures": 0,
+        "tool_calls": 0, "tool_failures": 0,
+    })
+
+
+def finish_agent_counting(token):
+    _agent_counts.reset(token)
+
+
+def count_agent_operation(kind, failed=False):
+    """Called only by Strands hook callbacks; do not inspect event payloads."""
+    counts = _agent_counts.get()
+    if counts is None:
+        return
+    if kind not in ("model", "tool"):
+        return
+    if failed:
+        counts[kind + "_failures"] += 1
+    else:
+        counts[kind + "_calls"] += 1
+
+
+def snapshot_agent_counts():
+    counts = _agent_counts.get()
+    return dict(counts) if counts is not None else None
+
 
 
 def record_duration(component, operation, elapsed_ms, status="success"):

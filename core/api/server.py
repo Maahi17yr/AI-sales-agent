@@ -361,6 +361,7 @@ async def correlate_requests(request: Request, call_next):
     request.state.request_id = request_id
     tokens = correlation.bind(trace_id, request_id)
     db_tokens = metrics.start_request_db_metrics()
+    agent_count_token = metrics.begin_agent_counting()
     started = time.perf_counter()
     request.state.metric_started = started
     status = 500
@@ -386,6 +387,7 @@ async def correlate_requests(request: Request, call_next):
                 db_counts.get("postgres", 0), db_total_ms,
             )
         metrics.finish_request_db_metrics(db_tokens)
+        metrics.finish_agent_counting(agent_count_token)
         correlation.reset(tokens)
 
 
@@ -638,6 +640,17 @@ async def run_agent(
                 correlation.log_request(
                     request.state.trace_id, request.state.request_id,
                     "chat", 200 if outcome == "completed" else 500, elapsed_ms,
+                )
+                model_counts = metrics.snapshot_agent_counts()
+                logging.getLogger("naija_bites.metrics").info(
+                    "agent_call_summary trace_id=%s request_id=%s model_calls=%s "
+                    "model_failures=%s tool_calls=%s tool_failures=%s "
+                    "summarization_calls=unavailable",
+                    request.state.trace_id, request.state.request_id,
+                    model_counts.get("model_calls") if model_counts else None,
+                    model_counts.get("model_failures") if model_counts else None,
+                    model_counts.get("tool_calls") if model_counts else None,
+                    model_counts.get("tool_failures") if model_counts else None,
                 )
                 db_counts, db_total_ms = metrics.snapshot_request_db_metrics()
                 logging.getLogger("naija_bites.metrics").info(

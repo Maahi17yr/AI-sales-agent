@@ -12,6 +12,21 @@ from core.observability import metrics
 
 
 class MetricsTests(unittest.TestCase):
+    def test_agent_counters_isolate_context_and_preserve_unknown_usage(self):
+        self.assertIsNone(metrics.snapshot_agent_counts())
+        token = metrics.begin_agent_counting()
+        try:
+            metrics.count_agent_operation("model")
+            metrics.count_agent_operation("tool")
+            metrics.count_agent_operation("tool", failed=True)
+            self.assertEqual(metrics.snapshot_agent_counts(), {
+                "model_calls": 1, "model_failures": 0,
+                "tool_calls": 1, "tool_failures": 1,
+            })
+        finally:
+            metrics.finish_agent_counting(token)
+        self.assertIsNone(metrics.snapshot_agent_counts())
+
     def test_first_text_delta_excludes_lifecycle_and_tool_events(self):
         self.assertFalse(metrics.is_first_text_event({"type": "RUN_STARTED"}))
         self.assertFalse(metrics.is_first_text_event({"type": "TOOL_CALL_START"}))
