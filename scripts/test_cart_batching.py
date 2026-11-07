@@ -146,6 +146,18 @@ class CartBatchingTests(unittest.TestCase):
                 [(pid, "standard") for pid in self.ids])), 10)
             self.assertEqual(connection.call_count, 2)
 
+    def test_large_lists_chunk_without_losing_single_connection_semantics(self):
+        with patch.object(repository, "get_connection", wraps=repository.get_connection) as connections:
+            products = repository.get_products_by_ids(self.ids + list(range(100000, 100500)))
+            self.assertEqual(set(products), set(self.ids))
+            self.assertEqual(connections.call_count, 1)
+            variants = [(pid, "standard") for pid in self.ids] + [
+                (pid, "nonexistent") for pid in range(100000, 100500)
+            ]
+            stocks = repository.get_stocks_by_variants(variants)
+            self.assertEqual(len(stocks), 10)
+            self.assertEqual(connections.call_count, 2)
+
     def test_unchanged_validation_for_invalid_customizations(self):
         # Existing public API must still reject customizations outside permitted variants.
         result = self.cart.add_item(self.ids[0], variant="large", add={"Not An Addon": 1})
