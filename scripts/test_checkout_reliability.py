@@ -114,6 +114,56 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(paid_replay.json()["order_id"], order_id)
         self.assertEqual(paid_replay.json()["status"], "confirmed")
 
+    async def test_mocked_successful_paystack_verification_is_idempotent(self):
+        """Provider-confirmed payments work on SQLite and can be verified twice."""
+        from core.services import paystack_service
+
+        ready = (await self.prepare()).json()
+        approval = {
+            "customer_approved": True,
+            "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"],
+        }
+        placed = await self.client.post("/checkout/confirm", json=approval)
+        self.assertEqual(placed.status_code, 200, placed.text)
+        order_id = placed.json()["order_id"]
+        reference = f"nb_test_sqlite_{order_id}"
+        with models.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO payments (order_id, amount, payment_reference, status) "
+                "VALUES (?, ?, ?, 'unpaid')",
+                (order_id, 13500, reference),
+            )
+            self.assertEqual(conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id = ?", (self.product_id,)
+            ).fetchone()[0], 8)
+        verified = {
+            "reference": reference, "currency": "NGN",
+            "amount": 13500 * 100, "status": "success",
+        }
+        with patch.object(paystack_service, "_request", return_value=verified) as provider:
+            first = await self.client.post("/payments/verify", json={"reference": reference})
+            again = await self.client.post("/payments/verify", json={"reference": reference})
+        self.assertEqual(provider.call_count, 2)
+        for response in (first, again):
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["payment_status"], "paid")
+            self.assertEqual(response.json()["order_status"], "confirmed")
+            self.assertIn("Payment confirmed", response.json()["chat_message"]["content"])
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT status FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()["status"], "confirmed")
+            payment = conn.execute(
+                "SELECT status, paid_at FROM payments WHERE order_id = ?", (order_id,)
+            ).fetchone()
+            self.assertEqual(payment["status"], "paid")
+            self.assertIsNotNone(payment["paid_at"])
+            self.assertEqual(conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id = ?", (self.product_id,)
+            ).fetchone()[0], 8)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM payments").fetchone()[0], 1)
+
     async def test_stale_approval_is_rejected_after_cart_change(self):
         ready = (await self.prepare()).json()
         with models.get_connection() as conn:
