@@ -3,6 +3,9 @@
 Run: python -m unittest scripts.test_checkout_reliability -v
 No Bedrock, Paystack, production database, or real customer data is used.
 """
+import asyncio
+import hashlib
+import hmac
 import json
 import os
 import tempfile
@@ -163,6 +166,125 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT quantity FROM inventory WHERE product_id = ?", (self.product_id,)
             ).fetchone()[0], 8)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM payments").fetchone()[0], 1)
+
+    async def _unpaid_payment_fixture(self):
+        """Create a real pending order and fake provider reference, without network."""
+        ready = (await self.prepare()).json()
+        placed = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True, "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"],
+        })
+        self.assertEqual(placed.status_code, 200, placed.text)
+        order_id = placed.json()["order_id"]
+        reference = f"nb_test_regression_{order_id}"
+        with models.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO payments (order_id, amount, payment_reference, status) "
+                "VALUES (?, ?, ?, 'unpaid')",
+                (order_id, 13500, reference),
+            )
+        return order_id, reference
+
+    def _assert_payment_and_stock(self, order_id, expected_payment, expected_order):
+        with models.get_connection() as conn:
+            payment = conn.execute(
+                "SELECT status FROM payments WHERE order_id=?", (order_id,)
+            ).fetchone()
+            order = conn.execute(
+                "SELECT status FROM orders WHERE id=?", (order_id,)
+            ).fetchone()
+            stock = conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id=?", (self.product_id,)
+            ).fetchone()
+            self.assertEqual(payment["status"], expected_payment)
+            self.assertEqual(order["status"], expected_order)
+            self.assertEqual(stock["quantity"], 8)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM payments").fetchone()[0], 1)
+
+    @staticmethod
+    def _provider_success(reference):
+        return {"reference": reference, "amount": 13500 * 100,
+                "currency": "NGN", "status": "success"}
+
+    async def test_payment_rejects_wrong_amount_currency_and_provider_errors(self):
+        from core.services import paystack_service
+
+        order_id, reference = await self._unpaid_payment_fixture()
+        expected = self._provider_success(reference)
+        for bad in (
+            {**expected, "amount": expected["amount"] - 100},
+            {**expected, "currency": "USD"},
+        ):
+            with self.subTest(bad=bad["currency"], amount=bad["amount"]), \
+                 patch.object(paystack_service, "_request", return_value=bad):
+                response = await self.client.post("/payments/verify", json={"reference": reference})
+            self.assertEqual(response.status_code, 400, response.text)
+            self._assert_payment_and_stock(order_id, "unpaid", "pending_payment")
+
+        with patch.object(paystack_service, "_request",
+                          return_value={**expected, "status": "failed"}):
+            response = await self.client.post("/payments/verify", json={"reference": reference})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["payment_status"], "unpaid")
+        self._assert_payment_and_stock(order_id, "unpaid", "pending_payment")
+
+        with patch.object(paystack_service, "_key", return_value="fictional-test-key"), \
+             patch.object(paystack_service.httpx.Client, "request",
+                          side_effect=httpx.ReadTimeout("simulated timeout")):
+            response = await self.client.post("/payments/verify", json={"reference": reference})
+        self.assertEqual(response.status_code, 400, response.text)
+        self._assert_payment_and_stock(order_id, "unpaid", "pending_payment")
+
+    async def test_invalid_webhook_signature_rejected_without_provider_call(self):
+        from core.services import paystack_service
+
+        order_id, reference = await self._unpaid_payment_fixture()
+        body = json.dumps({"event": "charge.success", "data": {"reference": reference}}).encode()
+        with patch.object(paystack_service, "_key", return_value="fictional-test-key"), \
+             patch.object(paystack_service, "_request") as provider:
+            response = await self.client.post("/payments/webhook", content=body,
+                                              headers={"x-paystack-signature": "invalid"})
+        self.assertEqual(response.status_code, 401, response.text)
+        provider.assert_not_called()
+        self._assert_payment_and_stock(order_id, "unpaid", "pending_payment")
+
+    async def test_duplicate_webhooks_and_replay_are_idempotent(self):
+        from core.services import paystack_service
+
+        order_id, reference = await self._unpaid_payment_fixture()
+        body = json.dumps({"event": "charge.success", "data": {"reference": reference}}).encode()
+        fictional_key = "fictional-test-key"
+        signature = hmac.new(fictional_key.encode(), body, hashlib.sha512).hexdigest()
+        with patch.object(paystack_service, "_key", return_value=fictional_key), \
+             patch.object(paystack_service, "_request",
+                          return_value=self._provider_success(reference)) as provider:
+            for _ in range(3):
+                response = await self.client.post(
+                    "/payments/webhook", content=body,
+                    headers={"x-paystack-signature": signature},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertTrue(response.json()["received"])
+        self.assertEqual(provider.call_count, 3)
+        self._assert_payment_and_stock(order_id, "paid", "confirmed")
+
+    async def test_concurrent_verification_and_duplicate_callbacks_are_idempotent(self):
+        from core.services import paystack_service
+
+        order_id, reference = await self._unpaid_payment_fixture()
+        with patch.object(paystack_service, "_request",
+                          return_value=self._provider_success(reference)) as provider:
+            responses = await asyncio.gather(*(
+                self.client.post("/payments/verify", json={"reference": reference})
+                for _ in range(3)
+            ))
+            callback = await self.client.post("/payments/verify", json={"reference": reference})
+        self.assertEqual(provider.call_count, 4)
+        for response in (*responses, callback):
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["payment_status"], "paid")
+            self.assertEqual(response.json()["order_status"], "confirmed")
+        self._assert_payment_and_stock(order_id, "paid", "confirmed")
 
     async def test_stale_approval_is_rejected_after_cart_change(self):
         ready = (await self.prepare()).json()
