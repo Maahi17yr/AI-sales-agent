@@ -1,5 +1,6 @@
-
 'use client';
+
+import { beginJourney, currentJourney, finishJourney } from './request-metrics';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -54,6 +55,7 @@ const MAX_SAVED_CHATS = 30;
 const MAX_MODEL_CONTEXT_MESSAGES = 24;
 const historyKey = (customerId: number) => `naija-bites-chat-history-v1-${customerId}`;
 const paymentChatKey = (customerId: number) => `naija-bites-payment-chat-v1-${customerId}`;
+const paymentTraceKey = (customerId: number) => `naija-bites-payment-trace-v1-${customerId}`;
 const chatTitle = (items: Msg[]) => items.find(m => m.role === 'user')?.content.slice(0, 52).trim() || 'New chat';
 const upsertChat = (items: SavedChat[], id: string, messages: Msg[]): SavedChat[] => {
   if (!messages.some(m => m.role === 'user')) return items;
@@ -225,6 +227,11 @@ export default function Home() {
   const [error, setError] = useState('');
   const [showTyping, setShowTyping] = useState(false);
   const [threadId, setThreadId] = useState('');
+  const traceIdRef = useRef<string | null>(null);
+  const traceHeaders = useCallback(() => {
+    if (!traceIdRef.current) traceIdRef.current = uid();
+    return { 'X-Naija-Trace-ID': traceIdRef.current };
+  }, []);
   const [savedChats, setSavedChats] = useState<SavedChat[]>([]);
   const [historyReady, setHistoryReady] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
@@ -495,7 +502,7 @@ export default function Home() {
   const refreshCheckout = useCallback(async (signal?: AbortSignal) => {
     const sequence = ++checkoutSyncSequence.current;
     try {
-      const response = await apiFetch('/checkout', { cache: 'no-store', signal });
+      const response = await apiFetch('/checkout', { cache: 'no-store', signal, headers: traceHeaders() });
       if (!response.ok) throw new Error(`Checkout returned HTTP ${response.status}`);
       const data: CheckoutResponse = await response.json();
       if (signal?.aborted || sequence !== checkoutSyncSequence.current) return;
@@ -506,7 +513,7 @@ export default function Home() {
       // A temporary outage must not discard a visible checkout.
       setCheckoutError('Could not sync checkout. Retry below without restarting your chat.');
     }
-  }, [apiFetch, applyCheckoutState]);
+  }, [apiFetch, applyCheckoutState, traceHeaders]);
 
   useEffect(() => {
     if (confirming) return;
@@ -534,7 +541,7 @@ export default function Home() {
     setCheckoutError('');
     try {
       const response = await apiFetch('/checkout/prepare', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...traceHeaders() },
         body: JSON.stringify(recoveryForm),
       });
       const data = await response.json();
@@ -565,6 +572,7 @@ export default function Home() {
     setError('');
     setShowTyping(false);
     setThreadId(uid());
+    traceIdRef.current = null;
 
     setCheckoutResult('');
     setCheckoutError('');
@@ -578,6 +586,7 @@ export default function Home() {
     if (busy || confirming || chat.id === threadId) return;
     if (threadId) setSavedChats(prev => upsertChat(prev, threadId, messages));
     setThreadId(chat.id);
+    traceIdRef.current = null;
     setMessages(chat.messages);
     setDraft('');
     setError('');
@@ -662,6 +671,7 @@ export default function Home() {
 
     setMessages(next);
 
+    beginJourney('chat_turn');
     const requestStartedAt = performance.now();
     let headersReceivedAt: number | null = null;
     let firstTokenAt: number | null = null;
@@ -689,6 +699,7 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
+          ...traceHeaders(),
         },
         body: JSON.stringify({
           threadId,
@@ -852,6 +863,7 @@ export default function Home() {
           : 'Unexpected request error.'
       );
     } finally {
+      if (currentJourney() === 'chat_turn') console.info('[Naija Bites requests]', finishJourney());
       setBusy(false);
       setShowTyping(false);
       abort.current = null;
@@ -871,6 +883,7 @@ export default function Home() {
     const reviewedCheckoutId = checkout.checkout_id;
     checkoutSyncSequence.current++;
 
+    beginJourney('checkout');
     setConfirming(true);
     setCheckoutError('');
     setCheckoutResult('');
@@ -882,6 +895,7 @@ export default function Home() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...traceHeaders(),
           },
           body: JSON.stringify({
             customer_approved: true,
@@ -921,12 +935,14 @@ export default function Home() {
           : 'Could not confirm your order.'
       );
     } finally {
+      console.info('[Naija Bites requests]', finishJourney());
       setConfirming(false);
     }
   }
 
   async function payNow() {
     if (!paymentOrder || paymentBusy) return;
+    beginJourney('payment');
     setPaymentBusy(true);
     setCheckoutError('');
     try {
@@ -940,17 +956,22 @@ export default function Home() {
       }
       const response = await apiFetch('/payments/initialize', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...traceHeaders() },
         body: JSON.stringify({ order_id: paymentOrder, email: paymentEmail.trim(), frontend_origin: window.location.origin }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Could not start payment.');
       if (!String(data.authorization_url).startsWith('https://')) throw new Error('Invalid payment URL.');
-      try { window.sessionStorage.setItem(paymentChatKey(customer.id), threadId); }
+      try {
+        window.sessionStorage.setItem(paymentChatKey(customer.id), threadId);
+        window.sessionStorage.setItem(paymentTraceKey(customer.id), traceIdRef.current || uid());
+      }
       catch { /* The payment flow still works without session storage. */ }
+      console.info('[Naija Bites requests]', finishJourney());
       window.location.assign(data.authorization_url);
     } catch (err) {
       setCheckoutError(err instanceof Error ? err.message : 'Could not start payment.');
+      console.info('[Naija Bites requests]', finishJourney());
       setPaymentBusy(false);
     }
   }
@@ -980,9 +1001,12 @@ export default function Home() {
       return;
     }
 
+    try { traceIdRef.current = window.sessionStorage.getItem(paymentTraceKey(customer.id)) || traceIdRef.current; }
+    catch { /* Storage may be disabled. */ }
+    beginJourney('payment');
     void apiFetch('/payments/verify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...traceHeaders() },
       // The backend saves the confirmation in this authenticated chat.
       body: JSON.stringify({ reference, chat_id: threadId }),
     }).then(async response => {
@@ -1048,6 +1072,8 @@ export default function Home() {
       setPaymentToastSuccess(false);
       setPaymentMessage(err instanceof Error ? err.message : 'Payment verification failed.');
       // Keep the return URL to allow verification on refresh.
+    }).finally(() => {
+      if (currentJourney() === 'payment') console.info('[Naija Bites requests]', finishJourney());
     });
   }, [historyReady, threadId, apiFetch, customer.id, savedChats]);
 

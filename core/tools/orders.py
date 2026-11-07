@@ -48,11 +48,9 @@ def make_order_tools(session_id: str):
             delivery_area: Supported delivery area.
         """
 
-        print(f"[CHECKOUT DEBUG] create_order ENTERED session={session_id!r} area={delivery_area!r}", flush=True)
         customer_id = session_customer()
 
         if customer_id is None:
-            print("[CHECKOUT DEBUG] REJECTED: unverified session", flush=True)
             return {
                 "success": False,
                 "message": "Customer session is not verified.",
@@ -69,7 +67,6 @@ def make_order_tools(session_id: str):
             isinstance(value, str) and value.strip()
             for value in details
         ):
-            print("[CHECKOUT DEBUG] REJECTED: missing checkout details", flush=True)
             return {
                 "success": False,
                 "message": "All checkout details are required.",
@@ -79,7 +76,6 @@ def make_order_tools(session_id: str):
         # The supplied phone is a delivery contact, not an authentication key.
         from core.services.order_service import validate_delivery_phone
         if not validate_delivery_phone(phone.strip()):
-            print("[CHECKOUT DEBUG] REJECTED: invalid delivery phone", flush=True)
             return {"success": False, "message": "Enter a valid delivery phone number."}
 
         try:
@@ -89,10 +85,8 @@ def make_order_tools(session_id: str):
                 delivery_address=delivery_address.strip(),
                 delivery_area=delivery_area.strip(),
             )
-            print(f"[CHECKOUT DEBUG] prepare_checkout result: success={result.get('success')!r}, message={result.get('message')!r}", flush=True)
 
         except (ValueError, KeyError) as error:
-            print(f"[CHECKOUT DEBUG] EXCEPTION: {type(error).__name__}: {error}", flush=True)
             return {
                 "success": False,
                 "message": str(error),

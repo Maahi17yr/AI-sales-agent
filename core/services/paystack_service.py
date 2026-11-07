@@ -1,14 +1,45 @@
 """Paystack TEST MODE integration. Not suitable for public use without authentication."""
 import hashlib
 import hmac
+import logging
 import os
 import secrets
+import time
 import sqlite3
 
 import httpx
 from data.database.models import get_connection
+from core.observability.correlation import current_ids
+from core.observability.metrics import record_duration
 
 API = "https://api.paystack.co"
+logger = logging.getLogger("naija_bites.payments")
+
+
+def provider_failure_category(exc):
+    """Only safe, fixed categories; never the provider exception string."""
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if 400 <= status < 500:
+            return "http_4xx"
+        if 500 <= status < 600:
+            return "http_5xx"
+        return "http_other"
+    if isinstance(exc, httpx.TransportError):
+        return "transport"
+    if isinstance(exc, httpx.HTTPError):
+        return "http_other"
+    return "invalid_response"
+
+
+def _record_provider_failure(category):
+    trace_id, request_id = current_ids()
+    logger.warning("payment_provider_failed category=%s trace_id=%s request_id=%s",
+                   category, trace_id, request_id)
+
+
 
 def _key():
     key = os.getenv("PAYSTACK_SECRET_KEY", "")
@@ -17,6 +48,9 @@ def _key():
     return key
 
 def _request(method, path, payload=None):
+    started = time.perf_counter()
+    operation = "initialize" if method == "POST" else "verify"
+    outcome = "success"
     try:
         with httpx.Client(timeout=20) as client:
             response = client.request(
@@ -30,7 +64,12 @@ def _request(method, path, payload=None):
             raise ValueError("Paystack rejected the request.")
         return result["data"]
     except (httpx.HTTPError, ValueError) as exc:
-        raise ValueError(f"Payment provider request failed: {exc}") from exc
+        outcome = provider_failure_category(exc)
+        _record_provider_failure(outcome)
+        raise ValueError("Payment provider request failed.") from None
+    finally:
+        record_duration("paystack", operation,
+                        (time.perf_counter() - started) * 1000, outcome)
 
 def _owned_order(conn, order_id, session_id):
     return conn.execute("""
@@ -105,7 +144,7 @@ def verify(reference, session_id=None):
         if current is None:
             raise ValueError("Payment no longer exists.")
         if paid:
-            conn.execute("""UPDATE payments SET status='paid', paid_at=COALESCE(paid_at,CURRENT_TIMESTAMP::text)
+            conn.execute("""UPDATE payments SET status='paid', paid_at=COALESCE(paid_at,CAST(CURRENT_TIMESTAMP AS TEXT))
                 WHERE payment_reference=? AND status != 'paid'""", (reference,))
             conn.execute("""UPDATE orders SET status='confirmed'
                 WHERE id=? AND status='pending_payment'""", (row["order_id"],))

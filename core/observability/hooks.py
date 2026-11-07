@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,8 +19,10 @@ class ToolMonitoringHook(HookProvider):
     Instantiate per agent. Never record tool input, output, or session ID.
     """
 
-    def __init__(self, log_path=None):
+    def __init__(self, log_path=None, trace_id=None, request_id=None):
         self.log_path = Path(log_path or os.getenv("MONITOR_LOG_PATH", "logs/tool_events.jsonl"))
+        self.trace_id = trace_id
+        self.request_id = request_id
         self._starts = {}
         self._lock = Lock()
 
@@ -35,7 +38,7 @@ class ToolMonitoringHook(HookProvider):
                 with self._lock:
                     self._starts[tool_id] = time.perf_counter()
         except Exception:
-            logger.exception("Monitoring hook failed before tool call")
+            logger.warning("tool_monitoring_failed phase=before")
 
     def after_tool(self, event: AfterToolCallEvent) -> None:
         try:
@@ -49,7 +52,11 @@ class ToolMonitoringHook(HookProvider):
             duration = round((time.perf_counter() - start) * 1000, 2) if start is not None else None
             record = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "tool": tool.get("name", "unknown"),
+                "tool": (tool.get("name") if isinstance(tool.get("name"), str)
+                         and re.fullmatch(r"[a-zA-Z_][a-zA-Z_0-9]{0,63}", tool["name"])
+                         else "unknown"),
+                "trace_id": self.trace_id,
+                "request_id": self.request_id,
                 "duration_ms": duration,
                 "status": "error" if failed else "completed",
             }
@@ -59,4 +66,4 @@ class ToolMonitoringHook(HookProvider):
                 with self.log_path.open("a", encoding="utf-8") as output:
                     output.write(json.dumps(record) + "\n")
         except Exception:
-            logger.exception("Monitoring hook failed after tool call")
+            logger.warning("tool_monitoring_failed phase=after")

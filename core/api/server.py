@@ -77,6 +77,8 @@ from core.memory.token_metrics import log_token_usage
 from core.services.cart import CartService
 from core.services.discount_service import DiscountService
 from core import config
+from core.observability import correlation
+from core.observability import metrics
 
 
 # ------------------------------------------
@@ -351,6 +353,38 @@ async def localhost_only(
 # ------------------------------------------
 
 @app.middleware("http")
+async def correlate_requests(request: Request, call_next):
+    """Expose only generated UUIDv4 IDs; never record user-supplied headers."""
+    trace_id = correlation.validated_trace_id(request.headers.get("x-naija-trace-id"))
+    request_id = correlation.new_id()
+    request.state.trace_id = trace_id
+    request.state.request_id = request_id
+    tokens = correlation.bind(trace_id, request_id)
+    db_tokens = metrics.start_request_db_metrics()
+    started = time.perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        response.headers["X-Naija-Request-ID"] = request_id
+        response.headers["X-Naija-Trace-ID"] = trace_id
+        return response
+    finally:
+        correlation.log_request(
+            trace_id, request_id, correlation.stage_for_path(request.url.path),
+            status, (time.perf_counter() - started) * 1000,
+        )
+        db_counts, db_total_ms = metrics.finish_request_db_metrics(db_tokens)
+        logging.getLogger("naija_bites.metrics").info(
+            "db_request_summary trace_id=%s request_id=%s sqlite_queries=%d "
+            "postgres_queries=%d db_total_ms=%.2f",
+            trace_id, request_id, db_counts.get("sqlite", 0),
+            db_counts.get("postgres", 0), db_total_ms,
+        )
+        correlation.reset(tokens)
+
+
+@app.middleware("http")
 async def protect_auth_cookie_requests(request: Request, call_next):
     # Browsers send Origin for cross-origin POSTs. Reject unknown origins
     # before any authentication mutation; requests with no Origin (CLI)
@@ -552,9 +586,11 @@ async def run_agent(
         # Log only timing and event counts; never log customer text or tokens.
         started = time.perf_counter()
         first_event_ms = None
+        first_text_token_ms = None
         event_count = 0
         outcome = "completed"
         model_agent = None
+        trace_tokens = correlation.bind(request.state.trace_id, request.state.request_id)
         try:
             async with _agent_lock(session_id):
                 model_agent = make_agent(session_id)
@@ -567,6 +603,8 @@ async def run_agent(
                     event_count += 1
                     if first_event_ms is None:
                         first_event_ms = round((time.perf_counter() - started) * 1000)
+                    if first_text_token_ms is None and metrics.is_first_text_event(event):
+                        first_text_token_ms = round((time.perf_counter() - started) * 1000)
                     yield encoder.encode(event)
                 # Structured, trusted UI action after the agent has finished.
                 # This is independent of whatever the model says in its reply.
@@ -581,12 +619,15 @@ async def run_agent(
             if model_agent is not None:
                 log_token_usage(logging.getLogger(__name__), model_agent)
             logging.getLogger(__name__).info(
-                "agent_stream_latency total_ms=%d first_event_ms=%s events=%d outcome=%s",
+                "agent_stream_latency total_ms=%d first_event_ms=%s "
+                "first_text_token_ms=%s events=%d outcome=%s",
                 round((time.perf_counter() - started) * 1000),
                 first_event_ms,
+                first_text_token_ms,
                 event_count,
                 outcome,
             )
+            correlation.reset(trace_tokens)
 
     return StreamingResponse(
         stream(),
@@ -874,8 +915,13 @@ async def payment_webhook(request: Request):
             try:
                 paystack_service.verify(reference)
             except ValueError:
-                # Log internally, but do not disclose sensitive payment details.
-                import logging
-                logging.exception("Unable to verify Paystack webhook reference")
+                # Provider errors are categorized separately; no exception traceback
+                # or payment reference is recorded in webhook logs.
+                trace_id, request_id = correlation.current_ids()
+                logging.getLogger("naija_bites.payments").warning(
+                    "payment_webhook_verify_failed category=verification_pending "
+                    "trace_id=%s request_id=%s",
+                    trace_id, request_id,
+                )
                 raise HTTPException(status_code=503, detail="Verification pending.")
     return {"received": True}

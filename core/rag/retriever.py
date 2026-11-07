@@ -2,6 +2,8 @@
 from __future__ import annotations
 import re
 import sqlite3
+import time
+from core.observability.metrics import record_duration
 from .ingest import INDEX_PATH
 
 STOP = set("a an the i me my we you your is are was were do does did can could would should what when where why how if and or to for of in on at with about please tell want need much have get give any there this that our their it".split())
@@ -27,6 +29,14 @@ def _terms(question: str) -> list[str]:
 
 
 def search_knowledge_base(query: str, limit: int = 5) -> dict:
+    started = time.perf_counter()
+    result = _search_knowledge_base(query, limit)
+    record_duration("rag", "retrieve", (time.perf_counter() - started) * 1000,
+                    "success" if result.get("success") else "error")
+    return result
+
+
+def _search_knowledge_base(query: str, limit: int = 5) -> dict:
     if not isinstance(query, str) or not query.strip():
         return {"success": False, "results": [], "message": "Provide a question."}
     if not INDEX_PATH.exists():
