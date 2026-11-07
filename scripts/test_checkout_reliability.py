@@ -238,6 +238,85 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 400, response.text)
         self._assert_payment_and_stock(order_id, "unpaid", "pending_payment")
 
+    async def test_sensitive_provider_errors_and_webhook_logs_are_sanitized(self):
+        from core.services import paystack_service
+
+        order_id, reference = await self._unpaid_payment_fixture()
+        sentinel = "fictional-sensitive-payment-marker"
+        trace_id = str(uuid4())
+        output = io.StringIO()
+        logger = logging.getLogger("naija_bites.payments")
+        handler = logging.StreamHandler(output)
+        previous_level = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        body = json.dumps({"event": "charge.success", "data": {"reference": reference}}).encode()
+        signing_key = "fictional-only-signing-key"
+        signature = hmac.new(signing_key.encode(), body, hashlib.sha512).hexdigest()
+        try:
+            with patch.object(paystack_service, "_key", return_value=signing_key), \
+                 patch.object(paystack_service.httpx.Client, "request",
+                     side_effect=httpx.ReadTimeout(sentinel + " " + reference)):
+                direct = await self.client.post(
+                    "/payments/verify", json={"reference": reference},
+                    headers={"x-naija-trace-id": trace_id},
+                )
+                webhook = await self.client.post(
+                    "/payments/webhook", content=body,
+                    headers={"x-paystack-signature": signature,
+                             "x-naija-trace-id": trace_id},
+                )
+            self.assertEqual(direct.status_code, 400, direct.text)
+            self.assertEqual(webhook.status_code, 503, webhook.text)
+            self.assertEqual(direct.json()["detail"], "Payment provider request failed.")
+            self.assertEqual(webhook.json()["detail"], "Verification pending.")
+            self._assert_payment_and_stock(order_id, "unpaid", "pending_payment")
+            logged = output.getvalue()
+            self.assertIn("category=timeout", logged)
+            self.assertIn("category=verification_pending", logged)
+            self.assertIn("trace_id=" + trace_id, logged)
+            for private in (sentinel, reference, signing_key, "Authorization", "Bearer"):
+                self.assertNotIn(private, logged)
+                self.assertNotIn(private, direct.text)
+                self.assertNotIn(private, webhook.text)
+            self.assertNotIn("Traceback", logged)
+        finally:
+            logger.removeHandler(handler)
+            handler.close()
+            logger.setLevel(previous_level)
+
+    async def test_sanitized_provider_rejections_and_transport_errors(self):
+        from core.services import paystack_service
+
+        order_id, reference = await self._unpaid_payment_fixture()
+        marker = "fictional-private-provider-response"
+        output = io.StringIO()
+        logger = logging.getLogger("naija_bites.payments")
+        handler = logging.StreamHandler(output)
+        previous_level = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        try:
+            with patch.object(paystack_service, "_key", return_value="fictional-only-key"), \
+                 patch.object(paystack_service.httpx.Client, "request") as provider:
+                provider.return_value.raise_for_status.return_value = None
+                provider.return_value.json.return_value = {"status": False, "message": marker}
+                rejected = await self.client.post("/payments/verify", json={"reference": reference})
+                self.assertEqual(rejected.status_code, 400, rejected.text)
+                self.assertNotIn(marker, rejected.text)
+                provider.side_effect = httpx.ConnectError(marker + reference)
+                unavailable = await self.client.post("/payments/verify", json={"reference": reference})
+                self.assertEqual(unavailable.status_code, 400, unavailable.text)
+            self._assert_payment_and_stock(order_id, "unpaid", "pending_payment")
+            self.assertIn("category=invalid_response", output.getvalue())
+            self.assertIn("category=transport", output.getvalue())
+            self.assertNotIn(marker, output.getvalue())
+            self.assertNotIn(reference, output.getvalue())
+        finally:
+            logger.removeHandler(handler)
+            handler.close()
+            logger.setLevel(previous_level)
+
     async def test_invalid_webhook_signature_rejected_without_provider_call(self):
         from core.services import paystack_service
 

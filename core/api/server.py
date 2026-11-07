@@ -901,8 +901,13 @@ async def payment_webhook(request: Request):
             try:
                 paystack_service.verify(reference)
             except ValueError:
-                # Log internally, but do not disclose sensitive payment details.
-                import logging
-                logging.exception("Unable to verify Paystack webhook reference")
+                # Provider errors are categorized separately; no exception traceback
+                # or payment reference is recorded in webhook logs.
+                trace_id, request_id = correlation.current_ids()
+                logging.getLogger("naija_bites.payments").warning(
+                    "payment_webhook_verify_failed category=verification_pending "
+                    "trace_id=%s request_id=%s",
+                    trace_id, request_id,
+                )
                 raise HTTPException(status_code=503, detail="Verification pending.")
     return {"received": True}

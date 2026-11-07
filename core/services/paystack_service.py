@@ -1,14 +1,43 @@
 """Paystack TEST MODE integration. Not suitable for public use without authentication."""
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import sqlite3
 
 import httpx
 from data.database.models import get_connection
+from core.observability.correlation import current_ids
 
 API = "https://api.paystack.co"
+logger = logging.getLogger("naija_bites.payments")
+
+
+def provider_failure_category(exc):
+    """Only safe, fixed categories; never the provider exception string."""
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if 400 <= status < 500:
+            return "http_4xx"
+        if 500 <= status < 600:
+            return "http_5xx"
+        return "http_other"
+    if isinstance(exc, httpx.TransportError):
+        return "transport"
+    if isinstance(exc, httpx.HTTPError):
+        return "http_other"
+    return "invalid_response"
+
+
+def _record_provider_failure(category):
+    trace_id, request_id = current_ids()
+    logger.warning("payment_provider_failed category=%s trace_id=%s request_id=%s",
+                   category, trace_id, request_id)
+
+
 
 def _key():
     key = os.getenv("PAYSTACK_SECRET_KEY", "")
@@ -30,7 +59,8 @@ def _request(method, path, payload=None):
             raise ValueError("Paystack rejected the request.")
         return result["data"]
     except (httpx.HTTPError, ValueError) as exc:
-        raise ValueError(f"Payment provider request failed: {exc}") from exc
+        _record_provider_failure(provider_failure_category(exc))
+        raise ValueError("Payment provider request failed.") from None
 
 def _owned_order(conn, order_id, session_id):
     return conn.execute("""
