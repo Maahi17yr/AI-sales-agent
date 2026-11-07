@@ -7,6 +7,9 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
+import io
+from uuid import uuid4, UUID
 import os
 import tempfile
 import unittest
@@ -285,6 +288,57 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.json()["payment_status"], "paid")
             self.assertEqual(response.json()["order_status"], "confirmed")
         self._assert_payment_and_stock(order_id, "paid", "confirmed")
+
+    async def test_safe_correlation_across_chat_checkout_and_payment(self):
+        from core.observability import correlation
+
+        trace_id = str(uuid4())
+        output = io.StringIO()
+        logger = logging.getLogger("naija_bites.metrics")
+        handler = logging.StreamHandler(output)
+        previous_level = logger.level
+        logger.setLevel(logging.INFO)
+        logger.addHandler(handler)
+        observed = []
+
+        class FakeStrandsAgent:
+            def __init__(self, **kwargs):
+                pass
+            async def run(self, input_data):
+                observed.append(correlation.current_ids())
+                if False:
+                    yield None
+
+        try:
+            checkout = await self.client.get("/checkout", headers={"x-naija-trace-id": trace_id})
+            payment = await self.client.post(
+                "/payments/verify", json={"reference": "fictional-invalid-reference"},
+                headers={"x-naija-trace-id": trace_id},
+            )
+            with patch("core.api.server.StrandsAgent", FakeStrandsAgent), \
+                 patch("core.api.server.make_agent", return_value=object()):
+                chat = await self.client.post("/agent", json={
+                    "threadId": str(uuid4()), "runId": str(uuid4()),
+                    "parentRunId": None, "state": {}, "messages": [],
+                    "tools": [], "context": [], "forwardedProps": {},
+                }, headers={"accept": "text/event-stream", "x-naija-trace-id": trace_id})
+            self.assertEqual([r.status_code for r in (checkout, payment, chat)], [200, 400, 200])
+            for response in (checkout, payment, chat):
+                self.assertEqual(response.headers["x-naija-trace-id"], trace_id)
+                self.assertEqual(UUID(response.headers["x-naija-request-id"]).version, 4)
+            self.assertEqual(len(observed), 1)
+            self.assertEqual(observed[0][0], trace_id)
+            self.assertEqual(UUID(observed[0][1]).version, 4)
+            logged = output.getvalue()
+            for stage in ("chat", "checkout", "payment"):
+                self.assertIn("stage=" + stage, logged)
+            self.assertIn("trace_id=" + trace_id, logged)
+            self.assertNotIn("fictional-invalid-reference", logged)
+            self.assertNotIn("Fictional Street", logged)
+        finally:
+            logger.removeHandler(handler)
+            handler.close()
+            logger.setLevel(previous_level)
 
     async def test_stale_approval_is_rejected_after_cart_change(self):
         ready = (await self.prepare()).json()

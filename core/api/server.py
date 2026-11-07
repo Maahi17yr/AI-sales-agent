@@ -77,6 +77,7 @@ from core.memory.token_metrics import log_token_usage
 from core.services.cart import CartService
 from core.services.discount_service import DiscountService
 from core import config
+from core.observability import correlation
 
 
 # ------------------------------------------
@@ -351,6 +352,30 @@ async def localhost_only(
 # ------------------------------------------
 
 @app.middleware("http")
+async def correlate_requests(request: Request, call_next):
+    """Expose only generated UUIDv4 IDs; never record user-supplied headers."""
+    trace_id = correlation.validated_trace_id(request.headers.get("x-naija-trace-id"))
+    request_id = correlation.new_id()
+    request.state.trace_id = trace_id
+    request.state.request_id = request_id
+    tokens = correlation.bind(trace_id, request_id)
+    started = time.perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        response.headers["X-Naija-Request-ID"] = request_id
+        response.headers["X-Naija-Trace-ID"] = trace_id
+        return response
+    finally:
+        correlation.log_request(
+            trace_id, request_id, correlation.stage_for_path(request.url.path),
+            status, (time.perf_counter() - started) * 1000,
+        )
+        correlation.reset(tokens)
+
+
+@app.middleware("http")
 async def protect_auth_cookie_requests(request: Request, call_next):
     # Browsers send Origin for cross-origin POSTs. Reject unknown origins
     # before any authentication mutation; requests with no Origin (CLI)
@@ -555,6 +580,7 @@ async def run_agent(
         event_count = 0
         outcome = "completed"
         model_agent = None
+        trace_tokens = correlation.bind(request.state.trace_id, request.state.request_id)
         try:
             async with _agent_lock(session_id):
                 model_agent = make_agent(session_id)
@@ -587,6 +613,7 @@ async def run_agent(
                 event_count,
                 outcome,
             )
+            correlation.reset(trace_tokens)
 
     return StreamingResponse(
         stream(),
