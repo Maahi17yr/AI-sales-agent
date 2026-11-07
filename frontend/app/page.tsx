@@ -1,6 +1,6 @@
 'use client';
 
-import { beginJourney, currentJourney, finishJourney } from './request-metrics';
+import { beginJourney, finishJourney, recordStreamOutcome, backgroundSnapshot, recordRequest } from './request-metrics';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -442,9 +442,11 @@ export default function Home() {
       signal: controller.signal,
     })
       .then((response) => {
+        recordRequest('other', !response.ok);
         setOnline(response.ok);
       })
       .catch((err) => {
+        recordRequest('other', true);
         if (err.name !== 'AbortError') {
           setOnline(false);
         }
@@ -671,10 +673,11 @@ export default function Home() {
 
     setMessages(next);
 
-    beginJourney('chat_turn');
+    const chatJourney = beginJourney('chat_turn');
     const requestStartedAt = performance.now();
     let headersReceivedAt: number | null = null;
     let firstTokenAt: number | null = null;
+    let streamStarted = false;
 
     const assistantId = uid();
     let assistantText = '';
@@ -712,7 +715,7 @@ export default function Home() {
           forwardedProps: {},
         }),
         signal: controller.signal,
-      });
+      }, chatJourney);
 
       headersReceivedAt = performance.now();
 
@@ -730,6 +733,7 @@ export default function Home() {
 
       setOnline(true);
 
+      streamStarted = true;
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
@@ -854,16 +858,19 @@ export default function Home() {
         err instanceof Error &&
         err.name === 'AbortError'
       ) {
+        recordStreamOutcome(chatJourney, 'cancelled');
         return;
       }
 
+      if (streamStarted) recordStreamOutcome(chatJourney, 'error');
       setError(
         err instanceof Error
           ? err.message
           : 'Unexpected request error.'
       );
     } finally {
-      if (currentJourney() === 'chat_turn') console.info('[Naija Bites requests]', finishJourney());
+      console.info('[Naija Bites requests]', finishJourney(chatJourney));
+      console.info('[Naija Bites background requests]', backgroundSnapshot());
       setBusy(false);
       setShowTyping(false);
       abort.current = null;
@@ -883,7 +890,7 @@ export default function Home() {
     const reviewedCheckoutId = checkout.checkout_id;
     checkoutSyncSequence.current++;
 
-    beginJourney('checkout');
+    const confirmJourney = beginJourney('checkout');
     setConfirming(true);
     setCheckoutError('');
     setCheckoutResult('');
@@ -902,7 +909,8 @@ export default function Home() {
             reviewed_fingerprint: reviewedFingerprint,
             checkout_id: reviewedCheckoutId,
           }),
-        }
+        },
+        confirmJourney,
       );
 
       const data = await response.json();
@@ -935,14 +943,14 @@ export default function Home() {
           : 'Could not confirm your order.'
       );
     } finally {
-      console.info('[Naija Bites requests]', finishJourney());
+      console.info('[Naija Bites requests]', finishJourney(confirmJourney));
       setConfirming(false);
     }
   }
 
   async function payNow() {
     if (!paymentOrder || paymentBusy) return;
-    beginJourney('payment');
+    const paymentJourney = beginJourney('payment');
     setPaymentBusy(true);
     setCheckoutError('');
     try {
@@ -951,14 +959,14 @@ export default function Home() {
         const saved = await apiFetch('/chats/' + encodeURIComponent(threadId), {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title: chatTitle(messages), messages }),
-        });
+        }, paymentJourney);
         if (!saved.ok) throw new Error('Could not save your conversation. Payment was not started.');
       }
       const response = await apiFetch('/payments/initialize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...traceHeaders() },
         body: JSON.stringify({ order_id: paymentOrder, email: paymentEmail.trim(), frontend_origin: window.location.origin }),
-      });
+      }, paymentJourney);
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Could not start payment.');
       if (!String(data.authorization_url).startsWith('https://')) throw new Error('Invalid payment URL.');
@@ -967,11 +975,11 @@ export default function Home() {
         window.sessionStorage.setItem(paymentTraceKey(customer.id), traceIdRef.current || uid());
       }
       catch { /* The payment flow still works without session storage. */ }
-      console.info('[Naija Bites requests]', finishJourney());
+      console.info('[Naija Bites requests]', finishJourney(paymentJourney));
       window.location.assign(data.authorization_url);
     } catch (err) {
       setCheckoutError(err instanceof Error ? err.message : 'Could not start payment.');
-      console.info('[Naija Bites requests]', finishJourney());
+      console.info('[Naija Bites requests]', finishJourney(paymentJourney));
       setPaymentBusy(false);
     }
   }
@@ -1003,13 +1011,13 @@ export default function Home() {
 
     try { traceIdRef.current = window.sessionStorage.getItem(paymentTraceKey(customer.id)) || traceIdRef.current; }
     catch { /* Storage may be disabled. */ }
-    beginJourney('payment');
+    const returnJourney = beginJourney('payment');
     void apiFetch('/payments/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...traceHeaders() },
       // The backend saves the confirmation in this authenticated chat.
       body: JSON.stringify({ reference, chat_id: threadId }),
-    }).then(async response => {
+    }, returnJourney).then(async response => {
       const data: {
         order_id?: number;
         payment_status?: string;
@@ -1059,7 +1067,7 @@ export default function Home() {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title: original.title, messages: updatedMessages }),
-          });
+          }, returnJourney);
           if (!saved.ok) setError('Payment confirmed, but your thank-you message could not sync to cloud history.');
         }
       }
@@ -1073,7 +1081,7 @@ export default function Home() {
       setPaymentMessage(err instanceof Error ? err.message : 'Payment verification failed.');
       // Keep the return URL to allow verification on refresh.
     }).finally(() => {
-      if (currentJourney() === 'payment') console.info('[Naija Bites requests]', finishJourney());
+      console.info('[Naija Bites requests]', finishJourney(returnJourney));
     });
   }, [historyReady, threadId, apiFetch, customer.id, savedChats]);
 

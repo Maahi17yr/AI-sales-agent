@@ -9,6 +9,20 @@ import { classifyRequest, recordRequest } from './request-metrics';
 
 const API = '/api/backend';
 
+// Direct authentication requests are background traffic, independent of
+// chat/checkout/payment journeys. Never retain URLs, cookies or response data.
+async function backgroundFetch(path: string, options: RequestInit): Promise<Response> {
+  try {
+    const response = await fetch(`${API}${path}`, options);
+    recordRequest(classifyRequest(path), !response.ok);
+    return response;
+  } catch (error) {
+    recordRequest(classifyRequest(path), true);
+    throw error;
+  }
+}
+
+
 function connectionMessage(error: unknown): string {
   if (error instanceof TypeError) {
     return 'Cannot reach Naija Bites right now. Check that the website and API are running, then try again.';
@@ -20,7 +34,7 @@ export type Customer = { id: number; name: string; email: string; role: 'custome
 
 type AuthContextValue = {
   customer: Customer;
-  apiFetch: (path: string, options?: RequestInit) => Promise<Response>;
+  apiFetch: (path: string, options?: RequestInit, journeyId?: string) => Promise<Response>;
   logout: () => Promise<void>;
 };
 
@@ -75,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     try {
-      const response = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
+      const response = await backgroundFetch('/auth/me', { credentials: 'include', cache: 'no-store' });
       if (response.ok) {
         const data: { customer: Customer } = await response.json();
         customerRef.current = data.customer;
@@ -84,7 +98,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         customerRef.current = null;
         setCustomer(null);
       }
-    } catch { /* Keep current state on transient network failure. */ }
+    } catch {
+      /* Keep current state on transient network failure. */
+    }
   }, []);
 
   // Tabs on the same origin share the session cookie. Recheck when another tab
@@ -107,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshSession]);
 
-  const apiFetch = useCallback(async (path: string, options: RequestInit = {}) => {
+  const apiFetch = useCallback(async (path: string, options: RequestInit = {}, journeyId?: string) => {
     const expectedCustomerId = customerRef.current?.id;
     const headers = new Headers(options.headers);
     if (expectedCustomerId !== undefined) {
@@ -118,9 +134,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       let session: Response;
       try {
         session = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
-        recordRequest('auth', !session.ok);
+        recordRequest('auth', !session.ok, journeyId);
       } catch (error) {
-        recordRequest('auth', true);
+        recordRequest('auth', true, journeyId);
         throw error;
       }
       if (session.status === 401) {
@@ -144,9 +160,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         credentials: 'include',
         cache: options.cache ?? 'no-store',
       });
-      recordRequest(classifyRequest(path), !response.ok);
+      recordRequest(classifyRequest(path), !response.ok, journeyId);
     } catch (error) {
-      recordRequest(classifyRequest(path), true);
+      recordRequest(classifyRequest(path), true, journeyId);
       throw error;
     }
     if (response.status === 401) {
@@ -159,7 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store', signal: controller.signal })
+    backgroundFetch('/auth/me', { credentials: 'include', cache: 'no-store', signal: controller.signal })
       .then(async response => {
         if (response.ok) {
           const data: { customer: Customer } = await response.json();
@@ -177,7 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      const response = await fetch(`${API}/auth/logout`, {
+      const response = await backgroundFetch('/auth/logout', {
         method: 'POST', credentials: 'include', cache: 'no-store',
       });
       if (!response.ok) throw new Error(await detail(response));
@@ -198,14 +214,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const normalizedEmail = email.trim().toLowerCase();
       if (mode === 'register') {
-        const register = await fetch(`${API}/auth/register`, {
+        const register = await backgroundFetch('/auth/register', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name.trim(), email: normalizedEmail, password }),
         });
         if (!register.ok) throw new Error(await detail(register));
       }
-      const response = await fetch(`${API}/auth/login`, {
+      const response = await backgroundFetch('/auth/login', {
         method: 'POST', credentials: 'include', cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: normalizedEmail, password }),

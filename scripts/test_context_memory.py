@@ -74,14 +74,19 @@ class BoundedContextTests(unittest.TestCase):
                 "cacheReadInputTokens": 300,
                 "customer_email": "secret@example.test",
             }),
-            accumulated_usage={"totalTokens": 999999},
+            accumulated_usage={"inputTokens": 1900, "outputTokens": 100,
+                               "totalTokens": 2000, "cacheReadInputTokens": 500,
+                               "cacheWriteInputTokens": 25},
             latest_context_size=1300,
         )
         agent = SimpleNamespace(event_loop_metrics=metrics)
         result = token_usage(agent)
-        self.assertEqual(result["input_tokens"], 1200)
-        self.assertEqual(result["output_tokens"], 75)
-        self.assertEqual(result["cache_read_tokens"], 300)
+        self.assertEqual(result["input_tokens"], 1900)
+        self.assertEqual(result["output_tokens"], 100)
+        self.assertEqual(result["total_tokens"], 2000)
+        self.assertEqual(result["cache_read_tokens"], 500)
+        self.assertEqual(result["cache_write_tokens"], 25)
+        self.assertEqual(result["scope"], "aggregate")
         self.assertEqual(result["context_tokens"], 1300)
         self.assertNotIn("customer_email", result)
         logger = Mock()
@@ -89,6 +94,12 @@ class BoundedContextTests(unittest.TestCase):
         msg = str(logger.info.call_args)
         self.assertNotIn("secret@example.test", msg)
         self.assertEqual(token_usage(SimpleNamespace(event_loop_metrics=None)), None)
+        fallback_agent = SimpleNamespace(event_loop_metrics=SimpleNamespace(
+            latest_agent_invocation=SimpleNamespace(usage={"inputTokens": 3}),
+            accumulated_usage=None, latest_context_size=None,
+        ))
+        self.assertEqual(token_usage(fallback_agent)["scope"], "latest_only")
+        self.assertNotIn("output_tokens", token_usage(fallback_agent))
 
 
 class ApprovedMemoryAPITests(unittest.IsolatedAsyncioTestCase):

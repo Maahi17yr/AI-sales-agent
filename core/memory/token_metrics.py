@@ -9,14 +9,19 @@ def token_usage(agent):
     """Return sanitized usage and context size, or None if unavailable.
 
     Strands creates a new Agent per incoming request in this application.
-    Prefer latest invocation to avoid accidentally aggregating across runs.
+    Prefer aggregate usage to include every model cycle; using only the latest
+    invocation would omit earlier model calls. Direct summarization-model calls
+    are not guaranteed to be included in the SDK totals.
     """
     metrics = getattr(agent, "event_loop_metrics", None)
     if metrics is None:
         return None
 
     latest = getattr(metrics, "latest_agent_invocation", None)
-    usage = getattr(latest, "usage", None) or getattr(metrics, "accumulated_usage", None)
+    # The SDK accumulates model usage across cycles. Use latest only if the
+    # aggregate is unavailable; never add both (that would double-count).
+    aggregate = getattr(metrics, "accumulated_usage", None)
+    usage = aggregate if isinstance(aggregate, dict) and aggregate else getattr(latest, "usage", None)
     if not isinstance(usage, dict) or not usage:
         return None
 
@@ -36,6 +41,8 @@ def token_usage(agent):
     context_size = getattr(metrics, "latest_context_size", None)
     if type(context_size) is int and context_size >= 0:
         values["context_tokens"] = context_size
+    if values:
+        values["scope"] = "aggregate" if usage is aggregate else "latest_only"
     return values or None
 
 
@@ -47,8 +54,10 @@ def log_token_usage(logger, agent):
         return
     logger.info(
         "agent_token_usage input_tokens=%s output_tokens=%s total_tokens=%s "
-        "cache_read_tokens=%s cache_write_tokens=%s context_tokens=%s",
+        "cache_read_tokens=%s cache_write_tokens=%s context_tokens=%s "
+        "scope=%s summarization_usage=unavailable",
         usage.get("input_tokens"), usage.get("output_tokens"),
         usage.get("total_tokens"), usage.get("cache_read_tokens"),
         usage.get("cache_write_tokens"), usage.get("context_tokens"),
+        usage.get("scope"),
     )
