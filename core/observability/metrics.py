@@ -3,6 +3,7 @@
 No SQL text, parameters, queries, provider responses or user content are logged.
 """
 import logging
+import re
 import time
 from collections import Counter
 from contextvars import ContextVar
@@ -102,6 +103,42 @@ def is_first_text_event(event):
     if delta is None and isinstance(event, dict):
         delta = event.get("delta")
     return isinstance(delta, str) and bool(delta)
+
+
+class FirstVisibleText:
+    """Detect text that survives the frontend's hidden-thought filtering.
+
+    Hold at most 16 KiB in memory, never log text. Return unavailable (None)
+    rather than falsely reporting visible text if that bound is exceeded.
+    """
+
+    def __init__(self):
+        self.buffer = ""
+        self.exceeded = False
+
+    def observe(self, event):
+        if not is_first_text_event(event) or self.exceeded:
+            return False
+        delta = event.get("delta") if isinstance(event, dict) else getattr(event, "delta", "")
+        if len(self.buffer) + len(delta) > 16384:
+            self.buffer = ""
+            self.exceeded = True
+            return False
+        self.buffer += delta
+        visible = re.sub(
+            r"<(?:think|thinking)\\b[^>]*>.*?</(?:think|thinking)\\s*>",
+            "", self.buffer, flags=re.I | re.S,
+        )
+        visible = re.sub(
+            r"<(?:think|thinking)\\b[^>]*>.*$", "",
+            visible, flags=re.I | re.S,
+        )
+        visible = re.sub(r"</?(?:think|thinking)\\b[^>]*>", "", visible, flags=re.I)
+        visible = re.sub(
+            r"<(?:t|th|thi|thin|think|thinki|thinkin|thinking)$",
+            "", visible, flags=re.I,
+        )
+        return bool(visible.strip())
 
 
 class TimedSQLiteConnection:

@@ -594,6 +594,7 @@ async def run_agent(
         started = request.state.metric_started
         first_event_ms = None
         first_text_token_ms = None
+        visible_text = metrics.FirstVisibleText()
         event_count = 0
         outcome = "completed"
         model_agent = None
@@ -610,7 +611,7 @@ async def run_agent(
                     event_count += 1
                     if first_event_ms is None:
                         first_event_ms = round((time.perf_counter() - started) * 1000)
-                    if first_text_token_ms is None and metrics.is_first_text_event(event):
+                    if first_text_token_ms is None and visible_text.observe(event):
                         first_text_token_ms = round((time.perf_counter() - started) * 1000)
                     yield encoder.encode(event)
                 # Structured, trusted UI action after the agent has finished.
@@ -619,7 +620,7 @@ async def run_agent(
                 yield "data: " + json.dumps({
                     "type": "CHECKOUT_STATE", "checkout": state,
                 }, separators=(",", ":")) + "\n\n"
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, GeneratorExit):
             outcome = "cancelled"
             raise
         except Exception:
@@ -639,7 +640,7 @@ async def run_agent(
                 )
                 correlation.log_request(
                     request.state.trace_id, request.state.request_id,
-                    "chat", 200 if outcome == "completed" else 500, elapsed_ms,
+                    "chat", 200, elapsed_ms, outcome=outcome,
                 )
                 model_counts = metrics.snapshot_agent_counts()
                 logging.getLogger("naija_bites.metrics").info(

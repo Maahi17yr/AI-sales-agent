@@ -46,9 +46,10 @@ def stage_for_path(path):
     return None
 
 
-def log_request(trace_id, request_id, stage, status, duration_ms):
+def log_request(trace_id, request_id, stage, status, duration_ms, outcome="headers"):
     if stage is not None:
         logger.info(
-            "request_metric trace_id=%s request_id=%s stage=%s status=%d duration_ms=%.2f",
-            trace_id, request_id, stage, status, duration_ms,
+            "request_metric trace_id=%s request_id=%s stage=%s status=%d "
+            "duration_ms=%.2f outcome=%s",
+            trace_id, request_id, stage, status, duration_ms, outcome,
         )

@@ -396,6 +396,62 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.json()["order_status"], "confirmed")
         self._assert_payment_and_stock(order_id, "paid", "confirmed")
 
+    async def test_closed_stream_is_marked_cancelled_without_false_http_500(self):
+        from core.api.server import run_agent, RunAgentInput
+        from core.observability import correlation
+        from types import SimpleNamespace
+        import time
+
+        class FakeEncoder:
+            def __init__(self, accept=None):
+                pass
+            def get_content_type(self):
+                return "text/event-stream"
+            def encode(self, event):
+                return "data: {}" + chr(10) * 2
+
+        class FakeStrandsAgent:
+            def __init__(self, **kwargs):
+                pass
+            async def run(self, input_data):
+                yield {"type": "RUN_STARTED"}
+                while True:
+                    await asyncio.sleep(1)
+
+        trace_id = str(uuid4())
+        request = SimpleNamespace(
+            state=SimpleNamespace(trace_id=trace_id, request_id=str(uuid4()),
+                                  metric_started=time.perf_counter()),
+            headers={"accept": "text/event-stream"},
+        )
+        logger = logging.getLogger("naija_bites.metrics")
+        log = io.StringIO()
+        handler = logging.StreamHandler(log)
+        oldlevel = logger.level
+        logger.setLevel(logging.INFO)
+        logger.addHandler(handler)
+        try:
+            with (patch("core.api.server._customer_session", return_value="fictional-session"),
+                  patch("core.api.server.make_agent", return_value=object()),
+                  patch("core.api.server.EventEncoder", FakeEncoder),
+                  patch("core.api.server.StrandsAgent", FakeStrandsAgent)):
+                data = RunAgentInput.model_validate({
+                    "threadId": str(uuid4()), "runId": str(uuid4()),
+                    "parentRunId": None, "state": {}, "messages": [],
+                    "tools": [], "context": [], "forwardedProps": {},
+                })
+                response = await run_agent(data, request)
+                stream = response.body_iterator
+                await stream.__anext__()
+                await stream.aclose()
+            self.assertIn("stage=chat status=200", log.getvalue())
+            self.assertIn("outcome=cancelled", log.getvalue())
+            self.assertNotIn("status=500", log.getvalue())
+        finally:
+            logger.removeHandler(handler)
+            handler.close()
+            logger.setLevel(oldlevel)
+
     async def test_stream_metrics_include_db_queries_after_headers(self):
         from core.observability import correlation
 
