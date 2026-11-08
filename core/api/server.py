@@ -38,6 +38,8 @@ from fastapi import (
 
 from fastapi.middleware.cors import CORSMiddleware
 
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import (
     JSONResponse,
     StreamingResponse,
@@ -288,6 +290,53 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(owner_router)
+
+
+# Correlate failures without echoing request bodies, secrets or provider messages.
+_ERROR_LOG = logging.getLogger("naija_bites.api.errors")
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,80}$")
+
+
+@app.middleware("http")
+async def request_error_boundary(request: Request, call_next):
+    supplied = request.headers.get("x-request-id", "")
+    request_id = supplied if _REQUEST_ID_RE.fullmatch(supplied) else uuid.uuid4().hex
+    request.state.request_id = request_id
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        # No exception text or customer input in production logs or response.
+        _ERROR_LOG.error(
+            "request_failure id=%s method=%s path=%s category=internal type=%s",
+            request_id, request.method, request.url.path, type(exc).__name__,
+        )
+        response = JSONResponse(
+            {"detail": "An unexpected error occurred. Please retry later.",
+             "code": "internal_error", "request_id": request_id},
+            status_code=500,
+        )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(StarletteHTTPException)
+async def classified_http_error(request: Request, exc: StarletteHTTPException):
+    # Preserve existing detail/status for backwards-compatible API consumers.
+    request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
+    return JSONResponse(
+        {"detail": exc.detail, "code": "http_error", "request_id": request_id},
+        status_code=exc.status_code, headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def classified_validation_error(request: Request, exc: RequestValidationError):
+    # Pydantic errors can include submitted values; never echo input.
+    request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
+    return JSONResponse(
+        {"detail": "Invalid request data.", "code": "validation_error",
+         "request_id": request_id}, status_code=422,
+    )
 
 
 # ------------------------------------------
