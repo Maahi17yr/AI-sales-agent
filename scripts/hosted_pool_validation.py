@@ -22,6 +22,7 @@ def run_hosted_mixed():
     old_argv = sys.argv
     output = io.StringIO()
     error_type = None
+    error_detail = None
     try:
         sys.argv = ["benchmark_pool_mixed_load", "--arrival-rps", "20",
                     "--per-kind", "10", "--cases", "fresh,pool_2_5,fresh_25,pool_2_5_25,fresh_50,pool_2_5_50"]
@@ -30,6 +31,7 @@ def run_hosted_mixed():
                 benchmark_pool_mixed_load.main()
             except Exception as exc:
                 error_type = type(exc).__name__
+                error_detail = str(exc) if isinstance(exc, AssertionError) else None
     finally:
         sys.argv = old_argv
     cases = []
@@ -39,7 +41,7 @@ def run_hosted_mixed():
     passed = (error_type is None and len(cases) == 6 and
               all(item["errors"] == 0 for item in cases))
     return {"status": "passed" if passed else "blocked",
-            "reason_type": error_type, "cases": cases,
+            "reason_type": error_type, "reason_detail": error_detail, "cases": cases,
             "note": "20 scheduled arrivals/s; 10 fictional operations per kind; 10/25/50 worker caps; no Bedrock; Paystack mocked"}
 
 def run():
