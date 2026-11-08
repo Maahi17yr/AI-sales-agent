@@ -70,6 +70,7 @@ def main():
     arg = argparse.ArgumentParser()
     arg.add_argument("--arrival-rps", type=float, default=75.0)
     arg.add_argument("--per-kind", type=int, default=12)
+    arg.add_argument("--cases", default="", help="Optional comma-separated case names; default all")
     args = arg.parse_args()
     pool_experiment.guard()
     if not 20 <= args.arrival_rps <= 200 or not 10 <= args.per_kind <= 40:
@@ -246,6 +247,12 @@ def main():
              ("fresh_50", None, None, 50),
              ("pool_2_5_50", 2, 5, 50),
              ("pool_5_15_50", 5, 15, 50))
+    if args.cases:
+        selected = {item.strip() for item in args.cases.split(",")}
+        known = {item[0] for item in cases}
+        if not selected or not selected.issubset(known) or "" in selected:
+            raise ValueError("Unknown workload case selection")
+        cases = tuple(item for item in cases if item[0] in selected)
 
     for name, minimum, maximum, workers in cases:
         if minimum is not None:
