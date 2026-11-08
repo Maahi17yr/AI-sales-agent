@@ -1,0 +1,56 @@
+name: Isolated Locust lab safety
+on:
+  push:
+    branches:
+      - experiment/isolated-locust-load-lab-20261108
+  pull_request:
+    branches:
+      - experiment/isolated-live-pool-lab-20261108
+jobs:
+  locust-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements-locust-lab.txt
+      - name: Compile isolated load-test scripts
+        run: python -m py_compile scripts/locust_live_lab.py scripts/run_locust_live_lab.py
+      - name: Verify bounded stages and hardcoded disposable target without sending requests
+        env:
+          NAIJA_LOAD_TEST_ISOLATED: '1'
+          LAB_TARGET_URL: https://naija-bites-live-lab-temp-20261108.onrender.com
+          LAB_ACCESS_CODE: fictional-code-only-for-ci
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.locust_live_lab import (
+              CautiousRamp, FreshConnectionCustomer, PooledConnectionCustomer,
+              LAB_URL, STAGES, MAX_SIMULTANEOUS_USERS, MAX_TOTAL_JOURNEYS,
+          )
+          assert LAB_URL == os.environ["LAB_TARGET_URL"]
+          assert STAGES == ((60, 10, 2), (120, 25, 3), (180, 50, 5))
+          assert MAX_SIMULTANEOUS_USERS == 50
+          assert MAX_TOTAL_JOURNEYS == 600
+          assert FreshConnectionCustomer.mode == "fresh"
+          assert PooledConnectionCustomer.mode == "pool"
+          shape = CautiousRamp()
+          shape.runner = None
+          for seconds, expected in ((0,(10,2)), (60,(25,3)), (120,(50,5)), (180,None)):
+              shape.get_run_time = lambda seconds=seconds: seconds
+              assert shape.tick() == expected, (seconds,shape.tick())
+          print("No network requests were made; bounded lab configuration passed")
+          PY
+      - name: Verify production or arbitrary targets are rejected
+        env:
+          NAIJA_LOAD_TEST_ISOLATED: '1'
+          LAB_TARGET_URL: https://naija-bites-demo-api.onrender.com
+          LAB_ACCESS_CODE: fictional-code-only-for-ci
+        run: |
+          if python -c 'import scripts.locust_live_lab'; then
+            echo 'FAIL: unexpected non-lab target accepted'
+            exit 1
+          fi
+          echo 'Non-lab target rejected'
