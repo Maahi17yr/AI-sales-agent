@@ -147,14 +147,29 @@ def main():
             review = CheckoutService(confirm_session).prepare_checkout(**details)
             if not review.get("success"):
                 raise AssertionError("Fictional checkout confirmation fixture failed")
-            entries.append({
-                "kind": "checkout_confirm",
-                "call": lambda s=confirm_session, p=review:
-                        CheckoutService(s).confirm_checkout(
-                            customer_approved=True,
-                            reviewed_fingerprint=fingerprint(p["summary"]),
-                            checkout_id=p["checkout_id"]).get("success") is True,
-            })
+            def confirm_and_reconcile(s=confirm_session, p=review, customer=cid):
+                response = CheckoutService(s).confirm_checkout(
+                    customer_approved=True,
+                    reviewed_fingerprint=fingerprint(p["summary"]),
+                    checkout_id=p["checkout_id"])
+                if response.get("success") is not True:
+                    return False
+                order_id = response.get("order_id")
+                with models.get_connection() as verify_conn:
+                    row = verify_conn.execute(
+                        "SELECT o.customer_id, oi.quantity, oi.unit_price "
+                        "FROM orders o JOIN order_items oi ON oi.order_id=o.id "
+                        "WHERE o.id=? AND oi.product_id=?", (order_id, pid)).fetchone()
+                    session_row = verify_conn.execute(
+                        "SELECT customer_id,cart_data FROM conversation_sessions WHERE session_id=?",
+                        (s,)).fetchone()
+                last = json.loads(session_row["cart_data"]).get("last_checkout", {}) if session_row else {}
+                if not (row and row["customer_id"] == customer and row["quantity"] == 1
+                        and row["unit_price"] == 2400 and session_row["customer_id"] == customer
+                        and last.get("order_id") == order_id):
+                    raise AssertionError("Checkout response not durably reconciled")
+                return True
+            entries.append({"kind": "checkout_confirm", "call": confirm_and_reconcile})
             confirmed_ids.append((confirm_session, cid))
 
             pay_session = new_session(index)
