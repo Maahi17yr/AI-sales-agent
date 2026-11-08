@@ -223,3 +223,5 @@ jobs:
         run: python -m scripts.benchmark_pool_experiment --iterations 30 --warmup 5 --repetitions 3
       - name: Verify isolated pooling regression scenarios
         run: python -m unittest scripts.test_postgres_pool_experiment -v
+      - name: Re-run checkout and mocked payment PostgreSQL regressions with pooling
+        run: python -m scripts.run_pooled_postgres_regressions
