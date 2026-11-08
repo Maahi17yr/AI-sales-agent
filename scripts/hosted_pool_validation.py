@@ -25,7 +25,7 @@ def run_hosted_mixed():
     error_detail = None
     try:
         sys.argv = ["benchmark_pool_mixed_load", "--arrival-rps", "20",
-                    "--per-kind", "10", "--cases", "fresh,pool_2_5,fresh_25,pool_2_5_25,fresh_50,pool_2_5_50"]
+                    "--per-kind", "10", "--cases", "fresh_seq,fresh_low,fresh,pool_2_5,fresh_25,pool_2_5_25,fresh_50,pool_2_5_50"]
         with redirect_stdout(output):
             try:
                 benchmark_pool_mixed_load.main()
@@ -38,7 +38,7 @@ def run_hosted_mixed():
     for line in output.getvalue().splitlines():
         if line.startswith("MIX_LOAD "):
             cases.append(json.loads(line[len("MIX_LOAD "):]))
-    passed = (error_type is None and len(cases) == 6 and
+    passed = (error_type is None and len(cases) == 8 and
               all(item["errors"] == 0 for item in cases))
     return {"status": "passed" if passed else "blocked",
             "reason_type": error_type, "reason_detail": error_detail, "cases": cases,
