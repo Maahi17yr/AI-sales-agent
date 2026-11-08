@@ -195,7 +195,7 @@ def main():
                 "SELECT quantity FROM inventory WHERE product_id=?", (pid,)
             ).fetchone()["quantity"]
             if now != previous_stock - count:
-                raise AssertionError("Stock deduction invariant failed")
+                raise AssertionError(f"Stock deduction invariant failed: before={previous_stock} after={now} expected={previous_stock-count}")
             for session, expected_customer in confirmed_sessions:
                 saved = conn.execute(
                     "SELECT customer_id, cart_data FROM conversation_sessions WHERE session_id=?",
