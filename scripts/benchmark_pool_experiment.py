@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import concurrent.futures
 import json
+import logging
 import os
 import platform
 import statistics
@@ -116,6 +117,11 @@ def run(iterations=30, warmup=5, repetitions=3):
             result = paystack_service.verify(ref, session)
         return result["payment_status"] == "paid" and result["order_status"] == "confirmed"
 
+    def connect_only(_):
+        connection = models.get_connection()
+        connection.close()
+        return True
+
     def transaction_commit(_):
         with models.get_connection() as conn:
             row = conn.execute("SELECT COUNT(*) AS count FROM products").fetchone()
@@ -163,6 +169,7 @@ def run(iterations=30, warmup=5, repetitions=3):
     plan += [
         ("auth_login", lambda _: bool(auth_service.login_customer(label + "@example.test", password)["session_token"]), None),
         ("session_verify", lambda _: auth_service.authenticate_token(token)["id"] == customer["id"], None),
+        ("connection_cycle", connect_only, None),
         ("transaction_commit", transaction_commit, None),
         ("transaction_rollback", transaction_rollback, None),
         ("checkout_prepare", lambda _: CheckoutService(session).prepare_checkout(**details)["success"],
@@ -173,6 +180,19 @@ def run(iterations=30, warmup=5, repetitions=3):
     for n in (1, 5, 10):
         plan.append((f"concurrent_cart_{n}", lambda _, n=n: concurrency(n), lambda i: set_cart(5)))
 
+    class QueryCounter(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.total = 0
+        def emit(self, record):
+            if str(record.msg).startswith("db_metric "):
+                self.total += 1
+
+    collector = QueryCounter()
+    db_logger = logging.getLogger("naija_bites.metrics")
+    original_level = db_logger.level
+    db_logger.addHandler(collector)
+    db_logger.setLevel(logging.INFO)
     pool_experiment.open_pool(min_size=2, max_size=10, timeout=2)
     try:
         with patch.object(postgres.psycopg, "connect", side_effect=count_connect):
@@ -182,17 +202,26 @@ def run(iterations=30, warmup=5, repetitions=3):
                 for repetition in range(repetitions):
                     for iteration in range(warmup + iterations):
                         # Preparation is always fresh, outside measured sections.
-                        state = prepare(iteration) if prepare else None
+                        paired_state = (prepare(iteration) if prepare and name not in
+                                        ("checkout_confirm", "payment_verify_mock") else None)
                         order = ("fresh", "pooled") if (repetition + iteration) % 2 == 0 else ("pooled", "fresh")
                         for current in order:
+                            # These two workloads mutate state; build a fresh, independently
+                            # approvable order/payment for EACH mode, outside timed operation.
+                            state = (prepare(iteration) if prepare and name in
+                                     ("checkout_confirm", "payment_verify_mock") else paired_state)
                             before_conn = physical[0]
+                            before_queries = collector.total
                             before_pool = pool_experiment.snapshot()
                             with mode(current == "pooled"):
                                 ms, ok = timed(operation, state)
                             after_pool = pool_experiment.snapshot()
                             if iteration >= warmup:
                                 sample[current].append({
-                                    "ms": ms, "new_connections": physical[0] - before_conn,
+                                    "ms": ms,
+                                    "queries": collector.total - before_queries,
+                                    "new_connections": ((after_pool["new_physical"] - before_pool["new_physical"])
+                                                        if current == "pooled" else physical[0] - before_conn),
                                     "pool_wait_ms": ((after_pool["wait_ms"] - before_pool["wait_ms"])
                                                      if current == "pooled" else 0.0),
                                 })
@@ -204,7 +233,8 @@ def run(iterations=30, warmup=5, repetitions=3):
                         "p50_ms": round(percentile(values, 50), 3),
                         "p95_ms": round(percentile(values, 95), 3),
                         "new_physical_connections": sum(x["new_connections"] for x in items),
-                        "pool_wait_ms_total": round(sum(x["pool_wait_ms"] for x in items), 3),
+                        "db_queries_per_operation": round(statistics.mean(x["queries"] for x in items), 2),
+                        "pool_borrow_ms_total": round(sum(x["pool_wait_ms"] for x in items), 3),
                         "throughput_per_s": round(len(values) / (sum(values) / 1000), 2),
                         "errors": error,
                     }
@@ -221,10 +251,13 @@ def run(iterations=30, warmup=5, repetitions=3):
     finally:
         os.environ["NAIJA_BITES_EXPERIMENT_POOL_ENABLED"] = "0"
         pool_experiment.close_pool()
+        db_logger.removeHandler(collector)
+        db_logger.setLevel(original_level)
     print("POOL_ENV " + json.dumps({
         "python": platform.python_version(), "postgres": 16,
         "pool_min": 2, "pool_max": 10,
         "database": "disposable localhost", "tracing": "off",
+        "pool_borrow_ms_definition": "time in getconn including queue wait",
     }, sort_keys=True))
 
 
