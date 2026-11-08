@@ -29,6 +29,15 @@ def _configure(conn):
     conn.autocommit = True
 
 
+def _reset(conn):
+    # PostgreSQL session-level settings (SET / set_config) survive COMMIT.
+    # Reset all session state before another customer borrows this connection.
+    # DISCARD ALL requires autocommit and no active transaction.
+    if conn.info.transaction_status.name != "IDLE":
+        conn.rollback()
+    conn.execute("DISCARD ALL")
+
+
 def open_pool(min_size=1, max_size=5, timeout=0.5):
     guard()
     if type(min_size) is not int or type(max_size) is not int or min_size < 1 or max_size < min_size or max_size > 10:
@@ -36,26 +45,32 @@ def open_pool(min_size=1, max_size=5, timeout=0.5):
     if not 0 < timeout <= 10:
         raise ValueError("Experiment checkout timeout must be in (0,10] seconds.")
     global _pool
+    # Never hold the stats mutex while pool.wait() runs: background workers
+    # invoke the configure callback and need the same mutex.
     with _lock:
         if _pool is not None:
             raise RuntimeError("Experiment pool is already open.")
         for key in _stats:
             _stats[key] = 0
-        def created(_conn):
-            with _lock:
-                _stats["new_physical"] += 1
-        pool = ConnectionPool(
-            conninfo=_ALLOWED_URL, min_size=min_size, max_size=max_size,
-            timeout=timeout, open=False,
-            kwargs={"autocommit": True, "row_factory": dict_row},
-            configure=created,
-        )
-        pool.open()
-        try:
-            pool.wait(timeout=10.0)
-        except Exception:
+    def created(_conn):
+        with _lock:
+            _stats["new_physical"] += 1
+    pool = ConnectionPool(
+        conninfo=_ALLOWED_URL, min_size=min_size, max_size=max_size,
+        timeout=timeout, open=False,
+        kwargs={"autocommit": True, "row_factory": dict_row},
+        configure=created, reset=_reset,
+    )
+    pool.open()
+    try:
+        pool.wait(timeout=10.0)
+    except Exception:
+        pool.close()
+        raise
+    with _lock:
+        if _pool is not None:
             pool.close()
-            raise
+            raise RuntimeError("Experiment pool is already open.")
         _pool = pool
 
 
