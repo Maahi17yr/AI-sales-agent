@@ -46,6 +46,58 @@ def get_product(product_id):
     return to_dict(row)
 
 
+# SQLite commonly permits 999 parameters; leave space for other adapters and
+# avoid unbounded SQL/parameter lists while keeping one read for normal carts.
+_BATCH_SIZE = 400
+
+
+def _chunks(values):
+    for start in range(0, len(values), _BATCH_SIZE):
+        yield values[start:start + _BATCH_SIZE]
+
+
+def get_products_by_ids(product_ids):
+    """Read product records by ID, retaining unavailable rows for cart display.
+
+    Return a dict keyed by ID. An empty request doesn't open a connection.
+    All nonempty chunks reuse one read-only connection.
+    """
+    ids = list(dict.fromkeys(product_ids))
+    if not ids:
+        return {}
+    products = {}
+    with get_connection() as conn:
+        for subset in _chunks(ids):
+            marks = ",".join("?" for _ in subset)
+            rows = conn.execute(
+                f"SELECT * FROM products WHERE id IN ({marks})", subset
+            ).fetchall()
+            products.update((row["id"], to_dict(row)) for row in rows)
+    return products
+
+
+def get_stocks_by_variants(product_variants):
+    """Batch stock reads; missing variants are interpreted as zero by caller.
+
+    Reuse a single connection across chunks, leaving all cart policies intact.
+    """
+    variants = list(dict.fromkeys(product_variants))
+    if not variants:
+        return {}
+    stocks = {}
+    with get_connection() as conn:
+        for subset in _chunks(variants):
+            where = " OR ".join("(product_id = ? AND variant = ?)" for _ in subset)
+            params = [value for pair in subset for value in pair]
+            rows = conn.execute(
+                "SELECT product_id, variant, quantity FROM inventory WHERE " + where,
+                params,
+            ).fetchall()
+            stocks.update(((row["product_id"], row["variant"]), row["quantity"])
+                          for row in rows)
+    return stocks
+
+
 def search_products(query=None, category=None,
                     min_price=None, max_price=None):
     """Search products using optional filters."""
