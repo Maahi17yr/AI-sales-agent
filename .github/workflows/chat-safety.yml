@@ -14,6 +14,7 @@ on:
       - optimise/phase2-cart-inventory-batching-20261107
       - optimise/phase2-controlled-ab-postgres-20261107
       - optimise/phase2-pooling-experiment-20261108
+      - optimise/phase2-pooling-safety-load-20261108
 
 permissions:
   contents: read
@@ -264,3 +265,37 @@ jobs:
         run: python -m scripts.benchmark_pool_sizing --requests 60 --arrival-rps 300
       - name: Open-loop mixed app load and order/payment/stock invariants
         run: python -m scripts.benchmark_pool_mixed_load --arrival-rps 75 --per-kind 12
+
+  postgres-pool-pg18-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: naija_pool_experiment
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d naija_pool_experiment"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/naija_pool_experiment
+      NAIJA_BITES_POOL_EXPERIMENT: '1'
+      NAIJA_BITES_ENV: development
+      OBSERVABILITY_MODE: 'off'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-pool-experiment.txt
+      - name: PostgreSQL 18 transaction, reset, checkout and payment regressions
+        run: |
+          python -m unittest scripts.test_pool_safety_validation scripts.test_postgres_pool_experiment -v
+          python -m scripts.run_pooled_postgres_regressions

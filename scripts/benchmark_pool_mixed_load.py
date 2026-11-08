@@ -70,6 +70,7 @@ def main():
     arg = argparse.ArgumentParser()
     arg.add_argument("--arrival-rps", type=float, default=75.0)
     arg.add_argument("--per-kind", type=int, default=12)
+    arg.add_argument("--cases", default="", help="Optional comma-separated case names; default all")
     args = arg.parse_args()
     pool_experiment.guard()
     if not 20 <= args.arrival_rps <= 200 or not 10 <= args.per_kind <= 40:
@@ -108,6 +109,7 @@ def main():
         entries = []
         payment_payloads = {}
         confirmed_ids = []
+        confirmed_results = []
         paid_ids = []
         expected_stock_deduction = 0
 
@@ -146,14 +148,30 @@ def main():
             review = CheckoutService(confirm_session).prepare_checkout(**details)
             if not review.get("success"):
                 raise AssertionError("Fictional checkout confirmation fixture failed")
-            entries.append({
-                "kind": "checkout_confirm",
-                "call": lambda s=confirm_session, p=review:
-                        CheckoutService(s).confirm_checkout(
-                            customer_approved=True,
-                            reviewed_fingerprint=fingerprint(p["summary"]),
-                            checkout_id=p["checkout_id"]).get("success") is True,
-            })
+            def confirm_and_reconcile(s=confirm_session, p=review, customer=cid):
+                response = CheckoutService(s).confirm_checkout(
+                    customer_approved=True,
+                    reviewed_fingerprint=fingerprint(p["summary"]),
+                    checkout_id=p["checkout_id"])
+                if response.get("success") is not True:
+                    return False
+                order_id = response.get("order_id")
+                with models.get_connection() as verify_conn:
+                    row = verify_conn.execute(
+                        "SELECT o.customer_id, oi.quantity, oi.unit_price "
+                        "FROM orders o JOIN order_items oi ON oi.order_id=o.id "
+                        "WHERE o.id=? AND oi.product_id=?", (order_id, pid)).fetchone()
+                    session_row = verify_conn.execute(
+                        "SELECT customer_id,cart_data FROM conversation_sessions WHERE session_id=?",
+                        (s,)).fetchone()
+                last = json.loads(session_row["cart_data"]).get("last_checkout", {}) if session_row else {}
+                if not (row and row["customer_id"] == customer and row["quantity"] == 1
+                        and row["unit_price"] == 2400 and session_row["customer_id"] == customer
+                        and last.get("order_id") == order_id):
+                    raise AssertionError("Checkout response not durably reconciled")
+                confirmed_results.append((s, customer, order_id))
+                return True
+            entries.append({"kind": "checkout_confirm", "call": confirm_and_reconcile})
             confirmed_ids.append((confirm_session, cid))
 
             pay_session = new_session(index)
@@ -182,9 +200,9 @@ def main():
             expected_stock_deduction += 1
 
         random.Random(20261108).shuffle(entries)
-        return entries, payment_payloads, confirmed_ids, paid_ids, expected_stock_deduction
+        return entries, payment_payloads, confirmed_ids, paid_ids, expected_stock_deduction, confirmed_results
 
-    def verify_state(previous_stock, paid_ids, confirmed_sessions, count):
+    def verify_state(previous_stock, paid_ids, confirmed_sessions, count, confirmed_results):
         # All of these reads run OUTSIDE the timed load. Verify customer ownership,
         # session isolation, exact order prices, payment status, and inventory.
         expected_discount = OrderService._calculate_discount(2400)
@@ -194,7 +212,32 @@ def main():
                 "SELECT quantity FROM inventory WHERE product_id=?", (pid,)
             ).fetchone()["quantity"]
             if now != previous_stock - count:
-                raise AssertionError("Stock deduction invariant failed")
+                order_count = 0
+                item_count = 0
+                for session_id, _customer_id in confirmed_sessions:
+                    saved = conn.execute("SELECT cart_data FROM conversation_sessions WHERE session_id=?", (session_id,)).fetchone()
+                    if saved:
+                        last = json.loads(saved["cart_data"]).get("last_checkout", {})
+                        if last.get("order_id"):
+                            order_count += 1
+                            item = conn.execute("SELECT quantity FROM order_items WHERE order_id=? AND product_id=?", (last["order_id"], pid)).fetchone()
+                            item_count += item["quantity"] if item else 0
+                import hashlib
+                diagnostics = []
+                for sid, customer, order_id in confirmed_results:
+                    saved = conn.execute("SELECT customer_id,cart_data FROM conversation_sessions WHERE session_id=?", (sid,)).fetchone()
+                    order = conn.execute("SELECT customer_id FROM orders WHERE id=?", (order_id,)).fetchone()
+                    item = conn.execute("SELECT quantity FROM order_items WHERE order_id=? AND product_id=?", (order_id, pid)).fetchone()
+                    last = json.loads(saved["cart_data"]).get("last_checkout", {}) if saved else {}
+                    diagnostics.append({
+                        "correlation": hashlib.sha256((prefix+sid).encode()).hexdigest()[:12],
+                        "session_owner_ok": bool(saved and saved["customer_id"] == customer),
+                        "order_exists": bool(order),
+                        "order_owner_ok": bool(order and order["customer_id"] == customer),
+                        "item_quantity_ok": bool(item and item["quantity"] == 1),
+                        "session_order_matches": last.get("order_id") == order_id,
+                    })
+                raise AssertionError(f"Stock deduction invariant failed: before={previous_stock} after={now} expected={previous_stock-count} confirmed_orders={order_count} confirmed_items={item_count} reconciled={json.dumps(diagnostics,sort_keys=True)}")
             for session, expected_customer in confirmed_sessions:
                 saved = conn.execute(
                     "SELECT customer_id, cart_data FROM conversation_sessions WHERE session_id=?",
@@ -240,12 +283,23 @@ def main():
                 raise AssertionError("Customer token isolation/role invariant failed")
 
 
-    cases = (("fresh", None, None, 10),
+    cases = (("fresh_seq", None, None, 1),
+             ("fresh_low", None, None, 3),
+             ("fresh_5", None, None, 5),
+             ("fresh", None, None, 10),
              ("pool_2_5", 2, 5, 10),
              ("pool_5_15", 5, 15, 10),
+             ("fresh_25", None, None, 25),
+             ("pool_2_5_25", 2, 5, 25),
              ("fresh_50", None, None, 50),
              ("pool_2_5_50", 2, 5, 50),
              ("pool_5_15_50", 5, 15, 50))
+    if args.cases:
+        selected = {item.strip() for item in args.cases.split(",")}
+        known = {item[0] for item in cases}
+        if not selected or not selected.issubset(known) or "" in selected:
+            raise ValueError("Unknown workload case selection")
+        cases = tuple(item for item in cases if item[0] in selected)
 
     for name, minimum, maximum, workers in cases:
         if minimum is not None:
@@ -255,7 +309,7 @@ def main():
             # Fixtures are created in fresh mode to keep setup outside measured
             # operation; reconnect to pool afterwards for the actual load.
             os.environ["NAIJA_BITES_EXPERIMENT_POOL_ENABLED"] = "0"
-            entries, fake, confirmed, paid, preconfirmed = prepare_workload(name)
+            entries, fake, confirmed, paid, preconfirmed, confirmed_results = prepare_workload(name)
             with models.get_connection() as conn:
                 stock_before = conn.execute(
                     "SELECT quantity FROM inventory WHERE product_id=?", (pid,)
@@ -272,8 +326,17 @@ def main():
                 result = run_arrivals(entries, workers, args.arrival_rps)
             after = pool_experiment.snapshot()
             os.environ["NAIJA_BITES_EXPERIMENT_POOL_ENABLED"] = "0"
+            # Confirm that the load generator recorded exactly one durable
+            # order identifier for every successful confirmation.
+            recorded = len(confirmed_results)
+            reported = result["types"]["checkout_confirm"]["successes"]
+            if recorded != reported or len({x[2] for x in confirmed_results}) != recorded:
+                raise AssertionError(
+                    f"Checkout instrumentation mismatch: reported_success={reported} "
+                    f"recorded_order_ids={recorded} distinct_order_ids={len({x[2] for x in confirmed_results})}"
+                )
             # Count successful order confirmations; any failure blocks load pass.
-            verify_state(stock_before, paid, confirmed, len(confirmed))
+            verify_state(stock_before, paid, confirmed, len(confirmed), confirmed_results)
             result.update({
                 "case": name, "workers": workers,
                 "arrival_rps": args.arrival_rps,

@@ -4,6 +4,7 @@ Requires exact local database URL, experiment marker and raw tracing disabled.
 Uses psycopg_pool.ConnectionPool, not custom connection pooling.
 """
 import os
+from urllib.parse import urlsplit
 import threading
 import time
 
@@ -22,9 +23,24 @@ _stats = {"new_physical": 0, "borrows": 0, "wait_ms": 0.0, "timeouts": 0,
 
 def guard():
     if (os.getenv("NAIJA_BITES_POOL_EXPERIMENT") != "1" or
-            os.getenv("DATABASE_URL") != _ALLOWED_URL or
             os.getenv("OBSERVABILITY_MODE", "off") != "off"):
-        raise RuntimeError("Pooling experiment requires the isolated CI database.")
+        raise RuntimeError("Pooling experiment requires explicit opt-in and tracing off.")
+    url = os.getenv("DATABASE_URL", "")
+    if url == _ALLOWED_URL:
+        return
+    # Separate, EMPTY Neon PG18 project, never a branch of a live project.
+    # No generic Neon allowlist: hostname and database must match this one
+    # disposable project exactly, and a second explicit hosted flag is needed.
+    parsed = urlsplit(url)
+    if (os.getenv("NAIJA_BITES_HOSTED_POOL_VALIDATION") != "1" or
+            parsed.scheme not in ("postgresql", "postgres") or
+            parsed.hostname not in (
+                "ep-tiny-violet-bbc1phtz.c-15.us-east-1.aws.neon.tech",
+                "ep-tiny-violet-bbc1phtz-pooler.c-15.us-east-1.aws.neon.tech",
+            ) or parsed.path != "/naija_pool_validation" or
+            not parsed.username or not parsed.password or
+            "sslmode=require" not in parsed.query):
+        raise RuntimeError("Pooling is restricted to the disposable CI DB or exact dedicated Neon validation DB.")
 
 
 def _configure(conn):
@@ -74,7 +90,7 @@ def open_pool(min_size=1, max_size=5, timeout=0.5):
             _stats["new_physical"] += 1
     try:
         pool = ConnectionPool(
-            conninfo=_ALLOWED_URL, min_size=min_size, max_size=max_size,
+            conninfo=os.environ["DATABASE_URL"], min_size=min_size, max_size=max_size,
             timeout=timeout, open=False,
             kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": None},
             configure=created, reset=_reset,
