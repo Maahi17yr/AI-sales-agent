@@ -148,6 +148,32 @@ class PoolSafetyValidation(unittest.TestCase):
         with models.get_connection() as fresh:
             self.assertEqual(fresh.execute("SELECT 1 AS n").fetchone()["n"], 1)
 
+    def test_concurrent_pool_open_is_rejected_while_initializing(self):
+        from unittest.mock import patch
+        pool_experiment.close_pool()
+        original_wait = pool_experiment.ConnectionPool.wait
+        entered = threading.Event()
+        resume = threading.Event()
+        def block_wait(pool, *args, **kwargs):
+            entered.set()
+            if not resume.wait(3):
+                raise TimeoutError("Test startup synchronization exceeded deadline")
+            return original_wait(pool, *args, **kwargs)
+        with patch.object(pool_experiment.ConnectionPool, "wait", new=block_wait):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                first = executor.submit(pool_experiment.open_pool, 1, 2, 0.5)
+                try:
+                    self.assertTrue(entered.wait(2))
+                    with self.assertRaises(RuntimeError):
+                        pool_experiment.open_pool(1, 2, 0.5)
+                    with self.assertRaises(RuntimeError):
+                        pool_experiment.close_pool()
+                finally:
+                    resume.set()
+                first.result(timeout=5)
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute("SELECT 1 AS n").fetchone()["n"], 1)
+
     def test_reset_removes_temp_tables_and_session_identity(self):
         marker = "pool_secret_" + uuid4().hex[:9]
         with models.get_connection() as conn:
