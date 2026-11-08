@@ -1,0 +1,18 @@
+name: Real backend isolated pooling A/B safety
+on:
+  push:
+    branches: [experiment/real-backend-pooling-ab-20261108]
+  pull_request:
+    branches: [feature/reliable-server-driven-checkout-20261101]
+jobs:
+  guard-and-adapter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'psycopg[binary]>=3.2,<4' 'psycopg-pool>=3.2,<4'
+      - run: python -m py_compile scripts/real_backend_ab_pool.py scripts/real_backend_ab_app.py data/database/postgres.py scripts/test_real_backend_ab_guard.py
+      - run: python -m unittest scripts.test_real_backend_ab_guard -v
