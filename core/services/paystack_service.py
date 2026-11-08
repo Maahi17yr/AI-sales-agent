@@ -4,6 +4,7 @@ import hmac
 import os
 import secrets
 import sqlite3
+import logging
 
 import httpx
 from data.database.models import get_connection
@@ -29,8 +30,12 @@ def _request(method, path, payload=None):
         if not result.get("status"):
             raise ValueError("Paystack rejected the request.")
         return result["data"]
-    except (httpx.HTTPError, ValueError) as exc:
-        raise ValueError(f"Payment provider request failed: {exc}") from exc
+    except httpx.TimeoutException as exc:
+        logging.getLogger(__name__).warning("paystack_transport_failure type=%s", type(exc).__name__)
+        raise ValueError("Payment provider timed out. Please check payment status before retrying.") from exc
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        logging.getLogger(__name__).warning("paystack_transport_failure type=%s", type(exc).__name__)
+        raise ValueError("Payment provider temporarily unavailable. Please check payment status before retrying.") from exc
 
 def _owned_order(conn, order_id, session_id):
     return conn.execute("""
