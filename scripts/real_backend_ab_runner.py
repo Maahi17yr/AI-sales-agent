@@ -17,9 +17,9 @@ from fastapi.responses import JSONResponse
 FRESH = "https://naija-bites-real-fresh-temp-20261108.onrender.com"
 POOLED = "https://naija-bites-real-pool-temp-20261108.onrender.com"
 HOSTS = {"fresh": FRESH, "pooled": POOLED}
-EXPECTED_KEY = "NaijaRealAB-8Nov26-Km9Qp7zT4rL2x"
+EXPECTED_KEY = os.getenv("NAIJA_AB_LAB_KEY", "")
 if (os.getenv("NAIJA_AB_RUNNER") != "1"
-        or os.getenv("NAIJA_AB_LAB_KEY") != EXPECTED_KEY
+        or len(EXPECTED_KEY) < 24
         or os.getenv("NAIJA_AB_TARGETS") != FRESH + "," + POOLED):
     raise RuntimeError("Refusing to run outside the two exact isolated real-backend hosts.")
 
