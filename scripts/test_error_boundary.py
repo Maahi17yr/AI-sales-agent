@@ -51,5 +51,22 @@ class ErrorBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("DATABASE_PASSWORD_DO_NOT_EXPOSE", response.text)
 
 
+    async def test_malformed_signed_webhook_is_safe_400(self):
+        from core.api import server
+        with patch.object(server.paystack_service, "verify_webhook_signature", return_value=True):
+            response = await self.client.post("/payments/webhook", content=b"{bad json",
+                                              headers={"x-paystack-signature": "fake"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Invalid webhook payload.")
+
+    async def test_paystack_failure_does_not_expose_secret(self):
+        from core.services import paystack_service
+        def failure(*args, **kwargs):
+            raise httpx.ConnectError("sk_test_SECRET_DO_NOT_EXPOSE")
+        with patch.object(httpx.Client, "request", side_effect=failure):
+            with self.assertRaisesRegex(ValueError, "temporarily unavailable") as caught:
+                paystack_service._request("GET", "/transaction/verify/fake")
+        self.assertNotIn("sk_test_SECRET_DO_NOT_EXPOSE", str(caught.exception))
+
 if __name__ == "__main__":
     unittest.main()
