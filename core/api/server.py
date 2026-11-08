@@ -916,7 +916,12 @@ async def payment_webhook(request: Request):
     signature = request.headers.get("x-paystack-signature", "")
     if not paystack_service.verify_webhook_signature(body, signature):
         raise HTTPException(status_code=401, detail="Invalid webhook signature.")
-    event = json.loads(body)
+    try:
+        event = json.loads(body)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload.") from exc
+    if not isinstance(event, dict):
+        raise HTTPException(status_code=400, detail="Invalid webhook payload.")
     if event.get("event") == "charge.success":
         reference = event.get("data", {}).get("reference")
         if isinstance(reference, str):
