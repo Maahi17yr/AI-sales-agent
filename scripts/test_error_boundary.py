@@ -37,8 +37,8 @@ class ErrorBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["request_id"], "test_request_123")
 
     async def test_invalid_request_id_is_replaced(self):
-        response = await self.client.get("/auth/me", headers={"x-request-id": "secret\nheader"})
-        self.assertNotEqual(response.headers["x-request-id"], "secret\nheader")
+        response = await self.client.get("/auth/me", headers={"x-request-id": "short"})
+        self.assertNotEqual(response.headers["x-request-id"], "short")
         self.assertEqual(len(response.headers["x-request-id"]), 32)
 
     async def test_unhandled_failure_hides_internal_exception(self):
@@ -58,6 +58,32 @@ class ErrorBoundaryTests(unittest.IsolatedAsyncioTestCase):
                                               headers={"x-paystack-signature": "fake"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "Invalid webhook payload.")
+
+    async def test_nested_webhook_payloads_rejected(self):
+        from core.api import server
+        with patch.object(server.paystack_service, "verify_webhook_signature", return_value=True):
+            for body in ({"event": "charge.success", "data": None},
+                         {"event": "charge.success", "data": []},
+                         {"event": "charge.success", "data": "bad"},
+                         {"event": "charge.success", "data": {}},
+                         {"event": "charge.success", "data": {"reference": 123}}):
+                with self.subTest(body=body):
+                    response = await self.client.post("/payments/webhook", json=body,
+                                                      headers={"x-paystack-signature": "fake"})
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(response.json()["detail"], "Invalid webhook payload.")
+
+    async def test_webhook_replay_is_delegated_to_idempotent_verify(self):
+        from core.api import server
+        with patch.object(server.paystack_service, "verify_webhook_signature", return_value=True), \
+             patch.object(server.paystack_service, "verify",
+                          return_value={"payment_status": "paid"}) as verify:
+            for _ in range(2):
+                response = await self.client.post("/payments/webhook",
+                    json={"event": "charge.success", "data": {"reference": "nb_test_1_abc"}},
+                    headers={"x-paystack-signature": "fake"})
+                self.assertEqual(response.status_code, 200)
+            self.assertEqual(verify.call_count, 2)  # Service must be idempotent.
 
     async def test_paystack_failure_does_not_expose_secret(self):
         from core.services import paystack_service
