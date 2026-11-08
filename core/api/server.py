@@ -886,7 +886,11 @@ def verify_payment(payload: PaymentVerify, request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if result.get("payment_status") != "paid":
+    # Never acknowledge an order as confirmed just because a provider charge
+    # succeeded. A cancelled or otherwise inconsistent order needs reconciliation.
+    if (result.get("payment_status") != "paid"
+            or result.get("order_status") != "confirmed"
+            or result.get("reconciliation_required")):
         return result
 
     order_id = result["order_id"]
