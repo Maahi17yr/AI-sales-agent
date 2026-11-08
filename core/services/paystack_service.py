@@ -6,6 +6,9 @@ import secrets
 import sqlite3
 
 import httpx
+import logging
+
+_LOG = logging.getLogger('naija_bites.payments')
 from data.database.models import get_connection
 
 API = "https://api.paystack.co"
@@ -29,8 +32,13 @@ def _request(method, path, payload=None):
         if not result.get("status"):
             raise ValueError("Paystack rejected the request.")
         return result["data"]
-    except (httpx.HTTPError, ValueError) as exc:
-        raise ValueError(f"Payment provider request failed: {exc}") from exc
+    except httpx.TimeoutException as exc:
+        _LOG.warning("payment_provider_timeout type=%s", type(exc).__name__)
+        raise ValueError("Payment provider timed out. Please retry or check payment status.") from exc
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        # Do not expose provider URLs, headers, credentials or response bodies.
+        _LOG.warning("payment_provider_failure type=%s", type(exc).__name__)
+        raise ValueError("Payment provider is temporarily unavailable. Please retry or check payment status.") from exc
 
 def _owned_order(conn, order_id, session_id):
     return conn.execute("""
