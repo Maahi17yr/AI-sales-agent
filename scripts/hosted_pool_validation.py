@@ -5,6 +5,8 @@ fictional workload at startup and exposes only a health/result endpoint.
 Never use on an existing service or shared database.
 """
 import json
+import io
+from contextlib import redirect_stdout
 import os
 import sys
 import threading
@@ -12,6 +14,33 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 from data.database import pool_experiment
+
+
+def run_hosted_mixed():
+    """Small, fictional app-services workload; all Paystack requests mocked."""
+    from scripts import benchmark_pool_mixed_load
+    old_argv = sys.argv
+    output = io.StringIO()
+    error_type = None
+    try:
+        sys.argv = ["benchmark_pool_mixed_load", "--arrival-rps", "20",
+                    "--per-kind", "10", "--cases", "fresh,pool_2_5"]
+        with redirect_stdout(output):
+            try:
+                benchmark_pool_mixed_load.main()
+            except Exception as exc:
+                error_type = type(exc).__name__
+    finally:
+        sys.argv = old_argv
+    cases = []
+    for line in output.getvalue().splitlines():
+        if line.startswith("MIX_LOAD "):
+            cases.append(json.loads(line[len("MIX_LOAD "):]))
+    passed = (error_type is None and len(cases) == 2 and
+              all(item["errors"] == 0 for item in cases))
+    return {"status": "passed" if passed else "blocked",
+            "reason_type": error_type, "cases": cases,
+            "note": "20 scheduled arrivals/s; 10 fictional operations per kind; no Bedrock; Paystack mocked"}
 
 def run():
     from data.database import models
@@ -68,9 +97,11 @@ def run():
     from scripts.hosted_pool_integrity import run_integrity
     integrity = run_integrity()
     passed = all(case["status"] == "passed" for case in integrity)
+    mixed = run_hosted_mixed() if passed else {"status":"skipped","reason":"integrity_failed"}
+    passed = passed and mixed["status"] == "passed"
     return {"status":"passed" if passed else "blocked",
-            "pg_major":18,"cases":results,"integrity":integrity,
-            "note":"Fictional read and transactional workload; no external providers; no customer data"}
+            "pg_major":18,"cases":results,"integrity":integrity,"mixed":mixed,
+            "note":"Fictional read, transactional and mocked checkout workload; no external providers or customer data"}
 
 _result={"status":"running"}
 def worker():
