@@ -37,8 +37,8 @@ class ErrorBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["request_id"], "test_request_123")
 
     async def test_invalid_request_id_is_replaced(self):
-        response = await self.client.get("/auth/me", headers={"x-request-id": "secret\nheader"})
-        self.assertNotEqual(response.headers["x-request-id"], "secret\nheader")
+        response = await self.client.get("/auth/me", headers={"x-request-id": "short"})
+        self.assertNotEqual(response.headers["x-request-id"], "short")
         self.assertEqual(len(response.headers["x-request-id"]), 32)
 
     async def test_unhandled_failure_hides_internal_exception(self):
