@@ -104,7 +104,7 @@ def run(iterations=30, warmup=5, repetitions=3):
                 checkout_id=prep["checkout_id"])
             if not confirmed.get("success"):
                 raise AssertionError("Payment fixture failed")
-            ref = "nb_pool_mock_" + uuid4().hex
+            ref = "nb_test_pool_mock_" + uuid4().hex
             with models.get_connection() as conn:
                 conn.execute("INSERT INTO payments(order_id,amount,payment_reference,status) VALUES(?,?,?,'unpaid')",
                              (confirmed["order_id"], confirmed["total"], ref))
