@@ -326,6 +326,15 @@ def main():
                 result = run_arrivals(entries, workers, args.arrival_rps)
             after = pool_experiment.snapshot()
             os.environ["NAIJA_BITES_EXPERIMENT_POOL_ENABLED"] = "0"
+            # Confirm that the load generator recorded exactly one durable
+            # order identifier for every successful confirmation.
+            recorded = len(confirmed_results)
+            reported = result["types"]["checkout_confirm"]["successes"]
+            if recorded != reported or len({x[2] for x in confirmed_results}) != recorded:
+                raise AssertionError(
+                    f"Checkout instrumentation mismatch: reported_success={reported} "
+                    f"recorded_order_ids={recorded} distinct_order_ids={len({x[2] for x in confirmed_results})}"
+                )
             # Count successful order confirmations; any failure blocks load pass.
             verify_state(stock_before, paid, confirmed, len(confirmed), confirmed_results)
             result.update({
