@@ -4,6 +4,7 @@ Enabled only when DATABASE_URL is configured. This is intentionally limited
 to our own schema and queries, not a general SQLite compatibility library.
 """
 import re
+import os
 
 import psycopg
 from psycopg.rows import dict_row
@@ -58,8 +59,16 @@ class PostgresConnection:
     """Supports with/commit/rollback, SQLite-style rows, and lastrowid."""
 
     def __init__(self, url):
-        self._conn = psycopg.connect(url, autocommit=True, row_factory=dict_row)
+        # Only the disposable real-backend A/B service may borrow a pooled
+        # connection. All ordinary deployments retain fresh connections.
+        self._pooled = os.getenv("NAIJA_AB_LAB") == "1" and os.getenv("NAIJA_AB_POOL_MODE") == "pooled"
+        if self._pooled:
+            from scripts.real_backend_ab_pool import borrow
+            self._conn = borrow(url)
+        else:
+            self._conn = psycopg.connect(url, autocommit=True, row_factory=dict_row, prepare_threshold=None)
         self._transaction_open = False
+        self._closed = False
 
     def __enter__(self):
         self._begin()
@@ -72,7 +81,7 @@ class PostgresConnection:
             else:
                 self.commit()
         finally:
-            self._conn.close()
+            self.close()
         return False
 
     def _begin(self):
@@ -108,6 +117,15 @@ class PostgresConnection:
             self._transaction_open = False
 
     def close(self):
-        if self._transaction_open:
-            self.rollback()
-        self._conn.close()
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if self._transaction_open and not self._conn.closed:
+                self.rollback()
+        finally:
+            if self._pooled:
+                from scripts.real_backend_ab_pool import release
+                release(self._conn)
+            else:
+                self._conn.close()
