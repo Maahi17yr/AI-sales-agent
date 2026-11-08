@@ -13,6 +13,7 @@ from psycopg.rows import dict_row
 _ALLOWED_URL = "postgresql://postgres:postgres@127.0.0.1:5432/naija_pool_experiment"
 _lock = threading.RLock()
 _pool = None
+_starting = False
 _leases = {}  # id(connection) -> originating pool (safe across close/open)
 _stats = {"new_physical": 0, "borrows": 0, "wait_ms": 0.0, "timeouts": 0,
           "active": 0, "peak_active": 0, "reset_count": 0,
@@ -57,36 +58,38 @@ def open_pool(min_size=1, max_size=5, timeout=0.5):
         raise ValueError("Experiment pool sizes must satisfy 1 <= min <= max <= 15")
     if not 0 < timeout <= 10:
         raise ValueError("Experiment checkout timeout must be in (0,10] seconds.")
-    global _pool
-    # Never hold the stats mutex while pool.wait() runs: background workers
-    # invoke the configure callback and need the same mutex.
+    global _pool, _starting
+    # Claim exclusive startup while holding the lock, but release it before
+    # pool.wait: background connection workers invoke the same stats mutex.
     with _lock:
-        if _pool is not None:
-            raise RuntimeError("Experiment pool is already open.")
+        if _pool is not None or _starting:
+            raise RuntimeError("Experiment pool is already open or starting.")
         if _leases:
             raise RuntimeError("Previous pool has outstanding borrowed connections.")
+        _starting = True
         for key in _stats:
             _stats[key] = 0
     def created(_conn):
         with _lock:
             _stats["new_physical"] += 1
-    pool = ConnectionPool(
-        conninfo=_ALLOWED_URL, min_size=min_size, max_size=max_size,
-        timeout=timeout, open=False,
-        kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": None},
-        configure=created, reset=_reset,
-    )
-    pool.open()
     try:
-        pool.wait(timeout=10.0)
-    except Exception:
-        pool.close()
-        raise
-    with _lock:
-        if _pool is not None:
+        pool = ConnectionPool(
+            conninfo=_ALLOWED_URL, min_size=min_size, max_size=max_size,
+            timeout=timeout, open=False,
+            kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": None},
+            configure=created, reset=_reset,
+        )
+        pool.open()
+        try:
+            pool.wait(timeout=10.0)
+        except Exception:
             pool.close()
-            raise RuntimeError("Experiment pool is already open.")
-        _pool = pool
+            raise
+        with _lock:
+            _pool = pool
+    finally:
+        with _lock:
+            _starting = False
 
 
 def pool_is_open():
@@ -157,6 +160,8 @@ def snapshot():
 def close_pool():
     global _pool
     with _lock:
+        if _starting:
+            raise RuntimeError("Cannot close the experimental pool during startup.")
         pool, _pool = _pool, None
     if pool is not None:
         pool.close()
