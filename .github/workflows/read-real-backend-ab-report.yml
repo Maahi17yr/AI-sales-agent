@@ -26,3 +26,5 @@ jobs:
           done
           echo 'Aggregate report not yet finished; do not infer a performance result.'
           exit 1
+
+# Second pass: stable test credentials; no external payment or model calls.
