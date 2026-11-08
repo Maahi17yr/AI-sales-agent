@@ -29,3 +29,6 @@ python-dotenv
 # ship with Python and require no separate pip installation.
 # Hosted PostgreSQL (Neon or another PostgreSQL provider)
 psycopg[binary]>=3.2,<4
+
+# Optional, experimentally used ONLY with NAIJA_BITES_POOL_EXPERIMENT=1
+psycopg_pool>=3.2,<4
