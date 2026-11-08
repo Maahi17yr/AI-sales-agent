@@ -266,7 +266,9 @@ def main():
                 raise AssertionError("Customer token isolation/role invariant failed")
 
 
-    cases = (("fresh", None, None, 10),
+    cases = (("fresh_seq", None, None, 1),
+             ("fresh_low", None, None, 3),
+             ("fresh", None, None, 10),
              ("pool_2_5", 2, 5, 10),
              ("pool_5_15", 5, 15, 10),
              ("fresh_25", None, None, 25),
