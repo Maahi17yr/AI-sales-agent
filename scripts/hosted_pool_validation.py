@@ -65,8 +65,12 @@ def run():
             finally:
                 os.environ["NAIJA_BITES_EXPERIMENT_POOL_ENABLED"]="0"
                 if pool_experiment.pool_is_open(): pool_experiment.close_pool()
-    return {"status":"passed","pg_major":18,"cases":results,
-            "note":"Fictional read-only workload; no external providers; no customer data"}
+    from scripts.hosted_pool_integrity import run_integrity
+    integrity = run_integrity()
+    passed = all(case["status"] == "passed" for case in integrity)
+    return {"status":"passed" if passed else "blocked",
+            "pg_major":18,"cases":results,"integrity":integrity,
+            "note":"Fictional read and transactional workload; no external providers; no customer data"}
 
 _result={"status":"running"}
 def worker():
@@ -77,7 +81,8 @@ def worker():
         _result={"status":"failed","reason_type":type(exc).__name__}
         print("HOSTED_VALIDATION_FAILED",type(exc).__name__,flush=True)
     else:
-        print("HOSTED_VALIDATION_PASS",json.dumps(_result,sort_keys=True),flush=True)
+        print("HOSTED_VALIDATION_" + ("PASS" if _result["status"]=="passed" else "BLOCKED"),
+              json.dumps(_result,sort_keys=True),flush=True)
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
