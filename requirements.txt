@@ -29,3 +29,6 @@ python-dotenv
 # ship with Python and require no separate pip installation.
 # Hosted PostgreSQL (Neon or another PostgreSQL provider)
 psycopg[binary]>=3.2,<4
+
+# Isolated real-backend connection pooling experiment (off outside lab)
+psycopg-pool>=3.2,<4
