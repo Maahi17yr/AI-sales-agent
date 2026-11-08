@@ -4,6 +4,7 @@ Run automatically once on a dedicated disposable Render runner. No real AI,
 Paystack, production, or external customer data. Publishes aggregate results only.
 """
 import os
+import uuid
 import statistics
 import threading
 import time
@@ -52,7 +53,7 @@ def _one(mode, times, failures, index):
         if not status or status.get("mode") != mode or status.get("project") != "green-hat-88213342":
             failures.append({"step": "guard", "error": "backend mismatch"})
             return
-        email = f"real-ab-{mode}-{index}@example.test"
+        email = f"real-ab-{mode}-{index}-{uuid.uuid4().hex[:12]}@example.test"
         password = "Fictional-AB-Password-12345"
         registered = _request(client, "POST", "/auth/register", "register", times, failures,
                               json={"name": "Real AB Test", "email": email, "password": password})
