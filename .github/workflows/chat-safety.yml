@@ -217,6 +217,8 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: python -m pip install -r requirements.txt
+      - name: Install pool dependency only in isolated experimental job
+        run: python -m pip install -r requirements-pool-experiment.txt
       - name: Compare pooled and unpooled connection lifecycle on one runner
         run: python -m scripts.benchmark_pool_experiment --iterations 30 --warmup 5 --repetitions 3
       - name: Verify isolated pooling regression scenarios
