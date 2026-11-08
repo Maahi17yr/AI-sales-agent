@@ -1,12 +1,12 @@
 # Naija Bites — temporary Locust load-test dashboard and cleanup
 
-**Created:** 2026-11-08. **Status:** SETUP IN PROGRESS; test is NOT auto-started.
+**Created:** 2026-11-08. **Status:** Dedicated Render service provisioned; test is NOT auto-started.
 
 ## Scope and resources
 - New GitHub branch: `experiment/isolated-locust-load-lab-20261108`, based on `experiment/isolated-live-pool-lab-20261108`. Do not merge into main.
 - Test files: `scripts/locust_live_lab.py`, `scripts/run_locust_live_lab.py`, `requirements-locust-lab.txt`, `.github/workflows/isolated-locust-lab.yml`, this document.
-- Dedicated load-driver Render Free web service: **PENDING CREATION**. Region: Virginia. AutoDeploy disabled.
-- Dedicated dashboard URL: **PENDING CREATION**.
+- Dedicated load-driver Render Free web service: `srv-dbo48p49v7es73e8geug` (`naija-bites-locust-load-temp-20261108`). Region: Virginia. AutoDeploy disabled.
+- Dedicated dashboard URL: https://naija-bites-locust-load-temp-20261108.onrender.com
 - **Only permitted target:** `https://naija-bites-live-lab-temp-20261108.onrender.com` (existing isolated fictional lab, Render `srv-dbo4103l550s738m0vc0`, separate Neon project `curly-night-52323584`).
 - No new database required. Existing isolated lab's fictional data is used. No real customers, production/owner staging, Bedrock, Paystack, or actual payments.
 - Dashboard HTTP Basic Auth username and password, plus lab access code, are **Render environment secrets**, never committed to the repository.
