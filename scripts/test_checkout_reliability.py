@@ -155,6 +155,67 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(ready["checkout_id"], response.text)
         self.assertIn('"status":"ready_for_review"', response.text)
 
+    async def _create_mock_payment_order(self):
+        from core.services import paystack_service
+
+        ready = (await self.prepare()).json()
+        placed = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True, "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"],
+        })
+        self.assertEqual(placed.status_code, 200, placed.text)
+        order_id = placed.json()["order_id"]
+        def mock_initialize(method, path, payload=None):
+            self.assertEqual(method, "POST")
+            return {"reference": payload["reference"],
+                    "authorization_url": "https://checkout.paystack.test/fictional"}
+        with patch.object(paystack_service, "_request", side_effect=mock_initialize):
+            initialized = paystack_service.initialize(
+                order_id, f"customer-{self.customer_id}", "fictional@example.test")
+        return order_id, initialized["reference"], placed.json()["total"]
+
+    async def test_payment_verify_replay_is_idempotent_and_does_not_restock(self):
+        from core.services import paystack_service
+
+        order_id, reference, amount = await self._create_mock_payment_order()
+        def mock_verify(method, path, payload=None):
+            self.assertEqual(method, "GET")
+            self.assertEqual(path, "/transaction/verify/" + reference)
+            return {"reference": reference, "currency": "NGN",
+                    "amount": amount * 100, "status": "success"}
+        with patch.object(paystack_service, "_request", side_effect=mock_verify):
+            first = paystack_service.verify(reference, f"customer-{self.customer_id}")
+            replay = paystack_service.verify(reference, f"customer-{self.customer_id}")
+        self.assertEqual(first["order_status"], "confirmed")
+        self.assertFalse(first["reconciliation_required"])
+        self.assertEqual(replay["order_status"], "confirmed")
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM payments WHERE order_id = ?", (order_id,)
+            ).fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id = ?", (self.product_id,)
+            ).fetchone()[0], 8)
+
+    async def test_paid_cancelled_order_must_not_claim_confirmation(self):
+        from core.services import paystack_service
+
+        order_id, reference, amount = await self._create_mock_payment_order()
+        with models.get_connection() as conn:
+            conn.execute("UPDATE orders SET status = 'cancelled' WHERE id = ?", (order_id,))
+        with patch.object(paystack_service, "_request", return_value={
+            "reference": reference, "currency": "NGN",
+            "amount": amount * 100, "status": "success",
+        }):
+            verified = paystack_service.verify(reference, f"customer-{self.customer_id}")
+        self.assertEqual(verified["payment_status"], "paid")
+        self.assertEqual(verified["order_status"], "cancelled")
+        self.assertTrue(verified["reconciliation_required"])
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT status FROM orders WHERE id=?", (order_id,)
+            ).fetchone()["status"], "cancelled")
+
     async def test_failed_preparation_never_creates_an_order(self):
         bad = await self.client.post("/checkout/prepare", json={
             "customer_name": "Test Customer", "phone": "invalid",

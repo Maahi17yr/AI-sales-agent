@@ -110,13 +110,25 @@ def verify(reference, session_id=None):
         if current is None:
             raise ValueError("Payment no longer exists.")
         if paid:
-            conn.execute("""UPDATE payments SET status='paid', paid_at=COALESCE(paid_at,CURRENT_TIMESTAMP::text)
+            conn.execute("""UPDATE payments SET status='paid', paid_at=COALESCE(paid_at,CURRENT_TIMESTAMP)
                 WHERE payment_reference=? AND status != 'paid'""", (reference,))
             conn.execute("""UPDATE orders SET status='confirmed'
                 WHERE id=? AND status='pending_payment'""", (row["order_id"],))
-        status = conn.execute("SELECT status FROM payments WHERE payment_reference=?", (reference,)).fetchone()["status"]
-    return {"order_id": row["order_id"], "reference": reference, "payment_status": status,
-            "order_status": "confirmed" if status == "paid" else "pending_payment"}
+        status = conn.execute(
+            "SELECT status FROM payments WHERE payment_reference=?", (reference,)
+        ).fetchone()["status"]
+        # Report persisted reality, not an inferred order state. A previously
+        # cancelled/changed order must never be reported as confirmed merely
+        # because Paystack has recorded a successful charge.
+        order = conn.execute(
+            "SELECT status FROM orders WHERE id=?", (row["order_id"],)
+        ).fetchone()
+        if order is None:
+            raise ValueError("Payment order no longer exists.")
+        order_status = order["status"]
+    return {"order_id": row["order_id"], "reference": reference,
+            "payment_status": status, "order_status": order_status,
+            "reconciliation_required": status == "paid" and order_status != "confirmed"}
 
 def verify_webhook_signature(body, signature):
     expected = hmac.new(_key().encode(), body, hashlib.sha512).hexdigest()
