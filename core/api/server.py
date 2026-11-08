@@ -923,13 +923,15 @@ async def payment_webhook(request: Request):
     if not isinstance(event, dict):
         raise HTTPException(status_code=400, detail="Invalid webhook payload.")
     if event.get("event") == "charge.success":
-        reference = event.get("data", {}).get("reference")
-        if isinstance(reference, str):
-            try:
-                paystack_service.verify(reference)
-            except ValueError:
-                # Log internally, but do not disclose sensitive payment details.
-                import logging
-                logging.exception("Unable to verify Paystack webhook reference")
-                raise HTTPException(status_code=503, detail="Verification pending.")
+        data = event.get("data")
+        reference = data.get("reference") if isinstance(data, dict) else None
+        if not isinstance(reference, str) or not reference.strip():
+            raise HTTPException(status_code=400, detail="Invalid webhook payload.")
+        try:
+            # The payment service verifies amount, currency and reference
+            # before committing the order/payment transition.
+            paystack_service.verify(reference)
+        except ValueError as exc:
+            _ERROR_LOG.warning("payment_webhook_verification_pending type=%s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Verification pending.") from exc
     return {"received": True}
