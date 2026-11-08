@@ -38,6 +38,8 @@ from fastapi import (
 
 from fastapi.middleware.cors import CORSMiddleware
 
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import (
     JSONResponse,
     StreamingResponse,
@@ -288,6 +290,53 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(owner_router)
+
+
+# Correlate failures without echoing request bodies, secrets or provider messages.
+_ERROR_LOG = logging.getLogger("naija_bites.api.errors")
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,80}$")
+
+
+@app.middleware("http")
+async def request_error_boundary(request: Request, call_next):
+    supplied = request.headers.get("x-request-id", "")
+    request_id = supplied if _REQUEST_ID_RE.fullmatch(supplied) else uuid.uuid4().hex
+    request.state.request_id = request_id
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        # No exception text or customer input in production logs or response.
+        _ERROR_LOG.error(
+            "request_failure id=%s method=%s path=%s category=internal type=%s",
+            request_id, request.method, request.url.path, type(exc).__name__,
+        )
+        response = JSONResponse(
+            {"detail": "An unexpected error occurred. Please retry later.",
+             "code": "internal_error", "request_id": request_id},
+            status_code=500,
+        )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(StarletteHTTPException)
+async def classified_http_error(request: Request, exc: StarletteHTTPException):
+    # Preserve existing detail/status for backwards-compatible API consumers.
+    request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
+    return JSONResponse(
+        {"detail": exc.detail, "code": "http_error", "request_id": request_id},
+        status_code=exc.status_code, headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def classified_validation_error(request: Request, exc: RequestValidationError):
+    # Pydantic errors can include submitted values; never echo input.
+    request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
+    return JSONResponse(
+        {"detail": "Invalid request data.", "code": "validation_error",
+         "request_id": request_id}, status_code=422,
+    )
 
 
 # ------------------------------------------
@@ -574,12 +623,29 @@ async def run_agent(
                 yield "data: " + json.dumps({
                     "type": "CHECKOUT_STATE", "checkout": state,
                 }, separators=(",", ":")) + "\n\n"
-        except Exception:
-            outcome = "error"
+        except asyncio.CancelledError:
+            # A disconnected client must not trigger another agent/tool run.
+            outcome = "cancelled"
             raise
+        except Exception as exc:
+            # Streaming headers may already have been sent. Emit a safe event
+            # rather than leaking provider/tool exception details into the wire.
+            # Never retry a stream: a tool may already have mutated a cart.
+            outcome = "error"
+            _ERROR_LOG.error(
+                "agent_stream_failure id=%s category=provider_or_tool type=%s",
+                getattr(request.state, "request_id", "unknown"), type(exc).__name__,
+            )
+            yield "data: " + json.dumps({
+                "type": "RUN_ERROR",
+                "message": "The assistant was interrupted. Please check your cart before retrying.",
+            }, separators=(",", ":")) + "\n\n"
         finally:
             if model_agent is not None:
-                log_token_usage(logging.getLogger(__name__), model_agent)
+                try:
+                    log_token_usage(logging.getLogger(__name__), model_agent)
+                except Exception as exc:
+                    _ERROR_LOG.warning("agent_usage_metric_failure type=%s", type(exc).__name__)
             logging.getLogger(__name__).info(
                 "agent_stream_latency total_ms=%d first_event_ms=%s events=%d outcome=%s",
                 round((time.perf_counter() - started) * 1000),
@@ -867,15 +933,22 @@ async def payment_webhook(request: Request):
     signature = request.headers.get("x-paystack-signature", "")
     if not paystack_service.verify_webhook_signature(body, signature):
         raise HTTPException(status_code=401, detail="Invalid webhook signature.")
-    event = json.loads(body)
+    try:
+        event = json.loads(body)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload.") from exc
+    if not isinstance(event, dict):
+        raise HTTPException(status_code=400, detail="Invalid webhook payload.")
     if event.get("event") == "charge.success":
-        reference = event.get("data", {}).get("reference")
-        if isinstance(reference, str):
-            try:
-                paystack_service.verify(reference)
-            except ValueError:
-                # Log internally, but do not disclose sensitive payment details.
-                import logging
-                logging.exception("Unable to verify Paystack webhook reference")
-                raise HTTPException(status_code=503, detail="Verification pending.")
+        data = event.get("data")
+        reference = data.get("reference") if isinstance(data, dict) else None
+        if not isinstance(reference, str) or not reference.strip():
+            raise HTTPException(status_code=400, detail="Invalid webhook payload.")
+        try:
+            # The payment service verifies amount, currency and reference
+            # before committing the order/payment transition.
+            paystack_service.verify(reference)
+        except ValueError as exc:
+            _ERROR_LOG.warning("payment_webhook_verification_pending type=%s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Verification pending.") from exc
     return {"received": True}
