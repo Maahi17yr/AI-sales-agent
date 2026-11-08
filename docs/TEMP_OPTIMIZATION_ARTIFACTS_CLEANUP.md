@@ -23,9 +23,9 @@ These branches and their tests are **review artifacts**. After merging or explic
 | Resource | Unique identifier | Status | Deletion gate |
 |---|---|---|---|
 | Independent empty Neon PostgreSQL 18 project | `red-boat-54971627` | Created 2026-11-08, independent empty PG18 project | User reconfirms project ID; confirm not shared/production |
-| Neon initial branch/database | PENDING CREATION | Planned | Deleted as part of dedicated project after approval |
-| Dedicated Render validation web service | PENDING CREATION | Planned | User reconfirms service ID; verify no other services depend on it |
-| GitHub draft PR and new test-only scripts | PENDING CREATION | Planned | Close/retain review history; delete branch only after approval |
+| Neon initial branch/database | `validation-empty` / `naija_pool_validation` in project `red-boat-54971627` | Created; independent project, not cloned from production | Deleted with dedicated project after approval |
+| Dedicated Render validation web service | `srv-dbo3d43m8hqs73fesub0` (`naija-bites-pool-validation-temp-20261108`) | Created; Free/Virginia, auto-deploy off, isolated experiment branch | User reconfirms service ID; verify no other services depend on it |
+| GitHub draft PR and new test-only scripts | `optimise/phase2-isolated-hosted-pool-validation-20261108`; `scripts/hosted_pool_validation.py` | Created; draft PR pending | Close/retain review history; delete branch only after approval |
 
 **Existing resources explicitly excluded from cleanup:** Neon `naija-bites` project `fragrant-cake-44695541`, its `production` and `owner-mode-staging` branches, Render `naija-bites-demo-api`, Render `naija-bites-owner-staging`, and any existing customer data.
 
