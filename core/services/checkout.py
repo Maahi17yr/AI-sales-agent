@@ -3,6 +3,7 @@ import json
 import os
 from uuid import uuid4
 import sqlite3
+import logging
 try:
     from psycopg import Error as PostgresError
 except ImportError:  # SQLite-only local development
@@ -58,7 +59,15 @@ class CheckoutService:
                     'order_created': False, 'summary': summary, 'checkout_id': checkout_id,
                     'message': 'Please review and explicitly approve this order.'}
         except (ValueError, KeyError, TypeError, json.JSONDecodeError, sqlite3.Error, PostgresError) as error:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except (sqlite3.Error, PostgresError) as rollback_error:
+                logging.getLogger(__name__).error(
+                    "checkout_rollback_failure type=%s", type(rollback_error).__name__)
+            if isinstance(error, (sqlite3.Error, PostgresError)):
+                logging.getLogger(__name__).error(
+                    "checkout_database_failure type=%s", type(error).__name__)
+                return {'success': False, 'message': 'Checkout could not be saved. Please check your order status before retrying.'}
             return {'success': False, 'message': str(error)}
         finally:
             conn.close()
