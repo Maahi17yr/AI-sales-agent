@@ -285,6 +285,7 @@ def main():
 
     cases = (("fresh_seq", None, None, 1),
              ("fresh_low", None, None, 3),
+             ("fresh_5", None, None, 5),
              ("fresh", None, None, 10),
              ("pool_2_5", 2, 5, 10),
              ("pool_5_15", 5, 15, 10),
