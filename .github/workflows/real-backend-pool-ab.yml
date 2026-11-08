@@ -14,5 +14,5 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install 'psycopg[binary]>=3.2,<4' 'psycopg-pool>=3.2,<4'
-      - run: python -m py_compile scripts/real_backend_ab_pool.py scripts/real_backend_ab_app.py data/database/postgres.py scripts/test_real_backend_ab_guard.py
+      - run: python -m py_compile scripts/real_backend_ab_pool.py scripts/real_backend_ab_app.py data/database/postgres.py scripts/test_real_backend_ab_guard.py scripts/real_backend_ab_concurrency.py
       - run: python -m unittest scripts.test_real_backend_ab_guard -v
