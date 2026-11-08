@@ -216,6 +216,82 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT status FROM orders WHERE id=?", (order_id,)
             ).fetchone()["status"], "cancelled")
 
+    async def test_failed_commit_rolls_back_order_and_inventory(self):
+        import sqlite3
+        from core.services.order_service import OrderService
+
+        ready = (await self.prepare()).json()
+        session_id = f"customer-{self.customer_id}"
+        original_connection = models.get_connection
+
+        class FailBeforeCommit:
+            def __init__(self):
+                self.conn = original_connection()
+            def execute(self, *args, **kwargs):
+                return self.conn.execute(*args, **kwargs)
+            def commit(self):
+                raise sqlite3.OperationalError("SECRET_COMMIT_FAILURE")
+            def rollback(self):
+                return self.conn.rollback()
+            def close(self):
+                return self.conn.close()
+
+        with patch("core.services.order_service.get_connection", side_effect=FailBeforeCommit):
+            result = OrderService(session_id)._commit_approved_checkout(
+                ready["fingerprint"], checkout_id=ready["checkout_id"])
+        self.assertFalse(result["success"])
+        self.assertNotIn("SECRET_COMMIT_FAILURE", str(result))
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id=?", (self.product_id,)
+            ).fetchone()[0], 10)
+        retry = OrderService(session_id)._commit_approved_checkout(
+            ready["fingerprint"], checkout_id=ready["checkout_id"])
+        self.assertTrue(retry["success"])
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id=?", (self.product_id,)
+            ).fetchone()[0], 8)
+
+    async def test_commit_acknowledgement_lost_recovers_same_durable_order(self):
+        import sqlite3
+        from core.services.order_service import OrderService
+
+        ready = (await self.prepare()).json()
+        session_id = f"customer-{self.customer_id}"
+        original_connection = models.get_connection
+
+        class CommitThenDisconnect:
+            def __init__(self):
+                self.conn = original_connection()
+            def execute(self, *args, **kwargs):
+                return self.conn.execute(*args, **kwargs)
+            def commit(self):
+                self.conn.commit()
+                raise sqlite3.OperationalError("SECRET_CONNECTION_DROPPED_AFTER_COMMIT")
+            def rollback(self):
+                return self.conn.rollback()
+            def close(self):
+                return self.conn.close()
+
+        with patch("core.services.order_service.get_connection", side_effect=CommitThenDisconnect):
+            uncertain = OrderService(session_id)._commit_approved_checkout(
+                ready["fingerprint"], checkout_id=ready["checkout_id"])
+        self.assertFalse(uncertain["success"])
+        self.assertNotIn("SECRET_CONNECTION_DROPPED", str(uncertain))
+        replay = OrderService(session_id)._commit_approved_checkout(
+            ready["fingerprint"], checkout_id=ready["checkout_id"])
+        self.assertTrue(replay["success"])
+        with models.get_connection() as conn:
+            order_id = conn.execute("SELECT id FROM orders").fetchone()["id"]
+            self.assertEqual(replay["order_id"], order_id)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id=?", (self.product_id,)
+            ).fetchone()[0], 8)
+
     async def test_failed_preparation_never_creates_an_order(self):
         bad = await self.client.post("/checkout/prepare", json={
             "customer_name": "Test Customer", "phone": "invalid",
