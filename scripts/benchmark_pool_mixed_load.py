@@ -244,6 +244,8 @@ def main():
     cases = (("fresh", None, None, 10),
              ("pool_2_5", 2, 5, 10),
              ("pool_5_15", 5, 15, 10),
+             ("fresh_25", None, None, 25),
+             ("pool_2_5_25", 2, 5, 25),
              ("fresh_50", None, None, 50),
              ("pool_2_5_50", 2, 5, 50),
              ("pool_5_15_50", 5, 15, 50))
