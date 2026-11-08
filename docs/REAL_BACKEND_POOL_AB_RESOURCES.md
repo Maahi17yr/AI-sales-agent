@@ -10,7 +10,7 @@ Run the **actual** `core.api.server` FastAPI app, `data/database.postgres`, `cor
 - Fresh Render service: `naija-bites-real-fresh-temp-20261108` (ID `srv-dbo4gu67bikc73funs0g`), URL `https://naija-bites-real-fresh-temp-20261108.onrender.com`.
 - Pooled Render service: `naija-bites-real-pool-temp-20261108` (ID `srv-dbo4h0m7bikc73fuo2ag`), URL `https://naija-bites-real-pool-temp-20261108.onrender.com`.
 - Both are Render Free Virginia, autoDeploy disabled.
-- Separate temporary HTTP comparison runner: `scripts/real_backend_ab_runner.py`, **up to 8** sequential fictional customer journeys per mode, no external AI/payment calls; reports aggregate timings. Runner service ID to be recorded after provisioning. Each uses `python -m uvicorn scripts.real_backend_ab_app:app --host 0.0.0.0 --port $PORT` and `pip install -r requirements.txt && python -m core.rag.ingest`.
+- Separate temporary HTTP comparison runner: `scripts/real_backend_ab_runner.py`, **up to 8** sequential fictional customer journeys per mode, no external AI/payment calls; reports aggregate timings. Runner service: `srv-dbo4hogu01pc73e89v40` (`naija-bites-real-ab-runner-temp-20261108`), https://naija-bites-real-ab-runner-temp-20261108.onrender.com, Free Virginia, autoDeploy off. Each uses `python -m uvicorn scripts.real_backend_ab_app:app --host 0.0.0.0 --port $PORT` and `pip install -r requirements.txt && python -m core.rag.ingest`.
 - The pool uses psycopg_pool 2–5 physical connections, 3s wait timeout, and DISCARD ALL reset on release. Fresh opens a new direct PostgreSQL connection per DB operation.
 - Environment: `NAIJA_AB_LAB=1`, `NAIJA_AB_POOL_MODE=fresh|pooled`, `NAIJA_BITES_ENV=demo`, `OBSERVABILITY_MODE=off`, exact direct Neon DATABASE_URL (secret), `NAIJA_BITES_FRONTEND_ORIGIN` exact service URL, dummy `sk_test_disabled_real_ab_lab` key, matching callback, dummy Bedrock model id, **no AWS credentials**, `NAIJA_AB_LAB_KEY` secret.
 - `/__ab/cart/add` is a guarded *test-only* HTTP route calling the **actual CartService.add_item**. It avoids the paid model but uses real application business logic.
@@ -23,7 +23,7 @@ The experiment uses identical real application code and dedicated databases in t
 ## Cleanup — ask for explicit approval before deletion
 - [ ] Stop any load driver.
 - [ ] Export aggregate measurements and preserve PR for review.
-- [ ] Delete only the two temporary Render services listed here.
+- [ ] Delete only the two temporary backend Render services and the temporary runner service listed here.
 - [ ] Delete only Neon project `green-hat-88213342` (includes both disposable databases).
 - [ ] Close the experiment PR and remove the experiment branch if approved.
 - [ ] Do not delete other disposable labs without separate approval.
