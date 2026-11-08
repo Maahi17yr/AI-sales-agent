@@ -639,7 +639,7 @@ async def run_agent(
             yield "data: " + json.dumps({
                 "type": "RUN_ERROR",
                 "message": "The assistant was interrupted. Please check your cart before retrying.",
-            }, separators=(",", ":")) + "\\n\\n"
+            }, separators=(",", ":")) + "\n\n"
         finally:
             if model_agent is not None:
                 try:
