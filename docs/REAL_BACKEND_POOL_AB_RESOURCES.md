@@ -7,9 +7,10 @@ Run the **actual** `core.api.server` FastAPI app, `data/database.postgres`, `cor
 - Branch: `experiment/real-backend-pooling-ab-20261108`. Do not merge into main or existing staging.
 - Neon project: `green-hat-88213342` / `naija-bites-real-backend-ab-temp-20261108`, PostgreSQL 18, direct host `ep-late-mountain-bbo66p9r.c-15.us-east-1.aws.neon.tech`, branch `br-odd-thunder-bbyh73on`.
 - Databases: `naija_real_fresh` (fresh) and `naija_real_pool` (pooled). Both start empty and are seeded by the **real app's existing startup seed**. Never copy production data.
-- Fresh Render service: `naija-bites-real-fresh-temp-20261108` (ID PENDING), URL `https://naija-bites-real-fresh-temp-20261108.onrender.com`.
-- Pooled Render service: `naija-bites-real-pool-temp-20261108` (ID PENDING), URL `https://naija-bites-real-pool-temp-20261108.onrender.com`.
-- Both are Render Free Virginia, autoDeploy disabled. Each uses `python -m uvicorn scripts.real_backend_ab_app:app --host 0.0.0.0 --port $PORT` and `pip install -r requirements.txt && python -m core.rag.ingest`.
+- Fresh Render service: `naija-bites-real-fresh-temp-20261108` (ID `srv-dbo4gu67bikc73funs0g`), URL `https://naija-bites-real-fresh-temp-20261108.onrender.com`.
+- Pooled Render service: `naija-bites-real-pool-temp-20261108` (ID `srv-dbo4h0m7bikc73fuo2ag`), URL `https://naija-bites-real-pool-temp-20261108.onrender.com`.
+- Both are Render Free Virginia, autoDeploy disabled.
+- Separate temporary HTTP comparison runner: `scripts/real_backend_ab_runner.py`, **up to 8** sequential fictional customer journeys per mode, no external AI/payment calls; reports aggregate timings. Runner service ID to be recorded after provisioning. Each uses `python -m uvicorn scripts.real_backend_ab_app:app --host 0.0.0.0 --port $PORT` and `pip install -r requirements.txt && python -m core.rag.ingest`.
 - The pool uses psycopg_pool 2–5 physical connections, 3s wait timeout, and DISCARD ALL reset on release. Fresh opens a new direct PostgreSQL connection per DB operation.
 - Environment: `NAIJA_AB_LAB=1`, `NAIJA_AB_POOL_MODE=fresh|pooled`, `NAIJA_BITES_ENV=demo`, `OBSERVABILITY_MODE=off`, exact direct Neon DATABASE_URL (secret), `NAIJA_BITES_FRONTEND_ORIGIN` exact service URL, dummy `sk_test_disabled_real_ab_lab` key, matching callback, dummy Bedrock model id, **no AWS credentials**, `NAIJA_AB_LAB_KEY` secret.
 - `/__ab/cart/add` is a guarded *test-only* HTTP route calling the **actual CartService.add_item**. It avoids the paid model but uses real application business logic.
