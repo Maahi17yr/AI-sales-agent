@@ -28,3 +28,5 @@ jobs:
           exit 1
 
 # Second pass: stable test credentials; no external payment or model calls.
+
+# Collect report from restarted runner deployment after 2026-11-08 10:08 UTC.
