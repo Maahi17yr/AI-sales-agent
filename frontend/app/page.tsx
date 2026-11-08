@@ -989,13 +989,20 @@ export default function Home() {
       const data: {
         order_id?: number;
         payment_status?: string;
+        order_status?: string;
+        reconciliation_required?: boolean;
         detail?: string;
         chat_saved?: boolean;
         chat_message?: Msg;
       } = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Payment verification failed.');
       const paid = data.payment_status === 'paid';
-      setPaymentToastSuccess(paid);
+      const orderConfirmed = paid && data.order_status === 'confirmed' && !data.reconciliation_required;
+      setPaymentToastSuccess(orderConfirmed);
+      if (paid && !orderConfirmed) {
+        setPaymentMessage('Payment received, but your order needs review. Contact support; do not pay again.');
+        return; // Keep the reference for reconciliation; never claim order confirmation.
+      }
       if (!paid || typeof data.order_id !== 'number' || !Number.isSafeInteger(data.order_id)) {
         setPaymentMessage('Payment is not yet confirmed. You can try verifying again later.');
         return; // Keep the return URL so refreshing can retry verification.
