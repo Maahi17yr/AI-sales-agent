@@ -93,6 +93,28 @@ class ExperimentalPoolTests(unittest.TestCase):
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             self.assertTrue(all(executor.map(work, customers)))
 
+    def test_owner_promotion_revokes_old_session_without_affecting_customer(self):
+        from core.services.owner_access_service import promote_registered_customer
+        owner_email = "fictional-owner-" + uuid4().hex + "@example.test"
+        customer_email = "fictional-other-" + uuid4().hex + "@example.test"
+        auth_service.register_customer("Fictional Owner", owner_email, "Fictional-Password-12345")
+        auth_service.register_customer("Fictional Customer", customer_email, "Fictional-Password-12345")
+        old_owner = auth_service.login_customer(owner_email, "Fictional-Password-12345")
+        customer = auth_service.login_customer(customer_email, "Fictional-Password-12345")
+        promoted = promote_registered_customer(owner_email)
+        self.assertEqual(promoted["role"], "owner")
+        self.assertIsNone(auth_service.authenticate_token(old_owner["session_token"]))
+        self.assertEqual(auth_service.authenticate_token(customer["session_token"])["role"], "customer")
+        current_owner = auth_service.login_customer(owner_email, "Fictional-Password-12345")
+        self.assertEqual(current_owner["customer"]["role"], "owner")
+
+    def test_broken_connection_is_evicted_and_next_borrow_recovers(self):
+        conn = models.get_connection()
+        conn._conn.close()  # simulate a dead backend, never real user data
+        conn.close()
+        with models.get_connection() as recovered:
+            self.assertEqual(recovered.execute("SELECT 1 AS n").fetchone()["n"], 1)
+
     def test_pool_shutdown_is_idempotent(self):
         self.assertTrue(pool_experiment.pool_is_open())
         pool_experiment.close_pool()
