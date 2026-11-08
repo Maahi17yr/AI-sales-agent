@@ -22,7 +22,7 @@ These branches and their tests are **review artifacts**. After merging or explic
 
 | Resource | Unique identifier | Status | Deletion gate |
 |---|---|---|---|
-| Independent empty Neon PostgreSQL 18 project | PENDING CREATION | Planned | User reconfirms project ID; confirm not shared/production |
+| Independent empty Neon PostgreSQL 18 project | `red-boat-54971627` | Created 2026-11-08, independent empty PG18 project | User reconfirms project ID; confirm not shared/production |
 | Neon initial branch/database | PENDING CREATION | Planned | Deleted as part of dedicated project after approval |
 | Dedicated Render validation web service | PENDING CREATION | Planned | User reconfirms service ID; verify no other services depend on it |
 | GitHub draft PR and new test-only scripts | PENDING CREATION | Planned | Close/retain review history; delete branch only after approval |
