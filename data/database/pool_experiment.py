@@ -135,6 +135,14 @@ def release(conn):
     origin.putconn(conn)
 
 
+def reset_peak_active():
+    """Start a new observation window only after previous borrow leases finish."""
+    with _lock:
+        if _stats["active"] != 0:
+            raise RuntimeError("Cannot reset peak while pool connections are borrowed")
+        _stats["peak_active"] = 0
+
+
 def snapshot():
     with _lock:
         data = dict(_stats)
