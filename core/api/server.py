@@ -623,12 +623,30 @@ async def run_agent(
                 yield "data: " + json.dumps({
                     "type": "CHECKOUT_STATE", "checkout": state,
                 }, separators=(",", ":")) + "\n\n"
-        except Exception:
-            outcome = "error"
+        except asyncio.CancelledError:
+            # Client disconnect: do not restart or replay a potentially mutating tool run.
+            outcome = "cancelled"
             raise
+        except Exception as exc:
+            # HTTP streaming headers may already be sent. A sanitized terminal
+            # event gives the browser a recoverable state without leaking provider
+            # details or automatically repeating a business action.
+            outcome = "error"
+            logging.getLogger(__name__).error(
+                "agent_stream_failure request_id=%s type=%s",
+                getattr(request.state, "request_id", "unknown"), type(exc).__name__,
+            )
+            yield "data: " + json.dumps({
+                "type": "RUN_ERROR",
+                "message": "The assistant was interrupted. Check your cart before retrying.",
+            }, separators=(",", ":")) + "\n\n"
         finally:
             if model_agent is not None:
-                log_token_usage(logging.getLogger(__name__), model_agent)
+                try:
+                    log_token_usage(logging.getLogger(__name__), model_agent)
+                except Exception as exc:
+                    logging.getLogger(__name__).warning(
+                        "agent_token_usage_failure type=%s", type(exc).__name__)
             logging.getLogger(__name__).info(
                 "agent_stream_latency total_ms=%d first_event_ms=%s events=%d outcome=%s",
                 round((time.perf_counter() - started) * 1000),
