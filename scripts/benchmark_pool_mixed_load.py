@@ -16,7 +16,7 @@ from uuid import uuid4
 from core.services import auth_service, paystack_service
 from core.services.cart import CartService
 from core.services.checkout import CheckoutService
-from core.services.order_service import fingerprint
+from core.services.order_service import fingerprint, OrderService
 from data.database import models, pool_experiment, repository
 
 from scripts.benchmark_pool_sizing import percentile
@@ -154,7 +154,7 @@ def main():
                             reviewed_fingerprint=fingerprint(p["summary"]),
                             checkout_id=p["checkout_id"]).get("success") is True,
             })
-            confirmed_ids.append(confirm_session)
+            confirmed_ids.append((confirm_session, cid))
 
             pay_session = new_session(index)
             pay_review = CheckoutService(pay_session).prepare_checkout(**details)
@@ -178,23 +178,67 @@ def main():
             entries.append({"kind": "mock_payment",
                             "call": lambda s=pay_session, r=ref:
                                     paystack_service.verify(r, s)["payment_status"] == "paid"})
-            paid_ids.append(paid_order["order_id"])
+            paid_ids.append((paid_order["order_id"], cid))
             expected_stock_deduction += 1
 
         random.Random(20261108).shuffle(entries)
         return entries, payment_payloads, confirmed_ids, paid_ids, expected_stock_deduction
 
-    def verify_state(previous_stock, paid_ids, count):
+    def verify_state(previous_stock, paid_ids, confirmed_sessions, count):
+        # All of these reads run OUTSIDE the timed load. Verify customer ownership,
+        # session isolation, exact order prices, payment status, and inventory.
+        expected_discount = OrderService._calculate_discount(2400)
+        expected_total = 2400 + 500 - expected_discount
         with models.get_connection() as conn:
-            now = conn.execute("SELECT quantity FROM inventory WHERE product_id=?", (pid,)).fetchone()["quantity"]
+            now = conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id=?", (pid,)
+            ).fetchone()["quantity"]
             if now != previous_stock - count:
                 raise AssertionError("Stock deduction invariant failed")
-            for oid in paid_ids:
-                row = conn.execute("SELECT p.status AS payment, o.status AS order_status "
-                                   "FROM orders o JOIN payments p ON p.order_id=o.id WHERE o.id=?",
-                                   (oid,)).fetchone()
-                if not row or row["payment"] != "paid" or row["order_status"] != "confirmed":
-                    raise AssertionError("Payment/order state invariant failed")
+            for session, expected_customer in confirmed_sessions:
+                saved = conn.execute(
+                    "SELECT customer_id, cart_data FROM conversation_sessions WHERE session_id=?",
+                    (session,),
+                ).fetchone()
+                if not saved or saved["customer_id"] != expected_customer:
+                    raise AssertionError("Checkout session/customer isolation failed")
+                last = json.loads(saved["cart_data"]).get("last_checkout", {})
+                order_id = last.get("order_id")
+                if order_id is None:
+                    raise AssertionError("Confirmed checkout order missing")
+                order = conn.execute(
+                    "SELECT customer_id,subtotal,discount,delivery_fee,total,status "
+                    "FROM orders WHERE id=?", (order_id,)
+                ).fetchone()
+                if (not order or order["customer_id"] != expected_customer or
+                        order["subtotal"] != 2400 or
+                        order["discount"] != expected_discount or
+                        order["delivery_fee"] != 500 or order["total"] != expected_total or
+                        order["status"] != "pending_payment"):
+                    raise AssertionError("Checkout ownership/pricing invariant failed")
+                item = conn.execute(
+                    "SELECT quantity,unit_price FROM order_items WHERE order_id=?",
+                    (order_id,),
+                ).fetchone()
+                if not item or item["quantity"] != 1 or item["unit_price"] != 2400:
+                    raise AssertionError("Order line item mismatch")
+            for order_id, expected_customer in paid_ids:
+                row = conn.execute(
+                    "SELECT p.status AS payment, o.status AS order_status, "
+                    "o.customer_id,o.total,o.discount,o.subtotal "
+                    "FROM orders o JOIN payments p ON p.order_id=o.id WHERE o.id=?",
+                    (order_id,),
+                ).fetchone()
+                if (not row or row["customer_id"] != expected_customer or
+                        row["payment"] != "paid" or row["order_status"] != "confirmed" or
+                        row["subtotal"] != 2400 or row["discount"] != expected_discount or
+                        row["total"] != expected_total):
+                    raise AssertionError("Payment/order/account invariant failed")
+        for cid, _email, token in accounts:
+            who = auth_service.authenticate_token(token)
+            if not who or who["id"] != cid or who["role"] != "customer":
+                raise AssertionError("Customer token isolation/role invariant failed")
+
 
     cases = (("fresh", None, None, 10),
              ("pool_2_5", 2, 5, 10),
@@ -229,7 +273,7 @@ def main():
             after = pool_experiment.snapshot()
             os.environ["NAIJA_BITES_EXPERIMENT_POOL_ENABLED"] = "0"
             # Count successful order confirmations; any failure blocks load pass.
-            verify_state(stock_before, paid, len(confirmed))
+            verify_state(stock_before, paid, confirmed, len(confirmed))
             result.update({
                 "case": name, "workers": workers,
                 "arrival_rps": args.arrival_rps,
