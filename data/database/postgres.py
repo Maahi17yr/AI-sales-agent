@@ -5,6 +5,7 @@ to our own schema and queries, not a general SQLite compatibility library.
 """
 import re
 import time
+import os
 from core.observability.metrics import record_db_query
 
 import psycopg
@@ -60,8 +61,17 @@ class PostgresConnection:
     """Supports with/commit/rollback, SQLite-style rows, and lastrowid."""
 
     def __init__(self, url):
-        self._conn = psycopg.connect(url, autocommit=True, row_factory=dict_row)
+        self._experimental_pooled = False
+        if (os.getenv("NAIJA_BITES_POOL_EXPERIMENT") == "1"
+                and os.getenv("NAIJA_BITES_EXPERIMENT_POOL_ENABLED") == "1"):
+            from data.database import pool_experiment
+            pool_experiment.guard()
+            self._conn = pool_experiment.borrow()
+            self._experimental_pooled = True
+        else:
+            self._conn = psycopg.connect(url, autocommit=True, row_factory=dict_row)
         self._transaction_open = False
+        self._closed = False
 
     def __enter__(self):
         self._begin()
@@ -74,7 +84,7 @@ class PostgresConnection:
             else:
                 self.commit()
         finally:
-            self._conn.close()
+            self.close()
         return False
 
     def _begin(self):
@@ -120,6 +130,27 @@ class PostgresConnection:
             self._transaction_open = False
 
     def close(self):
-        if self._transaction_open:
-            self.rollback()
-        self._conn.close()
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            # A dead connection cannot roll back; return it to the pool, which
+            # discards it rather than lending it to a different customer.
+            if not self._conn.closed:
+                try:
+                    if self._transaction_open:
+                        self.rollback()
+                    elif self._experimental_pooled:
+                        # Defensive cleanup before psycopg_pool's session reset.
+                        self._conn.rollback()
+                except psycopg.OperationalError:
+                    # Failure during network loss may close the connection.
+                    # Do not mask an earlier user operation with cleanup noise.
+                    if not self._conn.closed:
+                        raise
+        finally:
+            if self._experimental_pooled:
+                from data.database import pool_experiment
+                pool_experiment.release(self._conn)
+            else:
+                self._conn.close()
