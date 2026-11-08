@@ -1,0 +1,28 @@
+name: Read isolated real-backend A/B report
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/read-real-backend-ab-report.yml]
+    branches: [experiment/real-backend-pooling-ab-20261108]
+jobs:
+  read-aggregate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch bounded runner aggregate (no credentials; isolated synthetic only)
+        run: |
+          set -euo pipefail
+          target='https://naija-bites-real-ab-runner-temp-20261108.onrender.com/'
+          for i in $(seq 1 20); do
+            if curl --fail --silent --show-error --max-time 25 "$target" -o /tmp/real_ab_report.json; then
+              if jq -e '.state == "finished"' /tmp/real_ab_report.json >/dev/null; then
+                echo '=== ISOLATED REAL BACKEND RESULTS ==='
+                jq '{state,scope,repeat_count_per_mode,modes}' /tmp/real_ab_report.json
+                exit 0
+              fi
+              jq -r '.state' /tmp/real_ab_report.json
+            fi
+            sleep 12
+          done
+          echo 'Aggregate report not yet finished; do not infer a performance result.'
+          exit 1
