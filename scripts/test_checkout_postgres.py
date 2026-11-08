@@ -147,5 +147,66 @@ class CheckoutPostgresTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT quantity FROM inventory WHERE product_id = ?", (self.product_id,)
             ).fetchone()[0], 8)
 
+    async def test_mocked_webhook_replay_preserves_single_paid_order(self):
+        """Run in both plain and experimental-pooled PostgreSQL CI jobs."""
+        import hashlib
+        import hmac
+        from core.services import paystack_service
+
+        delivery = {
+            "customer_name": "PG Checkout", "phone": "08012345678",
+            "delivery_address": "Fictional PG Street",
+            "delivery_area": self.area,
+        }
+        prepared = await self.client.post("/checkout/prepare", json=delivery)
+        self.assertEqual(prepared.status_code, 200, prepared.text)
+        summary = prepared.json()
+        confirmed = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True,
+            "reviewed_fingerprint": summary["fingerprint"],
+            "checkout_id": summary["checkout_id"],
+        })
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        order_id = confirmed.json()["order_id"]
+        reference = f"nb_test_pg_webhook_{order_id}"
+        with models.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO payments(order_id,amount,payment_reference,status) VALUES(?,?,?,'unpaid')",
+                (order_id, confirmed.json()["total"], reference),
+            )
+        payload = {"event": "charge.success", "data": {"reference": reference}}
+        body = json.dumps(payload).encode()
+        signing_key = "fictional-pg-webhook-signature"
+        signature = hmac.new(signing_key.encode(), body, hashlib.sha512).hexdigest()
+        provider_response = {
+            "reference": reference, "amount": confirmed.json()["total"] * 100,
+            "currency": "NGN", "status": "success",
+        }
+        with (patch.object(paystack_service, "_key", return_value=signing_key),
+              patch.object(paystack_service, "_request", return_value=provider_response)):
+            first = await self.client.post(
+                "/payments/webhook", content=body,
+                headers={"x-paystack-signature": signature},
+            )
+            replay = await self.client.post(
+                "/payments/webhook", content=body,
+                headers={"x-paystack-signature": signature},
+            )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT status FROM payments WHERE order_id=?", (order_id,)
+            ).fetchone()["status"], "paid")
+            self.assertEqual(conn.execute(
+                "SELECT status FROM orders WHERE id=?", (order_id,)
+            ).fetchone()["status"], "confirmed")
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM orders WHERE customer_id=?", (self.customer_id,)
+            ).fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id=?", (self.product_id,)
+            ).fetchone()["quantity"], 8)
+
 if __name__ == "__main__":
     unittest.main()
