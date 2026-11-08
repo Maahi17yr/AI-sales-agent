@@ -32,7 +32,9 @@ def _configure(conn):
 def _reset(conn):
     # PostgreSQL session-level settings (SET / set_config) survive COMMIT.
     # Reset all session state before another customer borrows this connection.
-    # DISCARD ALL requires autocommit and no active transaction.
+    # DISCARD ALL requires autocommit and no active transaction. Automatic
+    # prepared statements are disabled on pooled clients: DISCARD ALL clears
+    # server-side statements, which would otherwise desynchronize client cache.
     if conn.info.transaction_status.name != "IDLE":
         conn.rollback()
     conn.execute("DISCARD ALL")
@@ -58,7 +60,7 @@ def open_pool(min_size=1, max_size=5, timeout=0.5):
     pool = ConnectionPool(
         conninfo=_ALLOWED_URL, min_size=min_size, max_size=max_size,
         timeout=timeout, open=False,
-        kwargs={"autocommit": True, "row_factory": dict_row},
+        kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": None},
         configure=created, reset=_reset,
     )
     pool.open()
