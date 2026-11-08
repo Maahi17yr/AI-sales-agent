@@ -134,14 +134,20 @@ class PostgresConnection:
             return
         self._closed = True
         try:
-            # A context-managed transaction can be open even after a caller
-            # raised; do not allow it to cross the boundary to another customer.
-            if self._transaction_open:
-                self.rollback()
-            elif self._experimental_pooled:
-                # Defensive session reset for explicit BEGINs or SQL errors
-                # missed by the small SQLite-style transaction adapter.
-                self._conn.rollback()
+            # A dead connection cannot roll back; return it to the pool, which
+            # discards it rather than lending it to a different customer.
+            if not self._conn.closed:
+                try:
+                    if self._transaction_open:
+                        self.rollback()
+                    elif self._experimental_pooled:
+                        # Defensive cleanup before psycopg_pool's session reset.
+                        self._conn.rollback()
+                except psycopg.OperationalError:
+                    # Failure during network loss may close the connection.
+                    # Do not mask an earlier user operation with cleanup noise.
+                    if not self._conn.closed:
+                        raise
         finally:
             if self._experimental_pooled:
                 from data.database import pool_experiment
