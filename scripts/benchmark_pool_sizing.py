@@ -63,10 +63,12 @@ def main():
     args = argparse.ArgumentParser()
     args.add_argument("--requests", type=int, default=60)
     args.add_argument("--arrival-rps", type=float, default=300)
+    args.add_argument("--repetitions", type=int, default=3)
     config = args.parse_args()
     pool_experiment.guard()
-    if not 50 <= config.requests <= 400 or not 10 <= config.arrival_rps <= 1000:
-        raise ValueError("Controlled benchmark must use 50-400 requests, 10-1000 arrivals/s.")
+    if (not 50 <= config.requests <= 400 or
+            not 10 <= config.arrival_rps <= 1000 or not 2 <= config.repetitions <= 5):
+        raise ValueError("Need 50-400 requests, 10-1000 arrivals/s, 2-5 repeats.")
     models.create_tables()
     database = models.get_connection()
     try:
@@ -81,40 +83,53 @@ def main():
             conn.execute("SELECT pg_sleep(?)", (0.04,)).fetchone()
 
     profiles = ((1, 3), (2, 5), (2, 10), (5, 15))
-    for mn, mx in profiles:
-        if mx + 5 > limit:
-            print("SIZE_SKIP " + json.dumps({"min": mn, "max": mx, "reason": "database_connection_limit"}))
-            continue
-        pool_experiment.open_pool(mn, mx, timeout=0.2)
-        os.environ["NAIJA_BITES_EXPERIMENT_POOL_ENABLED"] = "1"
-        try:
-            for count in (1, 5, 10, 20, 50):
-                # Warmups are outside measured operations and wall-clock throughput.
-                for _ in range(5):
-                    held_select()
-                before = pool_experiment.snapshot()
-                stats = run_load(count, config.requests, config.arrival_rps, held_select)
-                after = pool_experiment.snapshot()
-                stats.update({
-                    "min": mn, "max": mx, "concurrency": count,
-                    "pool_borrow_ms_total": round(after["wait_ms"] - before["wait_ms"], 3),
-                    "pool_timeout_count": after["timeouts"] - before["timeouts"],
-                    "reset_ms_total": round(after["reset_ms"] - before["reset_ms"], 3),
-                    "reset_count": after["reset_count"] - before["reset_count"],
-                    "physical_connections_new": after["new_physical"] - before["new_physical"],
-                    "peak_active_connections": after["peak_active"],
-                    "pool_available": after.get("pool", {}).get("pool_available"),
-                    "pool_size_end": after.get("pool", {}).get("pool_size"),
-                    "db_max_connections": limit,
-                })
-                print("POOL_SIZE " + json.dumps(stats, sort_keys=True), flush=True)
-        finally:
-            os.environ["NAIJA_BITES_EXPERIMENT_POOL_ENABLED"] = "0"
-            pool_experiment.close_pool()
+    for repeat in range(config.repetitions):
+        # Counterbalance order across repeated runs to reduce runner drift.
+        order = profiles if repeat % 2 == 0 else tuple(reversed(profiles))
+        for mn, mx in order:
+            if mx + 5 > limit:
+                print("SIZE_SKIP " + json.dumps({
+                    "min": mn, "max": mx, "repeat": repeat,
+                    "reason": "database_connection_limit",
+                }))
+                continue
+            pool_experiment.open_pool(mn, mx, timeout=0.2)
+            os.environ["NAIJA_BITES_EXPERIMENT_POOL_ENABLED"] = "1"
+            try:
+                for concurrency in (1, 5, 10, 20, 50):
+                    for _ in range(5):
+                        held_select()
+                    pool_experiment.reset_peak_active()
+                    before = pool_experiment.snapshot()
+                    stats = run_load(
+                        concurrency, config.requests, config.arrival_rps, held_select
+                    )
+                    after = pool_experiment.snapshot()
+                    stats.update({
+                        "repeat": repeat, "min": mn, "max": mx,
+                        "concurrency": concurrency,
+                        "pool_borrow_ms_total": round(
+                            after["wait_ms"] - before["wait_ms"], 3),
+                        "pool_timeout_count": after["timeouts"] - before["timeouts"],
+                        "reset_ms_total": round(
+                            after["reset_ms"] - before["reset_ms"], 3),
+                        "reset_count": after["reset_count"] - before["reset_count"],
+                        "physical_connections_new": (
+                            after["new_physical"] - before["new_physical"]),
+                        "peak_active_connections": after["peak_active"],
+                        "pool_available": after.get("pool", {}).get("pool_available"),
+                        "pool_size_end": after.get("pool", {}).get("pool_size"),
+                        "db_max_connections": limit,
+                    })
+                    print("POOL_SIZE " + json.dumps(stats, sort_keys=True), flush=True)
+            finally:
+                os.environ["NAIJA_BITES_EXPERIMENT_POOL_ENABLED"] = "0"
+                pool_experiment.close_pool()
 
     print("SIZE_ENV " + json.dumps({
         "python": platform.python_version(), "postgres_major": 16,
         "fixture": "constant SELECT pg_sleep(0.04), no mutation",
+        "repetitions": config.repetitions,
         "arrivals": "fixed interval on same CI runner",
         "latency": "per-request execution including connection wait; not per batch",
         "throughput": "successful completions / real wall seconds",
