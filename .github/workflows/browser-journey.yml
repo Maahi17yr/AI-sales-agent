@@ -76,6 +76,8 @@ jobs:
         run: python -m scripts.diagnose_sse_proxy
       - name: Run real Chromium customer journey with mocked providers
         run: python -m scripts.test_browser_customer_journey
+      - name: Verify auth 429 cooldown and no redundant session preflight
+        run: python -m scripts.test_browser_auth_rate_limit
       - name: Show isolated server diagnostics on failure
         if: failure()
         run: |

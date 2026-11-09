@@ -6,6 +6,23 @@ import { usePathname } from 'next/navigation';
 
 // Always use the same-origin Next.js proxy; FastAPI owns authentication.
 const API = '/api/backend';
+const SESSION_CHECK_COOLDOWN_MS = 10_000;
+const DEFAULT_429_COOLDOWN_MS = 30_000;
+const MAX_429_COOLDOWN_MS = 5 * 60_000;
+
+function retryDelay(response: Response): number {
+  const retryAfter = response.headers.get('retry-after')?.trim();
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const delay = Number.isFinite(seconds) && seconds >= 0
+      ? seconds * 1000 : Date.parse(retryAfter) - Date.now();
+    if (Number.isFinite(delay) && delay >= 0) {
+      return Math.min(MAX_429_COOLDOWN_MS, Math.max(1000, delay));
+    }
+  }
+  return DEFAULT_429_COOLDOWN_MS;
+}
+
 
 function connectionMessage(error: unknown): string {
   if (error instanceof TypeError) {
@@ -38,6 +55,10 @@ async function detail(response: Response): Promise<string> {
   } catch {
     // Proxy and gateway failures may return HTML rather than JSON.
   }
+  if (response.status === 429) {
+    const seconds = Math.ceil(retryDelay(response) / 1000);
+    return `Too many requests. Please try again in about ${seconds} seconds.`;
+  }
   if ([502, 503, 504].includes(response.status)) {
     return 'The Naija Bites API is unavailable. Please try again shortly.';
   }
@@ -69,27 +90,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const customerRef = useRef<Customer | null>(null);
+  const sessionCheckInFlight = useRef<Promise<void> | null>(null);
+  const lastSessionCheckAt = useRef(0);
+  const sessionChecksBlockedUntil = useRef(0);
+  const authEpoch = useRef(0);
   useEffect(() => { customerRef.current = customer; }, [customer]);
 
-  const refreshSession = useCallback(async () => {
-    try {
-      const response = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
-      if (response.ok) {
-        const data: { customer: Customer } = await response.json();
-        customerRef.current = data.customer;
-        setCustomer(data.customer);
-      } else if (response.status === 401) {
-        customerRef.current = null;
-        setCustomer(null);
+  const refreshSession = useCallback(async (force = false) => {
+    const now = Date.now();
+    // Account changes can bypass the 10-second debounce, never Retry-After.
+    if (now < sessionChecksBlockedUntil.current) return;
+    if (sessionCheckInFlight.current) return sessionCheckInFlight.current;
+    if (!force && now - lastSessionCheckAt.current < SESSION_CHECK_COOLDOWN_MS) return;
+    lastSessionCheckAt.current = now;
+    const startedEpoch = authEpoch.current;
+    const check = (async () => {
+      try {
+        const response = await fetch(`${API}/auth/me`, {
+          credentials: 'include', cache: 'no-store',
+        });
+        if (startedEpoch !== authEpoch.current) return;
+        if (response.status === 429) {
+          sessionChecksBlockedUntil.current = Date.now() + retryDelay(response);
+          setNotice(await detail(response));
+          return;
+        }
+        if (response.ok) {
+          const data: { customer: Customer } = await response.json();
+          if (startedEpoch !== authEpoch.current) return;
+          customerRef.current = data.customer;
+          setCustomer(data.customer);
+          setNotice('');
+        } else if (response.status === 401) {
+          customerRef.current = null;
+          setCustomer(null);
+        } else {
+          setNotice(await detail(response));
+        }
+      } catch {
+        // Transient proxy/network errors must not log out the customer.
       }
-    } catch { /* Keep current state on transient network failure. */ }
+    })();
+    sessionCheckInFlight.current = check;
+    try {
+      await check;
+    } finally {
+      if (sessionCheckInFlight.current === check) sessionCheckInFlight.current = null;
+    }
   }, []);
 
-  // Tabs on the same origin share the session cookie. Recheck when another tab
-  // logs in/out, or when a tab regains focus after an external payment redirect.
+  // Focus + visibility events commonly fire together; do not double-fetch.
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (event.key === 'naija-bites-auth-change') void refreshSession();
+      if (event.key === 'naija-bites-auth-change') void refreshSession(true);
     };
     const onFocus = () => { void refreshSession(); };
     const onVisible = () => {
@@ -111,53 +164,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (expectedCustomerId !== undefined) {
       headers.set('X-Naija-Bites-Expected-Customer', String(expectedCustomerId));
     }
-    // Do not send account-changing requests from a stale tab under another user's cookie.
-    if (options.method && !['GET', 'HEAD'].includes(options.method.toUpperCase())) {
-      const session = await fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store' });
-      if (session.status === 401) {
-        customerRef.current = null;
-        setCustomer(null);
-        throw new Error('Your session has changed. Sign in again before continuing.');
-      }
-      if (!session.ok) throw new Error('Could not verify your session. Please try again.');
-      const data: { customer: Customer } = await session.json();
-      if (customerRef.current && data.customer.id !== customerRef.current.id) {
-        customerRef.current = data.customer;
-        setCustomer(data.customer);
-        throw new Error('The signed-in account changed in another tab. Please review your account before continuing.');
-      }
-    }
+    // FastAPI's middleware atomically checks the expected customer header
+    // against the cookie BEFORE writes. The old preflight /auth/me was
+    // redundant and still subject to a time-of-check/time-of-use race.
     const response = await fetch(`${API}${path}`, {
-      ...options,
-      headers,
-      credentials: 'include',
+      ...options, headers, credentials: 'include',
       cache: options.cache ?? 'no-store',
     });
     if (response.status === 401) {
+      authEpoch.current++;
       customerRef.current = null;
       setCustomer(null);
       setNotice('Your session has expired. Please sign in again.');
+    } else if (response.status === 409 && expectedCustomerId !== undefined) {
+      const body = await response.clone().json().catch(() => null);
+      if (body?.detail === 'Account changed. Refresh before continuing.') {
+        void refreshSession(true);
+        throw new Error('The signed-in account changed in another tab. Please review your account before continuing.');
+      }
+    } else if (response.status === 429) {
+      setNotice(await detail(response.clone()));
     }
     return response;
-  }, []);
+  }, [refreshSession]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetch(`${API}/auth/me`, { credentials: 'include', cache: 'no-store', signal: controller.signal })
-      .then(async response => {
-        if (response.ok) {
-          const data: { customer: Customer } = await response.json();
-          if (!controller.signal.aborted) setCustomer(data.customer);
-        } else if (response.status !== 401 && !controller.signal.aborted) {
-          setNotice(await detail(response));
-        }
-      })
-      .catch(error => {
-        if (!controller.signal.aborted) setNotice(connectionMessage(error));
-      })
-      .finally(() => { if (!controller.signal.aborted) setChecking(false); });
-    return () => controller.abort();
-  }, []);
+    void refreshSession(true).finally(() => setChecking(false));
+  }, [refreshSession]);
 
   const logout = useCallback(async () => {
     try {
@@ -165,8 +198,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: 'POST', credentials: 'include', cache: 'no-store',
       });
       if (!response.ok) throw new Error(await detail(response));
+      authEpoch.current++;
       customerRef.current = null;
       setCustomer(null);
+      lastSessionCheckAt.current = 0;
       window.localStorage.setItem('naija-bites-auth-change', String(Date.now()));
       setNotice('You have signed out.');
     } catch (error) {
@@ -198,8 +233,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data: { customer: Customer } = await response.json();
       setPassword('');
       setShowPassword(false);
+      authEpoch.current++;
       customerRef.current = data.customer;
       setCustomer(data.customer);
+      lastSessionCheckAt.current = Date.now();
+      sessionChecksBlockedUntil.current = 0;
       window.localStorage.setItem('naija-bites-auth-change', String(Date.now()));
     } catch (error) {
       setNotice(connectionMessage(error));
