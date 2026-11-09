@@ -315,7 +315,7 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT status FROM orders WHERE id = ?", (order_id,)
             ).fetchone()["status"], "pending_payment")
 
-    async def test_missing_checkout_link_does_not_show_old_unpaid_order(self):
+    async def test_lost_checkout_link_only_recovers_recent_unpaid_order(self):
         ready = (await self.prepare()).json()
         approved = await self.client.post("/checkout/confirm", json={
             "customer_approved": True,
@@ -328,6 +328,15 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             conn.execute(
                 "UPDATE conversation_sessions SET cart_data = ? WHERE session_id = ?",
                 (json.dumps({"items": []}), f"customer-{self.customer_id}"),
+            )
+        recovered = (await self.client.get("/checkout")).json()
+        self.assertEqual(recovered["status"], "payment_pending")
+        self.assertEqual(recovered["payment_order_id"], old_order)
+        # A historical order is not an active checkout, even if unpaid.
+        with models.get_connection() as conn:
+            conn.execute(
+                "UPDATE orders SET created_at = ? WHERE id = ?",
+                ("2020-01-01 00:00:00", old_order),
             )
         state = (await self.client.get("/checkout")).json()
         self.assertEqual(state["status"], "cart")
