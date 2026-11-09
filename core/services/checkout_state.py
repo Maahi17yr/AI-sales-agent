@@ -59,7 +59,8 @@ def get_checkout_state(session_id: str) -> dict:
             logger.warning("checkout_state_invalid_pending_summary")
         last = cart.get("last_checkout")
         order = None
-        if isinstance(last, dict) and type(last.get("order_id")) is int:
+        if (not state["cart_has_items"] and isinstance(last, dict)
+                and type(last.get("order_id")) is int):
             order = conn.execute(
                 "SELECT id, status FROM orders WHERE id = ? AND customer_id = ?",
                 (last["order_id"], row["customer_id"]),

@@ -292,6 +292,45 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT quantity FROM inventory WHERE product_id=?", (self.product_id,)
             ).fetchone()[0], 8)
 
+    async def test_new_cart_does_not_inherit_previous_unpaid_payment_card(self):
+        ready = (await self.prepare()).json()
+        placed = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True,
+            "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"],
+        })
+        self.assertEqual(placed.status_code, 200, placed.text)
+        previous_order = placed.json()["order_id"]
+        self.assertEqual(
+            (await self.client.get("/checkout")).json()["payment_order_id"],
+            previous_order,
+        )
+        # Starting a new order can retain last_checkout for idempotent replay,
+        # but must not show the previous order as this cart's payment request.
+        with models.get_connection() as conn:
+            session_id = f"customer-{self.customer_id}"
+            row = conn.execute(
+                "SELECT cart_data FROM conversation_sessions WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+            cart = json.loads(row["cart_data"])
+            cart["items"] = [{
+                "product_id": self.product_id, "quantity": 1,
+                "variant": "standard", "modifications": [],
+            }]
+            conn.execute(
+                "UPDATE conversation_sessions SET cart_data=? WHERE session_id=?",
+                (json.dumps(cart), session_id),
+            )
+        active = (await self.client.get("/checkout")).json()
+        self.assertTrue(active["cart_has_items"])
+        self.assertIsNone(active["payment_order_id"])
+        self.assertEqual(active["status"], "cart")
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT status FROM orders WHERE id=?", (previous_order,)
+            ).fetchone()["status"], "pending_payment")
+
     async def test_historical_unpaid_order_is_not_active_without_checkout_link(self):
         # An unrelated earlier order can still be unpaid, but it must not
         # become the current payment card after starting a fresh session/cart.
