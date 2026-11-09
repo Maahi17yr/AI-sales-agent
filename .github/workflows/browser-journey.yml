@@ -9,6 +9,7 @@ on:
       - 'data/**'
       - 'scripts/test_browser_customer_journey.py'
       - 'scripts/mock_payment_backend.py'
+      - 'scripts/diagnose_sse_proxy.py'
       - '.github/workflows/browser-journey.yml'
   push:
     branches: [main]
@@ -71,6 +72,8 @@ jobs:
           else:
               raise SystemExit("Isolated servers did not become ready")
           PY
+      - name: Verify unbuffered Next.js AG-UI proxy against direct FastAPI SSE
+        run: python -m scripts.diagnose_sse_proxy
       - name: Run real Chromium customer journey with mocked providers
         run: python -m scripts.test_browser_customer_journey
       - name: Show isolated server diagnostics on failure
