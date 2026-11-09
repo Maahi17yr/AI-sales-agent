@@ -98,7 +98,11 @@ jobs:
       NAIJA_BITES_ENV: development
       NAIJA_BITES_TEST_MOCK_PAYMENTS: '1'
       NAIJA_BITES_DATA_DIR: /tmp/naija-bites-prod-proxy-isolated
-      NEXT_BACKEND_URL: http://127.0.0.1:8000
+      NEXT_BACKEND_URL: https://localhost:8443
+      NAIJA_BITES_BENCH_BACKEND_URL: https://localhost:8443
+      NAIJA_BITES_TEST_HTTPS: '1'
+      NAIJA_BITES_TEST_CA_CERT: /tmp/naija-proxy-test.crt
+      NODE_EXTRA_CA_CERTS: /tmp/naija-proxy-test.crt
       NEXT_PUBLIC_DEMO_MODE: 'true'
       NAIJA_BITES_FRONTEND_BENCH_PORT: '3001'
       NAIJA_BITES_CHECK_COLD_STREAM: '1'
@@ -115,6 +119,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: python -m pip install -r requirements.txt
       - run: cd frontend && npm ci
+      - name: Generate disposable localhost TLS certificate (never disable validation)
+        run: |
+          umask 077
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout /tmp/naija-proxy-test.key \
+            -out /tmp/naija-proxy-test.crt \
+            -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1'
       - name: Build production Next.js server with isolated upstream
         run: cd frontend && npm run build
       - name: Start disposable FastAPI and production-built Next.js
@@ -130,8 +141,8 @@ jobs:
           import httpx
           for attempt in range(90):
               try:
-                  with httpx.Client(timeout=3) as client:
-                      if (client.get("http://127.0.0.1:8000/ping").status_code == 200
+                  with httpx.Client(timeout=3, verify="/tmp/naija-proxy-test.crt") as client:
+                      if (client.get("https://localhost:8443/ping").status_code == 200
                           and client.get("http://127.0.0.1:3001/").status_code == 200):
                           break
               except (httpx.HTTPError, OSError):
