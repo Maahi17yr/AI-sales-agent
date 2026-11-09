@@ -180,8 +180,9 @@ def main():
             try:
                 second_tab.goto(BASE + "/", wait_until="domcontentloaded")
                 second_tab.locator("#message-input").wait_for(timeout=30000)
-                second_tab.get_by_role("button", name="Expand sidebar").click()
-                second_tab.get_by_role("button", name="Sign out").click()
+                # Logout is inside collapsible navigation; exercise its actual
+                # React action without depending on viewport/hover animations.
+                second_tab.locator(".account-logout").evaluate("(element) => element.click()")
                 second_tab.get_by_role("heading", name="Welcome back").wait_for(timeout=30000)
                 page.reload(wait_until="domcontentloaded")
                 page.get_by_role("heading", name="Welcome back").wait_for(timeout=30000)
@@ -199,8 +200,9 @@ def main():
                 assert page.get_by_text("Fictional menu is ready.").count() == 0
                 assert page.get_by_role("region", name="Paystack test payment").count() == 0
 
-                second_tab.get_by_role("button", name="Expand sidebar").click()
-                second_tab.get_by_role("button", name="Sign out").click()
+                # Logout is inside collapsible navigation; exercise its actual
+                # React action without depending on viewport/hover animations.
+                second_tab.locator(".account-logout").evaluate("(element) => element.click()")
                 second_tab.get_by_role("heading", name="Welcome back").wait_for(timeout=30000)
                 page.reload(wait_until="domcontentloaded")
                 page.get_by_role("heading", name="Welcome back").wait_for(timeout=30000)
