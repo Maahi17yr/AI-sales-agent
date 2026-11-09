@@ -292,6 +292,61 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT quantity FROM inventory WHERE product_id=?", (self.product_id,)
             ).fetchone()[0], 8)
 
+    async def test_old_linked_checkout_never_sticks_to_chat(self):
+        ready = (await self.prepare()).json()
+        approval = {"customer_approved": True,
+                    "reviewed_fingerprint": ready["fingerprint"],
+                    "checkout_id": ready["checkout_id"]}
+        placed = await self.client.post("/checkout/confirm", json=approval)
+        self.assertEqual(placed.status_code, 200, placed.text)
+        order_id = placed.json()["order_id"]
+        self.assertEqual((await self.client.get("/checkout")).json()["payment_order_id"], order_id)
+        with models.get_connection() as conn:
+            conn.execute("UPDATE orders SET created_at = ? WHERE id = ?",
+                         ("2020-01-01 00:00:00", order_id))
+        state = (await self.client.get("/checkout")).json()
+        self.assertEqual(state["status"], "cart")
+        self.assertIsNone(state["payment_order_id"])
+        # Expiring a payment prompt never deletes the order or breaks replay.
+        replay = await self.client.post("/checkout/confirm", json=approval)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertEqual(replay.json()["order_id"], order_id)
+
+    async def test_hide_payment_card_survives_refresh_and_lost_link(self):
+        ready = (await self.prepare()).json()
+        placed = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True,
+            "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"]})
+        self.assertEqual(placed.status_code, 200, placed.text)
+        order_id = placed.json()["order_id"]
+        self.assertEqual((await self.client.get("/checkout")).json()["payment_order_id"], order_id)
+        hidden = await self.client.post("/checkout/dismiss-payment", json={"order_id": order_id})
+        self.assertEqual(hidden.status_code, 200, hidden.text)
+        self.assertIsNone(hidden.json()["payment_order_id"])
+        self.assertIsNone((await self.client.get("/checkout")).json()["payment_order_id"])
+        # Even if chat overwrites the checkout link, the recent fallback must
+        # respect the per-customer dismissed order.
+        with models.get_connection() as conn:
+            conn.execute(
+                "UPDATE conversation_sessions SET cart_data=? WHERE session_id=?",
+                (json.dumps({"items": [], "dismissed_payment_order_id": order_id}),
+                 f"customer-{self.customer_id}"))
+        self.assertIsNone((await self.client.get("/checkout")).json()["payment_order_id"])
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT status FROM orders WHERE id=?", (order_id,)
+            ).fetchone()["status"], "pending_payment")
+            self.assertEqual(conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id=?", (self.product_id,)
+            ).fetchone()["quantity"], 8)
+        self.assertEqual((await self.client.post(
+            "/checkout/dismiss-payment", json={"order_id": 99999999}
+        )).status_code, 404)
+        self.assertEqual((await self.client.post(
+            "/checkout/dismiss-payment", json={"order_id": -1}
+        )).status_code, 422)
+
     async def test_new_cart_does_not_inherit_previous_unpaid_payment_card(self):
         ready = (await self.prepare()).json()
         placed = await self.client.post("/checkout/confirm", json={
