@@ -3,6 +3,7 @@
 Mock agent only. This script never sends live model or payment requests.
 """
 import json
+import os
 import statistics
 import time
 import httpx
@@ -52,7 +53,7 @@ def median_runs(url: str, repeats: int) -> dict:
 
 def main():
     backend = "http://127.0.0.1:8000/agent"
-    frontend = "http://127.0.0.1:3000/api/backend/agent"
+    frontend = f"http://127.0.0.1:{os.getenv('NAIJA_BITES_FRONTEND_BENCH_PORT', '3000')}/api/backend/agent"
     # The dynamic Next.js endpoint has a one-time development compilation
     # cost; record it but compare warmed streams with the same live backend.
     cold_proxy = measure(frontend)
@@ -69,6 +70,19 @@ def main():
         "Warmed Next proxy delayed first SSE chunk excessively")
     assert proxy["complete_ms"] <= direct["complete_ms"] * 1.35, (
         "Streaming proxy added significant total completion latency")
+    # Security and observability: specialized stream path must retain FastAPI
+    # Origin checks, status codes and request IDs rather than bypass them.
+    with httpx.Client(timeout=15) as client:
+        denied = client.post(frontend, json=PAYLOAD,
+                             headers={"Origin": "https://untrusted.example"})
+        assert denied.status_code == 403, (
+            f"Frontend proxy bypassed backend Origin restrictions: {denied.status_code}")
+        accepted = client.post(frontend, json=PAYLOAD,
+                               headers={"X-Request-ID": "benchmark-request-1234"})
+        assert accepted.status_code == 200
+        assert accepted.headers.get("X-Request-ID") == "benchmark-request-1234", (
+            "Request correlation was lost across Next proxy")
+
 
 
 if __name__ == "__main__":
