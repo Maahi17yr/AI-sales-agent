@@ -50,11 +50,19 @@ def main():
 
         def mock_agent(route):
             agent_calls.append(route.request.url)
+            request_text = json.dumps(route.request.post_data_json or {})
+            if "Simulate network interruption" in request_text:
+                route.abort("failed")
+                return
             newline = chr(10)
-            body = (newline + newline).join([
-                'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"Fictional menu is ready."}',
-                'data: {"type":"RUN_FINISHED"}',
-            ]) + newline + newline
+            if "Simulate provider timeout" in request_text:
+                events = ['data: {"type":"RUN_ERROR","message":"The assistant was interrupted. Check your cart before retrying."}']
+            else:
+                events = [
+                    'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"Fictional menu is ready."}',
+                    'data: {"type":"RUN_FINISHED"}',
+                ]
+            body = (newline + newline).join(events) + newline + newline
             route.fulfill(status=200, content_type="text/event-stream",
                           headers={"Cache-Control": "no-cache"}, body=body)
 
@@ -150,7 +158,58 @@ def main():
                 assert other_page.get_by_role("region", name="Paystack test payment").count() == 0
             finally:
                 other.close()
-            print("PASS: Chromium registration, mocked AI chat, persistence, checkout review, refresh, mocked Paystack return, new cart and browser isolation")
+            # Model failure and network disconnect must show an error, preserve
+            # the user message, and not revive an old paid order.
+            page.locator("#message-input").fill("Simulate provider timeout")
+            page.get_by_role("button", name="Send message").click()
+            page.locator(".inline-alert").filter(
+                has_text="The assistant was interrupted"
+            ).wait_for(timeout=30000)
+            assert page.get_by_role("region", name="Paystack test payment").count() == 0
+            page.locator("#message-input").fill("Simulate network interruption")
+            page.get_by_role("button", name="Send message").click()
+            page.locator(".inline-alert").wait_for(timeout=30000)
+            assert page.get_by_text("Simulate network interruption").count() > 0
+            page.locator("#message-input").fill("Recover after interruption")
+            page.get_by_role("button", name="Send message").click()
+            page.get_by_text("Fictional menu is ready.").last.wait_for(timeout=30000)
+
+            # Shared-cookie tabs and account switching must not cross-contaminate
+            # saved chats, checkout state or signed-in customer identity.
+            second_tab = context.new_page()
+            try:
+                second_tab.goto(BASE + "/", wait_until="domcontentloaded")
+                second_tab.locator("#message-input").wait_for(timeout=30000)
+                second_tab.get_by_role("button", name="Sign out").click()
+                second_tab.get_by_role("heading", name="Welcome back").wait_for(timeout=30000)
+                page.reload(wait_until="domcontentloaded")
+                page.get_by_role("heading", name="Welcome back").wait_for(timeout=30000)
+
+                second_tab.get_by_role("button", name="Create an account").click()
+                second_tab.locator('input[name="name"]').fill("Second Browser Customer")
+                second_tab.locator('input[name="email"]').fill(
+                    f"other-browser-{uuid4().hex[:12]}@example.test"
+                )
+                second_tab.locator('input[name="password"]').fill(password)
+                second_tab.get_by_role("button", name="Create account").click()
+                second_tab.locator("#message-input").wait_for(timeout=30000)
+                page.reload(wait_until="domcontentloaded")
+                page.locator("#message-input").wait_for(timeout=30000)
+                assert page.get_by_text("Fictional menu is ready.").count() == 0
+                assert page.get_by_role("region", name="Paystack test payment").count() == 0
+
+                second_tab.get_by_role("button", name="Sign out").click()
+                second_tab.get_by_role("heading", name="Welcome back").wait_for(timeout=30000)
+                page.reload(wait_until="domcontentloaded")
+                page.get_by_role("heading", name="Welcome back").wait_for(timeout=30000)
+                page.locator('input[name="email"]').fill(email)
+                page.locator('input[name="password"]').fill(password)
+                page.get_by_role("button", name="Sign in", exact=True).click()
+                page.locator("#message-input").wait_for(timeout=30000)
+                page.get_by_text("Fictional menu is ready.").last.wait_for(timeout=30000)
+            finally:
+                second_tab.close()
+            print("PASS: Chromium journey, failed streams, network recovery, shared-tab logout, account switching and chat isolation")
         except Exception:
             print("BROWSER_DIAGNOSTIC_AGENT_CALLS:", agent_calls)
             print("BROWSER_DIAGNOSTIC_URL:", page.url)
