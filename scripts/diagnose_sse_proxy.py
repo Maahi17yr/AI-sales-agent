@@ -63,6 +63,9 @@ def main():
           json.dumps({"direct": direct, "proxy": proxy,
                       "cold_proxy": cold_proxy}, sort_keys=True),
           flush=True)
+    if os.getenv("NAIJA_BITES_CHECK_COLD_STREAM") == "1":
+        assert cold_proxy["first_chunk_ms"] <= min(1000, direct["complete_ms"] * 0.8), (
+            "Production-built first request is slower than cold streaming target")
     assert direct["http_chunks"] > 20, "Mock backend not streaming"
     assert proxy["http_chunks"] > 20, (
         "Next.js buffered AG-UI response instead of forwarding SSE chunks")
