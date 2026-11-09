@@ -3,11 +3,13 @@ import asyncio
 import json
 import os
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 import httpx
 
 from core.api.server import app
+from core.services import paystack_service
 from data.database import models
 
 
@@ -162,6 +164,90 @@ class CheckoutPostgresTests(unittest.IsolatedAsyncioTestCase):
                 ).fetchone()["quantity"], 0)
         finally:
             await other.aclose()
+
+
+    async def test_paystack_verified_payment_updates_postgres_text_timestamp_and_chat(self):
+        """Reproduce real Postgres DatatypeMismatch at paid_at=COALESCE(...).
+
+        No provider traffic: payment success is mocked and the database is
+        disposable CI-only PostgreSQL 16. Verify return and replay through HTTP.
+        """
+        delivery = {
+            "customer_name": "Fictional PG Customer",
+            "phone": "08012345678",
+            "delivery_address": "Fictional Payment Street",
+            "delivery_area": self.zone,
+        }
+        prepared = await self.client.post("/checkout/prepare", json=delivery)
+        self.assertEqual(prepared.status_code, 200, prepared.text)
+        ready = prepared.json()
+        confirmed = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True,
+            "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"],
+        })
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        order_id = confirmed.json()["order_id"]
+        reference = f"nb_test_{order_id}_{uuid4().hex[:16]}"
+        amount = confirmed.json()["total"]
+
+        chat_id = str(uuid4())
+        saved = await self.client.put("/chats/" + chat_id, json={
+            "title": "Fictional payment test",
+            "messages": [
+                {"id": "user-1", "role": "user", "content": "My fictional order"},
+            ],
+        })
+        self.assertEqual(saved.status_code, 200, saved.text)
+
+        with models.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO payments (order_id, amount, payment_reference, status) "
+                "VALUES (?, ?, ?, 'unpaid')", (order_id, amount, reference),
+            )
+
+        def mocked_provider(method, path, payload=None):
+            self.assertEqual(method, "GET")
+            self.assertEqual(path, "/transaction/verify/" + reference)
+            return {"reference": reference, "currency": "NGN",
+                    "amount": amount * 100, "status": "success"}
+
+        with patch.object(paystack_service, "_request", side_effect=mocked_provider):
+            first = await self.client.post("/payments/verify", json={
+                "reference": reference, "chat_id": chat_id,
+            })
+            self.assertEqual(first.status_code, 200, first.text)
+            self.assertEqual(first.json()["payment_status"], "paid")
+            self.assertEqual(first.json()["order_status"], "confirmed")
+            self.assertTrue(first.json()["chat_saved"])
+            replay = await self.client.post("/payments/verify", json={
+                "reference": reference, "chat_id": chat_id,
+            })
+            self.assertEqual(replay.status_code, 200, replay.text)
+
+        with models.get_connection() as conn:
+            payment = conn.execute(
+                "SELECT status, paid_at FROM payments WHERE payment_reference=?",
+                (reference,),
+            ).fetchone()
+            self.assertEqual(payment["status"], "paid")
+            self.assertTrue(payment["paid_at"])
+            self.assertEqual(conn.execute(
+                "SELECT status FROM orders WHERE id=?", (order_id,),
+            ).fetchone()["status"], "confirmed")
+            self.assertEqual(conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id=?",
+                (self.product_id,),
+            ).fetchone()["quantity"], 8)
+            chat = conn.execute(
+                "SELECT messages FROM customer_chats WHERE customer_id=? AND chat_id=?",
+                (self.customer_id, chat_id),
+            ).fetchone()
+            confirmations = [
+                item for item in json.loads(chat["messages"])
+                if item.get("id") == f"verified-payment-order-{order_id}"
+            ]
+            self.assertEqual(len(confirmations), 1)
 
 
 if __name__ == "__main__":
