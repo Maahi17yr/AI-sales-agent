@@ -44,7 +44,13 @@ def main():
     print("SSE_PROXY_DIAGNOSTIC=" +
           json.dumps({"direct": direct, "proxy": proxy}, sort_keys=True),
           flush=True)
-    assert direct["http_chunks"] > 1, "Mock backend not streaming as expected"
+    assert direct["http_chunks"] > 20, "Mock backend not streaming as expected"
+    assert proxy["http_chunks"] > 20, (
+        "Next.js buffered AG-UI response instead of forwarding SSE chunks")
+    assert proxy["first_chunk_ms"] < min(500, direct["complete_ms"] * 0.25), (
+        "First text chunk through frontend proxy arrived after excessive buffering")
+    assert proxy["complete_ms"] <= direct["complete_ms"] * 1.35, (
+        "Frontend streaming proxy added significant total completion latency")
 
 
 if __name__ == "__main__":
