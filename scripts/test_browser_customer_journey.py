@@ -35,6 +35,9 @@ def main():
         browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
         context = browser.new_context()
         page = context.new_page()
+        agent_calls = []
+        page.on('console', lambda msg: print('BROWSER_CONSOLE:', msg.type, msg.text[:300]) if msg.type == 'error' else None)
+        page.on('requestfailed', lambda req: print('BROWSER_REQUEST_FAILED:', req.url, req.failure))
 
         def serve_mock_checkout(route):
             query = parse_qs(urlsplit(route.request.url).query)
@@ -46,6 +49,7 @@ def main():
                                ")</script><body>Mock Paystack return</body></html>")
 
         def mock_agent(route):
+            agent_calls.append(route.request.url)
             body = ('data: {"type":"TEXT_MESSAGE_CONTENT","delta":"Fictional menu is ready."}\\n\\n'
                     'data: {"type":"RUN_FINISHED"}\\n\\n')
             route.fulfill(status=200, content_type="text/event-stream",
@@ -145,6 +149,9 @@ def main():
                 other.close()
             print("PASS: Chromium registration, mocked AI chat, persistence, checkout review, refresh, mocked Paystack return, new cart and browser isolation")
         except Exception:
+            print("BROWSER_DIAGNOSTIC_AGENT_CALLS:", agent_calls)
+            print("BROWSER_DIAGNOSTIC_URL:", page.url)
+            print("BROWSER_DIAGNOSTIC_BODY:", page.locator("body").inner_text()[-3000:])
             page.screenshot(path="/tmp/naija-browser-failure.png", full_page=True)
             raise
         finally:
