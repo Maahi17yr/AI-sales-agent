@@ -65,7 +65,7 @@ def main():
             page.get_by_text("Fictional menu is ready.").wait_for(timeout=30000)
             page.reload(wait_until="domcontentloaded")
             page.locator("#message-input").wait_for(timeout=30000)
-            page.get_by_text("Browse the menu", exact=True).wait_for(timeout=30000)
+            page.get_by_text("Fictional menu is ready.").wait_for(timeout=30000)
 
             with get_connection() as conn:
                 customer = conn.execute(
