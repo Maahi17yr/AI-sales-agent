@@ -67,6 +67,23 @@ def main():
                 "Mutation lost atomic customer identity safeguard")
             assert len(checks) == 1, (
                 "The application still preflights each mutation using auth/me")
+            # A stale or switched-tab account must be refused atomically
+            # by FastAPI, without relying on any preliminary /auth/me call.
+            stale_write = page.evaluate("""async () => {
+              const response = await fetch('/api/backend/checkout/dismiss-payment', {
+                method: 'POST', credentials: 'include',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-Naija-Bites-Expected-Customer': '999999999',
+                },
+                body: JSON.stringify({order_id: 1}),
+              });
+              return {status: response.status, body: await response.json()};
+            }""")
+            assert stale_write["status"] == 409, stale_write
+            assert stale_write["body"]["detail"] == (
+                "Account changed. Refresh before continuing."), stale_write
+
             print("PASS: auth/me 429 cooldown, no focus storm, login works, "
                   "mutations preserve expected-customer server guard")
         except Exception:
