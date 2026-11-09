@@ -385,6 +385,103 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT status FROM orders WHERE id = ?", (old_order,)
             ).fetchone()["status"], "pending_payment")
 
+    async def test_full_mocked_customer_payment_return_new_order_and_isolation(self):
+        """No real Paystack/Bedrock; exercise authenticated HTTP API end to end."""
+        from core.services import paystack_service
+
+        me = await self.client.get("/auth/me")
+        self.assertEqual(me.status_code, 200)
+        menu = await self.client.get("/menu")
+        self.assertEqual(menu.status_code, 200)
+        self.assertTrue(any(p["id"] == self.product_id for p in menu.json()["products"]))
+
+        chat_id = "d5e24b92-9a7b-4bd0-a211-0b456e03c501"
+        chat_payload = {"title": "Mocked order", "messages": [
+            {"id": "user-msg-1", "role": "user", "content": "I'd like two fictional meals."},
+        ]}
+        self.assertEqual((await self.client.put("/chats/" + chat_id, json=chat_payload)).status_code, 200)
+        self.assertEqual(len((await self.client.get("/chats")).json()["chats"]), 1)
+
+        ready = (await self.prepare()).json()
+        self.assertEqual(ready["status"], "ready_for_review")
+        approval = {"customer_approved": True, "reviewed_fingerprint": ready["fingerprint"],
+                    "checkout_id": ready["checkout_id"]}
+        approved = await self.client.post("/checkout/confirm", json=approval)
+        self.assertEqual(approved.status_code, 200, approved.text)
+        order_id = approved.json()["order_id"]
+        self.assertEqual((await self.client.post("/checkout/confirm", json=approval)).json()["order_id"], order_id)
+        self.assertEqual((await self.client.get("/checkout")).json()["payment_order_id"], order_id)
+
+        requests = []
+        def fake_provider(method, path, payload=None):
+            requests.append((method, path))
+            if method == "POST":
+                return {"reference": payload["reference"],
+                        "authorization_url": "https://checkout.paystack.test/fictional"}
+            return {"reference": reference, "currency": "NGN",
+                    "amount": approved.json()["total"] * 100, "status": "success"}
+
+        with patch.object(paystack_service, "_request", side_effect=fake_provider):
+            init = await self.client.post("/payments/initialize", json={
+                "order_id": order_id, "email": "test@example.test"})
+            self.assertEqual(init.status_code, 200, init.text)
+            reference = init.json()["reference"]
+            retry_init = await self.client.post("/payments/initialize", json={
+                "order_id": order_id, "email": "test@example.test"})
+            self.assertEqual(retry_init.json()["reference"], reference)
+            self.assertEqual(sum(1 for method, _ in requests if method == "POST"), 1)
+            verification = await self.client.post("/payments/verify", json={
+                "reference": reference, "chat_id": chat_id})
+            self.assertEqual(verification.status_code, 200, verification.text)
+            self.assertEqual(verification.json()["order_status"], "confirmed")
+            self.assertTrue(verification.json()["chat_saved"])
+            replay = await self.client.post("/payments/verify", json={
+                "reference": reference, "chat_id": chat_id})
+            self.assertEqual(replay.status_code, 200, replay.text)
+
+        saved = (await self.client.get("/chats")).json()["chats"][0]["messages"]
+        confirmation_id = "verified-payment-order-" + str(order_id)
+        self.assertEqual(sum(1 for m in saved if m["id"] == confirmation_id), 1)
+        checkout_after_payment = (await self.client.get("/checkout")).json()
+        self.assertIsNone(checkout_after_payment["payment_order_id"])
+
+        # Another account and a fresh browser session must not inherit this order.
+        other = httpx.AsyncClient(transport=httpx.ASGITransport(
+            app=app, client=("127.0.0.1", 54322)), base_url="http://127.0.0.1:8000")
+        try:
+            self.assertEqual((await other.get("/checkout")).status_code, 401)
+            self.assertEqual((await other.post("/auth/register", json={
+                "name": "Other Test", "email": "other@example.test",
+                "password": "Another-Fictional-Password-1234"})).status_code, 201)
+            self.assertEqual((await other.post("/auth/login", json={
+                "email": "other@example.test",
+                "password": "Another-Fictional-Password-1234"})).status_code, 200)
+            self.assertEqual((await other.get("/chats")).json()["chats"], [])
+            self.assertIsNone((await other.get("/checkout")).json()["payment_order_id"])
+            with patch.object(paystack_service, "_request", side_effect=AssertionError("must not call provider")):
+                refused = await other.post("/payments/verify", json={"reference": reference})
+                self.assertEqual(refused.status_code, 400, refused.text)
+        finally:
+            await other.aclose()
+
+        # New order must not resurrect the completed payment card.
+        with models.get_connection() as conn:
+            conn.execute("UPDATE conversation_sessions SET cart_data=? WHERE session_id=?", (
+                json.dumps({"items": [{"product_id": self.product_id, "quantity": 1,
+                                      "variant": "standard", "modifications": []}]}),
+                f"customer-{self.customer_id}"))
+        new_cart = (await self.client.get("/checkout")).json()
+        self.assertTrue(new_cart["cart_has_items"])
+        self.assertIsNone(new_cart["payment_order_id"])
+        next_review = (await self.prepare()).json()
+        self.assertEqual(next_review["status"], "ready_for_review")
+        self.assertNotEqual(next_review["checkout_id"], ready["checkout_id"])
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT quantity FROM inventory WHERE product_id=?", (self.product_id,)
+            ).fetchone()[0], 8)
+
     async def test_failed_preparation_never_creates_an_order(self):
         bad = await self.client.post("/checkout/prepare", json={
             "customer_name": "Test Customer", "phone": "invalid",
