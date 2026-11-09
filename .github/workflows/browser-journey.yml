@@ -9,6 +9,7 @@ on:
       - 'data/**'
       - 'scripts/test_browser_customer_journey.py'
       - 'scripts/mock_payment_backend.py'
+      - 'scripts/diagnose_sse_proxy.py'
       - '.github/workflows/browser-journey.yml'
   push:
     branches: [main]
@@ -71,6 +72,8 @@ jobs:
           else:
               raise SystemExit("Isolated servers did not become ready")
           PY
+      - name: Verify unbuffered Next.js AG-UI proxy against direct FastAPI SSE
+        run: python -m scripts.diagnose_sse_proxy
       - name: Run real Chromium customer journey with mocked providers
         run: python -m scripts.test_browser_customer_journey
       - name: Show isolated server diagnostics on failure
@@ -87,3 +90,71 @@ jobs:
             /tmp/naija-browser-backend.log
             /tmp/naija-browser-frontend.log
           if-no-files-found: ignore
+
+  production-sse-proxy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NAIJA_BITES_ENV: development
+      NAIJA_BITES_TEST_MOCK_PAYMENTS: '1'
+      NAIJA_BITES_DATA_DIR: /tmp/naija-bites-prod-proxy-isolated
+      NEXT_BACKEND_URL: https://localhost:8443
+      NAIJA_BITES_BENCH_BACKEND_URL: https://localhost:8443
+      NAIJA_BITES_TEST_HTTPS: '1'
+      NAIJA_BITES_TEST_CA_CERT: /tmp/naija-proxy-test.crt
+      NODE_EXTRA_CA_CERTS: /tmp/naija-proxy-test.crt
+      NEXT_PUBLIC_DEMO_MODE: 'true'
+      NAIJA_BITES_FRONTEND_BENCH_PORT: '3001'
+      NAIJA_BITES_CHECK_COLD_STREAM: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: python -m pip install -r requirements.txt
+      - run: cd frontend && npm ci
+      - name: Generate disposable localhost TLS certificate (never disable validation)
+        run: |
+          umask 077
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout /tmp/naija-proxy-test.key \
+            -out /tmp/naija-proxy-test.crt \
+            -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1'
+      - name: Build production Next.js server with isolated upstream
+        run: cd frontend && npm run build
+      - name: Start disposable FastAPI and production-built Next.js
+        run: |
+          mkdir -p "$NAIJA_BITES_DATA_DIR"
+          python -m data.database.models
+          python -m scripts.mock_payment_backend > /tmp/naija-prod-proxy-backend.log 2>&1 &
+          (cd frontend && npm run start -- --port 3001) > /tmp/naija-prod-proxy-frontend.log 2>&1 &
+      - name: Await production-built local servers
+        run: |
+          python - <<'PY'
+          import time
+          import httpx
+          for attempt in range(90):
+              try:
+                  with httpx.Client(timeout=3, verify="/tmp/naija-proxy-test.crt") as client:
+                      if (client.get("https://localhost:8443/ping").status_code == 200
+                          and client.get("http://127.0.0.1:3001/").status_code == 200):
+                          break
+              except (httpx.HTTPError, OSError):
+                  pass
+              time.sleep(2)
+          else:
+              raise SystemExit("Production-built local test servers did not become ready")
+          PY
+      - name: Gate cold and warm SSE from actual production Next.js build
+        run: python -m scripts.diagnose_sse_proxy
+      - name: Show isolated production server diagnostics on failure
+        if: failure()
+        run: |
+          tail -120 /tmp/naija-prod-proxy-backend.log || true
+          tail -120 /tmp/naija-prod-proxy-frontend.log || true
