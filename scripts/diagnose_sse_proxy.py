@@ -22,7 +22,7 @@ def measure(url: str) -> dict:
     started = time.perf_counter()
     first = None
     count = 0
-    with httpx.Client(timeout=30) as client:
+    with httpx.Client(timeout=30, verify=os.getenv("NAIJA_BITES_TEST_CA_CERT") or True) as client:
         with client.stream("POST", url,
                            headers={"Accept": "text/event-stream"},
                            json=PAYLOAD) as response:
@@ -52,7 +52,7 @@ def median_runs(url: str, repeats: int) -> dict:
 
 
 def main():
-    backend = "http://127.0.0.1:8000/agent"
+    backend = os.getenv("NAIJA_BITES_BENCH_BACKEND_URL", "http://127.0.0.1:8000") + "/agent"
     frontend = f"http://127.0.0.1:{os.getenv('NAIJA_BITES_FRONTEND_BENCH_PORT', '3000')}/api/backend/agent"
     # The dynamic Next.js endpoint has a one-time development compilation
     # cost; record it but compare warmed streams with the same live backend.
@@ -75,7 +75,7 @@ def main():
         "Streaming proxy added significant total completion latency")
     # Security and observability: specialized stream path must retain FastAPI
     # Origin checks, status codes and request IDs rather than bypass them.
-    with httpx.Client(timeout=15) as client:
+    with httpx.Client(timeout=15, verify=os.getenv("NAIJA_BITES_TEST_CA_CERT") or True) as client:
         denied = client.post(frontend, json=PAYLOAD,
                              headers={"Origin": "https://untrusted.example"})
         assert denied.status_code == 403, (
