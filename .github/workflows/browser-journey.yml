@@ -1,0 +1,89 @@
+name: Naija Bites isolated Chromium journey
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'core/**'
+      - 'data/**'
+      - 'scripts/test_browser_customer_journey.py'
+      - 'scripts/mock_payment_backend.py'
+      - '.github/workflows/browser-journey.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'core/**'
+      - 'data/**'
+      - 'scripts/test_browser_customer_journey.py'
+      - 'scripts/mock_payment_backend.py'
+      - '.github/workflows/browser-journey.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-customer-journey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NAIJA_BITES_ENV: development
+      NAIJA_BITES_TEST_MOCK_PAYMENTS: '1'
+      NAIJA_BITES_DATA_DIR: /tmp/naija-bites-chromium-isolated
+      NEXT_BACKEND_URL: http://127.0.0.1:8000
+      NEXT_PUBLIC_DEMO_MODE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: python -m pip install -r requirements.txt playwright==1.56.0
+      - run: python -m playwright install --with-deps chromium
+      - run: cd frontend && npm ci
+      - name: Start isolated mocked backend and frontend
+        run: |
+          mkdir -p "$NAIJA_BITES_DATA_DIR"
+          python -m data.database.models
+          python -m scripts.mock_payment_backend > /tmp/naija-browser-backend.log 2>&1 &
+          (cd frontend && npm run dev -- --hostname 127.0.0.1) > /tmp/naija-browser-frontend.log 2>&1 &
+      - name: Await isolated servers
+        run: |
+          python - <<'PY'
+          import time
+          import httpx
+          for attempt in range(90):
+              try:
+                  with httpx.Client(timeout=3) as client:
+                      if (client.get("http://127.0.0.1:8000/ping").status_code == 200
+                          and client.get("http://127.0.0.1:3000/").status_code == 200):
+                          print("Disposable frontend/backend ready")
+                          break
+              except (httpx.HTTPError, OSError):
+                  pass
+              time.sleep(2)
+          else:
+              raise SystemExit("Isolated servers did not become ready")
+          PY
+      - name: Run real Chromium customer journey with mocked providers
+        run: python -m scripts.test_browser_customer_journey
+      - name: Show isolated server diagnostics on failure
+        if: failure()
+        run: |
+          tail -120 /tmp/naija-browser-backend.log || true
+          tail -120 /tmp/naija-browser-frontend.log || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: naija-browser-diagnostics
+          path: |
+            /tmp/naija-browser-failure.png
+            /tmp/naija-browser-backend.log
+            /tmp/naija-browser-frontend.log
+          if-no-files-found: ignore
