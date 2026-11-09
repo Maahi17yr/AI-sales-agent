@@ -150,6 +150,58 @@ def main():
             page.get_by_role("button", name="Prepare order review").wait_for(timeout=30000)
             assert page.get_by_role("region", name="Paystack test payment").count() == 0
 
+            # Regression for the stuck ghost Paystack card: linked old orders
+            # must expire, and a customer can dismiss a recent payment request
+            # without cancelling or deleting the underlying fictional order.
+            with get_connection() as conn:
+                zone_id = conn.execute(
+                    "SELECT id FROM delivery_zones WHERE area=?",
+                    ("Browser Test Zone",),
+                ).fetchone()["id"]
+                old_id = conn.execute(
+                    "INSERT INTO orders (customer_id, delivery_zone_id, "
+                    "delivery_address, subtotal, delivery_fee, discount, total, status) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_payment')",
+                    (customer_id, zone_id, "Old browser test", 4500, 1000, 0, 5500),
+                ).lastrowid
+                conn.execute(
+                    "UPDATE orders SET created_at=? WHERE id=?",
+                    ("2020-01-01 00:00:00", old_id),
+                )
+                conn.execute(
+                    "UPDATE conversation_sessions SET cart_data=? WHERE session_id=?",
+                    (json.dumps({"items": [], "last_checkout": {"order_id": old_id}}),
+                     f"customer-{customer_id}"),
+                )
+            page.reload(wait_until="domcontentloaded")
+            page.locator("#message-input").wait_for(timeout=30000)
+            assert page.get_by_role("region", name="Paystack test payment").count() == 0
+
+            with get_connection() as conn:
+                fresh_id = conn.execute(
+                    "INSERT INTO orders (customer_id, delivery_zone_id, "
+                    "delivery_address, subtotal, delivery_fee, discount, total, status) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_payment')",
+                    (customer_id, zone_id, "Recent browser test", 4500, 1000, 0, 5500),
+                ).lastrowid
+                conn.execute(
+                    "UPDATE conversation_sessions SET cart_data=? WHERE session_id=?",
+                    (json.dumps({"items": [], "last_checkout": {"order_id": fresh_id}}),
+                     f"customer-{customer_id}"),
+                )
+            page.reload(wait_until="domcontentloaded")
+            payment_card = page.get_by_role("region", name="Paystack test payment")
+            payment_card.wait_for(timeout=30000)
+            assert f"Pay for order #{fresh_id}" in payment_card.inner_text()
+            page.get_by_role("button", name="Not my current order").click()
+            payment_card.wait_for(state="detached", timeout=30000)
+            page.reload(wait_until="domcontentloaded")
+            page.locator("#message-input").wait_for(timeout=30000)
+            assert page.get_by_role("region", name="Paystack test payment").count() == 0
+            with get_connection() as conn:
+                assert conn.execute("SELECT status FROM orders WHERE id=?", (fresh_id,)
+                    ).fetchone()["status"] == "pending_payment"
+
             other = browser.new_context()
             other_page = other.new_page()
             try:
