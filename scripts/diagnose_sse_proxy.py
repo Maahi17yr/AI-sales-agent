@@ -3,6 +3,7 @@
 Mock agent only. This script never sends live model or payment requests.
 """
 import json
+import statistics
 import time
 import httpx
 
@@ -38,19 +39,36 @@ def measure(url: str) -> dict:
     }
 
 
+def median_runs(url: str, repeats: int) -> dict:
+    records = [measure(url) for _ in range(repeats)]
+    return {
+        "first_chunk_ms": round(statistics.median(
+            record["first_chunk_ms"] for record in records), 1),
+        "complete_ms": round(statistics.median(
+            record["complete_ms"] for record in records), 1),
+        "http_chunks": min(record["http_chunks"] for record in records),
+    }
+
+
 def main():
-    direct = measure("http://127.0.0.1:8000/agent")
-    proxy = measure("http://127.0.0.1:3000/api/backend/agent")
+    backend = "http://127.0.0.1:8000/agent"
+    frontend = "http://127.0.0.1:3000/api/backend/agent"
+    # The dynamic Next.js endpoint has a one-time development compilation
+    # cost; record it but compare warmed streams with the same live backend.
+    cold_proxy = measure(frontend)
+    direct = median_runs(backend, 3)
+    proxy = median_runs(frontend, 3)
     print("SSE_PROXY_DIAGNOSTIC=" +
-          json.dumps({"direct": direct, "proxy": proxy}, sort_keys=True),
+          json.dumps({"direct": direct, "proxy": proxy,
+                      "cold_proxy": cold_proxy}, sort_keys=True),
           flush=True)
-    assert direct["http_chunks"] > 20, "Mock backend not streaming as expected"
+    assert direct["http_chunks"] > 20, "Mock backend not streaming"
     assert proxy["http_chunks"] > 20, (
         "Next.js buffered AG-UI response instead of forwarding SSE chunks")
-    assert proxy["first_chunk_ms"] < min(500, direct["complete_ms"] * 0.25), (
-        "First text chunk through frontend proxy arrived after excessive buffering")
+    assert proxy["first_chunk_ms"] < min(350, direct["complete_ms"] * 0.25), (
+        "Warmed Next proxy delayed first SSE chunk excessively")
     assert proxy["complete_ms"] <= direct["complete_ms"] * 1.35, (
-        "Frontend streaming proxy added significant total completion latency")
+        "Streaming proxy added significant total completion latency")
 
 
 if __name__ == "__main__":
