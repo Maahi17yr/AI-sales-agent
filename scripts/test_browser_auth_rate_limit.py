@@ -3,6 +3,7 @@
 Runs only against disposable local backend and fictional customers.
 """
 import os
+import re
 from uuid import uuid4
 
 from playwright.sync_api import sync_playwright
@@ -30,9 +31,13 @@ def main():
 
         def mock_agent(route):
             agent_headers.append(route.request.headers)
+            newline = chr(10)
+            events = [
+                'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"Fictional response"}',
+                'data: {"type":"RUN_FINISHED"}',
+            ]
             route.fulfill(status=200, content_type="text/event-stream",
-                body='data: {"type":"TEXT_MESSAGE_CONTENT","delta":"Fictional response"}\\n\\n'
-                     'data: {"type":"RUN_FINISHED"}\\n\\n'.replace("\\\\n", "\\n"))
+                          body=(newline + newline).join(events) + newline + newline)
 
         page.route("**/api/backend/auth/me", rate_limited_auth)
         page.route("**/api/backend/agent", mock_agent)
@@ -55,7 +60,7 @@ def main():
             page.locator('input[name="password"]').fill("Unique-Fictional-Password-123456")
             page.get_by_role("button", name="Create account").click()
             page.locator("#message-input").wait_for(timeout=30000)
-            page.get_by_role("button", name="Browse the menu").click()
+            page.get_by_role("button", name=re.compile("Browse the menu")).click()
             page.get_by_text("Fictional response").wait_for(timeout=30000)
             assert agent_headers, "Chat agent request not issued"
             assert agent_headers[-1].get("x-naija-bites-expected-customer"), (
