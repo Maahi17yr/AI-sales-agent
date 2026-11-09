@@ -925,6 +925,29 @@ export default function Home() {
     }
   }
 
+  async function hidePaymentPrompt() {
+    if (!paymentOrder || paymentBusy) return;
+    const orderId = paymentOrder;
+    setPaymentBusy(true);
+    setCheckoutError('');
+    try {
+      const response = await apiFetch('/checkout/dismiss-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId }),
+      });
+      if (!response.ok) throw new Error('Could not hide the payment card. Please retry.');
+      const state: CheckoutResponse = await response.json();
+      checkoutSyncSequence.current++;
+      applyCheckoutState(state);
+      setCheckoutResult('');
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : 'Could not hide the payment card.');
+    } finally {
+      setPaymentBusy(false);
+    }
+  }
+
   async function payNow() {
     if (!paymentOrder || paymentBusy) return;
     setPaymentBusy(true);
@@ -1193,6 +1216,9 @@ export default function Home() {
                 <label htmlFor="payment-email">Email for payment receipt</label>
                 <input id="payment-email" type="email" value={paymentEmail} onChange={e => setPaymentEmail(e.target.value)} placeholder="you@example.com" style={{width:'100%',padding:'12px',borderRadius:12,border:'1px solid #ddd',margin:'8px 0 14px'}}/>
                 <button className="primary-action" onClick={() => void payNow()} disabled={paymentBusy || !paymentEmail.includes('@')}>{paymentBusy ? 'Opening Paystack…' : 'Pay Now (Test Mode)'}</button>
+                <button type="button" className="secondary-action" onClick={() => void hidePaymentPrompt()} disabled={paymentBusy} style={{marginLeft: 12}}>
+                  Not my current order · Hide payment card
+                </button>
               </div>
             </section>}
              {checkoutError && <div className="inline-alert" role="alert">{checkoutError} <button type="button" className="checkout-retry" onClick={() => void refreshCheckout()}>Retry sync</button></div>}

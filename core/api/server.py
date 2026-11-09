@@ -73,7 +73,7 @@ from data.database import repository
 from core.intelligence.agent import make_agent
 
 from core.services.checkout import CheckoutService
-from core.services.checkout_state import get_checkout_state
+from core.services.checkout_state import get_checkout_state, dismiss_payment_card
 from core.memory.context import bounded_chat_messages
 from core.memory.token_metrics import log_token_usage
 from core.services.cart import CartService
@@ -182,6 +182,10 @@ class ChatMessage(BaseModel):
 class SaveChatRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     messages: list[ChatMessage] = Field(min_length=1, max_length=300)
+
+
+class PaymentDismiss(BaseModel):
+    order_id: int = Field(gt=0)
 
 
 class PaymentInitialize(BaseModel):
@@ -682,6 +686,18 @@ async def get_checkout(request: Request):
 
     session_id = _customer_session(request)
     return get_checkout_state(session_id)
+
+
+@app.post("/checkout/dismiss-payment")
+async def dismiss_checkout_payment(payload: PaymentDismiss, request: Request):
+    """Dismiss a stale payment card for this customer, never cancel their order."""
+    session_id = _customer_session(request)
+    async with _agent_lock(session_id):
+        try:
+            dismiss_payment_card(session_id, payload.order_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return get_checkout_state(session_id)
 
 
 @app.post("/checkout/prepare")
