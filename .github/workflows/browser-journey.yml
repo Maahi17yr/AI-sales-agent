@@ -71,8 +71,12 @@ jobs:
           else:
               raise SystemExit("Isolated servers did not become ready")
           PY
+      - name: Diagnose SSE delivery timing through frontend proxy
+        run: python -m scripts.diagnose_sse_proxy
       - name: Run real Chromium customer journey with mocked providers
         run: python -m scripts.test_browser_customer_journey
+      - name: A/B benchmark legacy versus frame-batched SSE rendering
+        run: python -m scripts.benchmark_stream_browser
       - name: Show isolated server diagnostics on failure
         if: failure()
         run: |
