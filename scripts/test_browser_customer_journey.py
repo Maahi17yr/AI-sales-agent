@@ -206,7 +206,7 @@ def main():
                 print("SECOND_TAB_AUTH_BEFORE:", second_tab.evaluate("fetch('/api/backend/auth/me',{credentials:'include'}).then(r=>r.status)"))
                 second_tab.locator(".account-logout").evaluate("(element) => element.click()")
                 try:
-                    second_tab.get_by_role("heading", name="Welcome back").wait_for(timeout=8000)
+                    second_tab.locator(".auth-card").wait_for(timeout=8000)
                 except Exception:
                     print("SECOND_TAB_AFTER_LOGOUT_AUTH:", second_tab.evaluate("fetch('/api/backend/auth/me',{credentials:'include'}).then(r=>r.status)"))
                     print("SECOND_TAB_AFTER_LOGOUT_BODY:", second_tab.locator("body").inner_text()[-2000:])
