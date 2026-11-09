@@ -478,17 +478,17 @@ export default function Home() {
       lastCheckoutFingerprint.current = null;
       setCheckout(null);
     }
-    setPaymentOrder(current => {
-      // After a successful confirmation, an in-flight SSE event or a stale
-      // checkout read can temporarily report "cart". Do not let that erase
-      // the payment screen; only an authoritative paid/new-review state
-      // should close it.
-      if (data.status === 'paid' || data.status === 'ready_for_review') return null;
-      if (data.status === 'payment_pending' && data.payment_order_id) {
-        return data.payment_order_id;
-      }
-      return current;
-    });
+    // The authenticated checkout snapshot is authoritative. Never retain
+    // a historical payment card after the server reports an empty cart.
+    // After confirmation, the server persists last_checkout before replying.
+    setPaymentOrder(
+      data.status === 'payment_pending' &&
+      typeof data.payment_order_id === 'number' &&
+      Number.isSafeInteger(data.payment_order_id) &&
+      data.payment_order_id > 0
+        ? data.payment_order_id
+        : null
+    );
     setCheckoutError('');
   }, []);
 

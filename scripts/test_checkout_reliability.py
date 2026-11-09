@@ -292,6 +292,60 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT quantity FROM inventory WHERE product_id=?", (self.product_id,)
             ).fetchone()[0], 8)
 
+    async def test_historical_unpaid_order_is_not_active_without_checkout_link(self):
+        # An unrelated earlier order can still be unpaid, but it must not
+        # become the current payment card after starting a fresh session/cart.
+        with models.get_connection() as conn:
+            zone = conn.execute(
+                "SELECT id FROM delivery_zones WHERE area = ?",
+                ("Lekki Phase 1",),
+            ).fetchone()["id"]
+            order_id = conn.execute(
+                "INSERT INTO orders (customer_id, delivery_zone_id, "
+                "delivery_address, subtotal, delivery_fee, discount, total, status) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_payment')",
+                (self.customer_id, zone, "Old test address", 4500, 4500, 0, 9000),
+            ).lastrowid
+        state = (await self.client.get("/checkout")).json()
+        self.assertEqual(state["status"], "cart")
+        self.assertIsNone(state["payment_order_id"])
+        self.assertTrue(state["cart_has_items"])
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT status FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()["status"], "pending_payment")
+
+    async def test_lost_checkout_link_only_recovers_recent_unpaid_order(self):
+        ready = (await self.prepare()).json()
+        approved = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True,
+            "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"],
+        })
+        self.assertEqual(approved.status_code, 200, approved.text)
+        old_order = approved.json()["order_id"]
+        with models.get_connection() as conn:
+            conn.execute(
+                "UPDATE conversation_sessions SET cart_data = ? WHERE session_id = ?",
+                (json.dumps({"items": []}), f"customer-{self.customer_id}"),
+            )
+        recovered = (await self.client.get("/checkout")).json()
+        self.assertEqual(recovered["status"], "payment_pending")
+        self.assertEqual(recovered["payment_order_id"], old_order)
+        # A historical order is not an active checkout, even if unpaid.
+        with models.get_connection() as conn:
+            conn.execute(
+                "UPDATE orders SET created_at = ? WHERE id = ?",
+                ("2020-01-01 00:00:00", old_order),
+            )
+        state = (await self.client.get("/checkout")).json()
+        self.assertEqual(state["status"], "cart")
+        self.assertIsNone(state["payment_order_id"])
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT status FROM orders WHERE id = ?", (old_order,)
+            ).fetchone()["status"], "pending_payment")
+
     async def test_failed_preparation_never_creates_an_order(self):
         bad = await self.client.post("/checkout/prepare", json={
             "customer_name": "Test Customer", "phone": "invalid",

@@ -5,6 +5,7 @@ checkout state from assistant prose or a browser-supplied session identifier.
 """
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 from data.database.models import get_connection
 from core.services.order_service import fingerprint
@@ -64,17 +65,25 @@ def get_checkout_state(session_id: str) -> dict:
                 (last["order_id"], row["customer_id"]),
             ).fetchone()
 
-        if order is None:
-            # Chat/agent session updates can overwrite the cart snapshot just
-            # after confirmation. The committed order itself is durable:
-            # recover the customer's newest order instead of making the
-            # payment card disappear on the next checkout-state refresh.
-            order = conn.execute(
-                "SELECT id, status FROM orders WHERE customer_id = ? "
+        if order is None and not state["cart_has_items"] and row["customer_id"]:
+            # A concurrent chat save can overwrite last_checkout immediately
+            # after commit. Recover only a very recent order in that case.
+            # Never display an older unpaid order as the active payment card.
+            candidate = conn.execute(
+                "SELECT id, status, created_at FROM orders WHERE customer_id = ? "
                 "ORDER BY id DESC LIMIT 1",
                 (row["customer_id"],),
             ).fetchone()
-
+            if candidate and candidate["status"] == "pending_payment":
+                try:
+                    created = datetime.fromisoformat(str(candidate["created_at"]))
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=timezone.utc)
+                    age = datetime.now(timezone.utc) - created.astimezone(timezone.utc)
+                    if timedelta(0) <= age <= timedelta(minutes=15):
+                        order = candidate
+                except (ValueError, TypeError):
+                    logger.warning("checkout_state_invalid_order_created_at")
         if order and order["status"] == "pending_payment":
             state.update(status="payment_pending", payment_order_id=order["id"])
         elif order and order["status"] in (
