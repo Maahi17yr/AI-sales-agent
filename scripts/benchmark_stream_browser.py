@@ -12,19 +12,15 @@ from playwright.sync_api import sync_playwright
 BASE = "http://127.0.0.1:3000"
 DELTAS = 700
 TEXT = "bite " * DELTAS
-EVENTS = (
-    "\n\n".join(
-        ['data: ' + json.dumps({"type": "TEXT_MESSAGE_CONTENT", "delta": "bite "})
-         for _ in range(DELTAS)] +
-        ['data: {"type":"RUN_FINISHED"}']
-    ) + "\n\n"
-)
+
 
 
 def run_one(page, mode: str, run: int) -> dict:
     path = "/?stream_render_baseline=1" if mode == "baseline" else "/"
     page.goto(BASE + path, wait_until="domcontentloaded")
     page.locator("#message-input").wait_for(timeout=30000)
+    page.get_by_role("button", name="New chat").click()
+    page.wait_for_function("document.querySelectorAll('.message-row.assistant').length === 0")
     page.evaluate("""() => {
       window.__streamMeasure = {start: 0, first: null, mutationCount: 0};
       if (window.__streamObserver) window.__streamObserver.disconnect();
