@@ -66,4 +66,11 @@ if __name__ == "__main__":
                                           "X-Accel-Buffering": "no"})
 
     app.router.routes.insert(0, Route("/agent", benchmark_agent, methods=["POST"]))
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
+    if os.environ.get("NAIJA_BITES_TEST_HTTPS") == "1":
+        # Strictly disposable, short-lived self-signed CA for the real Next
+        # production build; never weaken HTTPS validation to run the test.
+        uvicorn.run(app, host="127.0.0.1", port=8443, log_level="warning",
+                    ssl_keyfile="/tmp/naija-proxy-test.key",
+                    ssl_certfile="/tmp/naija-proxy-test.crt")
+    else:
+        uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
