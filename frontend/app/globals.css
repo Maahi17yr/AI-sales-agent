@@ -1385,3 +1385,7 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
 .theme-dark .food-memory-review, .theme-dark .food-memory-saved { background: #19291f; color: #e2efe3; border-color: #355441; }
 .theme-dark .food-memory-detail { background: rgba(147,197,148,.10); }
 .theme-dark .food-memory-notice { color: #bbe0be; }
+
+/* Keep account controls reachable on short desktop viewports. The chat column
+   scrolls independently; the navigation must have its own vertical scroll. */
+.site-shell .side-panel{height:100dvh;max-height:100dvh;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain}
