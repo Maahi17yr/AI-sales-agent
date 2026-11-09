@@ -64,17 +64,10 @@ def get_checkout_state(session_id: str) -> dict:
                 (last["order_id"], row["customer_id"]),
             ).fetchone()
 
-        if order is None:
-            # Chat/agent session updates can overwrite the cart snapshot just
-            # after confirmation. The committed order itself is durable:
-            # recover the customer's newest order instead of making the
-            # payment card disappear on the next checkout-state refresh.
-            order = conn.execute(
-                "SELECT id, status FROM orders WHERE customer_id = ? "
-                "ORDER BY id DESC LIMIT 1",
-                (row["customer_id"],),
-            ).fetchone()
-
+        # Never substitute the customer's latest order for a missing checkout
+        # reference: an unrelated historical unpaid order must not appear as
+        # the active payment request. Only last_checkout explicitly links the
+        # current session to a durable, confirmed checkout.
         if order and order["status"] == "pending_payment":
             state.update(status="payment_pending", payment_order_id=order["id"])
         elif order and order["status"] in (
