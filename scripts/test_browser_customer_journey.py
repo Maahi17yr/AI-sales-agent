@@ -50,10 +50,13 @@ def main():
 
         def mock_agent(route):
             agent_calls.append(route.request.url)
-            body = ('data: {"type":"TEXT_MESSAGE_CONTENT","delta":"Fictional menu is ready."}\\n\\n'
-                    'data: {"type":"RUN_FINISHED"}\\n\\n')
+            newline = chr(10)
+            body = (newline + newline).join([
+                'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"Fictional menu is ready."}',
+                'data: {"type":"RUN_FINISHED"}',
+            ]) + newline + newline
             route.fulfill(status=200, content_type="text/event-stream",
-                          headers={"Cache-Control": "no-cache"}, body=body.replace("\\\\n", "\\n"))
+                          headers={"Cache-Control": "no-cache"}, body=body)
 
         page.route("**/paystack-mock.test/**", serve_mock_checkout)
         page.route("**/api/backend/agent", mock_agent)
