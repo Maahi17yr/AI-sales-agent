@@ -202,8 +202,11 @@ def main():
 
                 # Logout is inside collapsible navigation; exercise its actual
                 # React action without depending on viewport/hover animations.
+                print("SECOND_TAB_BEFORE_LOGOUT:", second_tab.locator("body").inner_text()[-450:])
+                print("SECOND_TAB_AUTH_BEFORE:", second_tab.evaluate("fetch('/api/backend/auth/me',{credentials:'include'}).then(r=>r.status)"))
                 second_tab.locator(".account-logout").evaluate("(element) => element.click()")
-                second_tab.get_by_role("heading", name="Welcome back").wait_for(timeout=30000)
+                second_tab.get_by_role("heading", name="Welcome back").wait_for(timeout=15000)
+                print("SECOND_TAB_AUTH_AFTER:", second_tab.evaluate("fetch('/api/backend/auth/me',{credentials:'include'}).then(r=>r.status)"))
                 page.reload(wait_until="domcontentloaded")
                 page.get_by_role("heading", name="Welcome back").wait_for(timeout=30000)
                 page.locator('input[name="email"]').fill(email)
@@ -215,6 +218,8 @@ def main():
                 second_tab.close()
             print("PASS: Chromium journey, failed streams, network recovery, shared-tab logout, account switching and chat isolation")
         except Exception:
+            if "second_tab" in locals() and not second_tab.is_closed():
+                print("SECOND_TAB_DIAGNOSTIC_BODY:", second_tab.locator("body").inner_text()[-1800:])
             print("BROWSER_DIAGNOSTIC_AGENT_CALLS:", agent_calls)
             print("BROWSER_DIAGNOSTIC_URL:", page.url)
             print("BROWSER_DIAGNOSTIC_BODY:", page.locator("body").inner_text()[-3000:])
