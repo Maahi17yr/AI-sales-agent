@@ -125,6 +125,11 @@ const API = '/api/backend';
 const uid = () => crypto.randomUUID();
 
 // Remove model-internal planning, including incomplete streaming think blocks.
+function isBaselineStreamRendering(): boolean {
+  return process.env.NODE_ENV === 'development' &&
+    new URLSearchParams(window.location.search).has('stream_render_baseline');
+}
+
 function customerFacingText(text: string): string {
   return text
     .replace(/<(?:think|thinking)\b[^>]*>[\s\S]*?<\/(?:think|thinking)\s*>/gi, '')
@@ -407,7 +412,7 @@ export default function Home() {
       try { window.localStorage.setItem(historyKey(customer.id), JSON.stringify(savedChats)); }
       catch { /* Storage may be disabled or full; chat still works in this tab. */ }
     };
-    if (!busy) { save(); return; }
+    if (!busy || isBaselineStreamRendering()) { save(); return; }
     // Keep a recoverable snapshot during a reply without serializing every chat per frame.
     window.addEventListener('pagehide', save);
     const timer = window.setTimeout(save, 250);
@@ -708,8 +713,7 @@ export default function Home() {
     const queueAssistantRender = () => {
       // A/B control is available in local development only. Production always
       // uses frame coalescing; checkout/tool behavior is unchanged.
-      if (!renderedText || (process.env.NODE_ENV === 'development' &&
-          new URLSearchParams(window.location.search).has('stream_render_baseline'))) {
+      if (!renderedText || isBaselineStreamRendering()) {
         renderAssistantText();
       } else if (scheduledTextFrame === null) {
         scheduledTextFrame = window.requestAnimationFrame(renderAssistantText);
