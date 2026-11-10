@@ -136,7 +136,11 @@ def run_turn(page, prompt, scenario):
 
 def main():
     require_isolated()
-    results = []
+    previous = Path("/tmp/stage1-prior/stage1-live-results.json")
+    results = json.loads(previous.read_text())["runs"] if previous.exists() else []
+    previous_budget = Path("/tmp/stage1-prior/stage1-live-budget.json")
+    if previous_budget.exists():
+        Path("/tmp/stage1-live-budget.json").write_text(previous_budget.read_text())
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         pages = {mode: register(browser) for mode in ("baseline", "optimized")}
@@ -152,6 +156,10 @@ def main():
             for index, (scenario, prompt) in enumerate(scenarios):
                 order = ("baseline", "optimized") if index % 2 == 0 else ("optimized", "baseline")
                 for mode in order:
+                    existing = [row for row in results if row["mode"] == mode and row["scenario"] == scenario]
+                    if {row["temperature"] for row in existing} == {"process_cold", "warm"}:
+                        continue
+                    results = [row for row in results if row not in existing]
                     page = pages[mode]
                     if scenario == "followup":
                         seed_long_chat(page)
