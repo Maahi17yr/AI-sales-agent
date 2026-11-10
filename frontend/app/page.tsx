@@ -234,6 +234,13 @@ export default function Home() {
   const [historyReady, setHistoryReady] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
   const [historyNotice, setHistoryNotice] = useState('');
+  const [historyCleared, setHistoryCleared] = useState(false);
+
+  useEffect(() => {
+    if (!historyCleared) return;
+    const timer = window.setTimeout(() => setHistoryCleared(false), 1000);
+    return () => window.clearTimeout(timer);
+  }, [historyCleared]);
   const clearingHistoryRef = useRef(false);
   const pendingHistoryWrites = useRef(new Set<Promise<unknown>>());
 
@@ -604,10 +611,10 @@ export default function Home() {
 
   async function clearAllHistory() {
     if (busy || confirming || paymentBusy || clearingHistoryRef.current || !historyReady || savedChats.length === 0) return;
-    if (!window.confirm('Permanently delete all saved conversations? This cannot be undone. Your cart and orders will not be deleted.')) return;
     clearingHistoryRef.current = true;
     setClearingHistory(true);
     setHistoryNotice('');
+    setHistoryCleared(false);
     // Wait for pending cloud saves, otherwise a late PUT can recreate deleted chats.
     setHistoryReady(false);
     try {
@@ -634,7 +641,7 @@ export default function Home() {
       setCheckoutError('');
       setCheckoutResult('');
       setMobileMenuOpen(false);
-      setHistoryNotice('Chat history cleared successfully.');
+      setHistoryCleared(true);
     } catch (error) {
       setHistoryNotice(error instanceof Error ? error.message : 'Unable to clear history. Please try again.');
     } finally {
@@ -1293,6 +1300,12 @@ export default function Home() {
         onViewCart={() => { void send('Show me my current cart and help me check out.'); }}
         apiFetch={apiFetch} refreshKey={messages.length + (busy ? 1 : 0)}
         disabled={busy || confirming || !threadId} checkoutTotal={checkout?.summary.total}/>
+      {historyCleared && (
+        <div className="payment-toast history-toast" role="status" aria-live="polite" aria-atomic="true">
+          <Check size={20} aria-hidden="true" />
+          <span>Chat history cleared successfully.</span>
+        </div>
+      )}
       {paymentMessage && (
         <div
           className={`payment-toast ${paymentToastSuccess ? 'payment-toast--success' : 'payment-toast--warning'}`}
