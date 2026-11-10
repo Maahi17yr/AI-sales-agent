@@ -665,6 +665,9 @@ export default function Home() {
     const requestStartedAt = performance.now();
     let headersReceivedAt: number | null = null;
     let firstTokenAt: number | null = null;
+    let lastTextAt: number | null = null;
+    let maxTextGapMs = 0;
+    let textEvents = 0;
 
     const assistantId = uid();
     let assistantText = '';
@@ -797,8 +800,14 @@ export default function Home() {
           typeof evt.delta === 'string'
         ) {
           gotText = true;
-          setShowTyping(false);
-          if (firstTokenAt === null) firstTokenAt = performance.now();
+          const receivedAt = performance.now();
+          if (firstTokenAt === null) {
+            firstTokenAt = receivedAt;
+            setShowTyping(false);
+          }
+          if (lastTextAt !== null) maxTextGapMs = Math.max(maxTextGapMs, receivedAt - lastTextAt);
+          lastTextAt = receivedAt;
+          textEvents++;
           assistantText += evt.delta;
 
           queueAssistantRender();
@@ -848,6 +857,9 @@ export default function Home() {
 
       // Diagnostic timings (no message content or personal data logged).
       console.info('[Naija Bites latency]', {
+        request_id: response.headers.get('x-request-id'),
+        max_text_gap_ms: Math.round(maxTextGapMs),
+        text_events: textEvents,
         response_headers_ms: headersReceivedAt === null ? null : Math.round(headersReceivedAt - requestStartedAt),
         first_token_ms: firstTokenAt === null ? null : Math.round(firstTokenAt - requestStartedAt),
         total_ms: Math.round(performance.now() - requestStartedAt),
