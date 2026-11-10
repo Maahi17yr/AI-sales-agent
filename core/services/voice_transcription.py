@@ -1,4 +1,5 @@
 """Transcribe a short voice recording through a dedicated Bedrock speech model."""
+from contextlib import closing
 import logging
 import os
 
@@ -21,9 +22,9 @@ def transcribe(audio: bytes, content_type: str) -> str:
     model_id = os.getenv("BEDROCK_TRANSCRIPTION_MODEL_ID", "mistral.voxtral-mini-3b-2507")
     region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
     try:
-        with boto3.client("bedrock-runtime", region_name=region,
+        with closing(boto3.client("bedrock-runtime", region_name=region,
                           config=Config(connect_timeout=5, read_timeout=35,
-                                        retries={"total_max_attempts": 1})) as client:
+                                        retries={"total_max_attempts": 1}))) as client:
             result = client.converse(
                 modelId=model_id,
                 messages=[{"role": "user", "content": [
