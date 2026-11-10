@@ -1305,7 +1305,7 @@ export default function Home() {
         <div className="composer-area">
           <div className="composer-intro"><Sparkles size={15}/> Ask me anything about your next meal</div>
           {voicePanelOpen ? (
-            <VoiceChatPanel apiFetch={apiFetch} open={voicePanelOpen} onClose={() => setVoicePanelOpen(false)} onSend={(text, clip) => { void send(text, clip); }} disabled={busy || confirming || !threadId} />
+            <VoiceChatPanel open={voicePanelOpen} onClose={() => setVoicePanelOpen(false)} onSend={(text, clip) => { void send(text, clip); }} disabled={busy || confirming || !threadId} />
           ) : (
             <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
               <textarea ref={textareaRef} id="message-input" rows={1} aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} disabled={busy || confirming}/>
