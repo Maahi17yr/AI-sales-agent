@@ -5,6 +5,9 @@ import time
 from unittest.mock import patch
 from uuid import uuid4
 from contextvars import ContextVar
+from contextlib import ExitStack
+import boto3
+from core.intelligence import agent as agent_factory
 from data.database import repository
 
 import uvicorn
@@ -105,5 +108,9 @@ if __name__ == "__main__":
         patch.object(repository, "get_orderable_products", timed_menu),
         patch.object(server, "make_agent", timed_make_agent),
     ):
-        uvicorn.run(TraceRequests(app), host="127.0.0.1", port=8444,
+        with ExitStack() as overrides:
+            if os.getenv("STAGE1_SDK_BASELINE") == "1":
+                overrides.enter_context(patch.object(agent_factory, "_bedrock_session",
+                    lambda region: boto3.Session(region_name=region)))
+            uvicorn.run(TraceRequests(app), host="127.0.0.1", port=8444,
                     ssl_keyfile="/tmp/naija-proxy-test.key", ssl_certfile="/tmp/naija-proxy-test.crt")
