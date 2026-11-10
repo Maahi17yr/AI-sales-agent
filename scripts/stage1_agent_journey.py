@@ -1,5 +1,6 @@
 """Chromium -> production Next -> FastAPI -> Strands -> mocked Bedrock -> React."""
 import json
+import os
 import math
 import subprocess
 import sys
@@ -16,10 +17,11 @@ from scripts.test_browser_customer_journey import require_isolated
 
 
 @contextmanager
-def fresh_provider():
+def fresh_provider(mode):
     with open("/tmp/stage1-provider.log", "a") as log:
         proc = subprocess.Popen([sys.executable, "-m", "scripts.stage1_provider_server"],
-                                stdout=log, stderr=subprocess.STDOUT)
+                                stdout=log, stderr=subprocess.STDOUT,
+                                env={**os.environ, 'STAGE1_SDK_BASELINE': '1' if mode == 'baseline' else '0'})
         try:
             with httpx.Client(verify="/tmp/naija-proxy-test.crt") as client:
                 for _ in range(60):
@@ -86,33 +88,41 @@ def run_turn(page, text, expected_words):
             "max_dom_gap_ms": trace["gap"], "dom_updates": trace["changes"]}
 
 
+def register(browser):
+    page = browser.new_page()
+    page.goto("http://127.0.0.1:3000/")
+    page.get_by_role("button", name="Create an account").click()
+    page.locator('input[name="name"]').fill("Stage One")
+    page.locator('input[name="email"]').fill(f"stage1-{uuid4().hex}@example.test")
+    page.locator('input[name="password"]').fill("Stage1-Fictional-Password-25!")
+    page.get_by_role("button", name="Create account").click()
+    page.locator("#message-input").wait_for()
+    return page
+
+
 def main():
     require_isolated()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        page = browser.new_page()
-        page.goto("http://127.0.0.1:3000/")
-        page.get_by_role("button", name="Create an account").click()
-        page.locator('input[name="name"]').fill("Stage One")
-        page.locator('input[name="email"]').fill(f"stage1-{uuid4().hex}@example.test")
-        page.locator('input[name="password"]').fill("Stage1-Fictional-Password-25!")
-        page.get_by_role("button", name="Create account").click()
-        page.locator("#message-input").wait_for()
+        pages = {mode: register(browser) for mode in ('baseline', 'optimized')}
         for scenario, prompt, count in [
             ("simple", "Stage one simple question.", 10),
             ("menu", "Use browse_menu to show the menu.", 10),
             ("long", "Give me a long response.", 100),
             ("followup", "Following up on our earlier conversation.", 10),
         ]:
-            with fresh_provider():
-                first = run_turn(page, prompt, count)
-                print('STAGE1_PROCESS_COLD', scenario, json.dumps(first), flush=True)
-                runs = [run_turn(page, prompt, count) for _ in range(5)]
-            print("STAGE1_MOCK_RUNS", scenario, json.dumps(runs), flush=True)
-            for key in ("first_token_ms", "first_text_delivery_ms", "first_dom_ms", "max_text_gap_ms", "max_dom_gap_ms", "total_ms"):
-                values = sorted(row[key] for row in runs)
-                print(scenario, key, "p50", round(statistics.median(values), 1),
-                      "p95", round(values[math.ceil(len(values) * .95) - 1], 1))
+            order = ("baseline", "optimized") if scenario in ("simple", "long") else ("optimized", "baseline")
+            for mode in order:
+                page = pages[mode]
+                with fresh_provider(mode):
+                    first = run_turn(page, prompt, count)
+                    print('STAGE1_PROCESS_COLD', mode, scenario, json.dumps(first), flush=True)
+                    runs = [run_turn(page, prompt, count) for _ in range(5)]
+                print("STAGE1_MOCK_RUNS", mode, scenario, json.dumps(runs), flush=True)
+                for key in ("agent_init_ms", "first_token_ms", "first_text_delivery_ms", "first_dom_ms", "max_text_gap_ms", "max_dom_gap_ms", "total_ms"):
+                    values = sorted(row[key] for row in runs)
+                    print(mode, scenario, key, "p50", round(statistics.median(values), 1),
+                          "p95", round(values[math.ceil(len(values) * .95) - 1], 1))
         browser.close()
 
 
