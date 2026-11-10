@@ -1,16 +1,22 @@
-"""Bounded, in-memory transcription of completed voice notes."""
+"""Bounded, in-memory transcription of completed voice notes via Groq Whisper.
+
+Only the finished recording goes to the speech provider. The ordering agent
+receives the resulting text, never the audio or the provider API key.
+"""
 import asyncio
 import base64
 import binascii
 import io
-import logging
 import os
 import wave
+
+import httpx
 
 MAX_SECONDS = 90
 SAMPLE_RATE = 16000
 MAX_WAV_BYTES = MAX_SECONDS * SAMPLE_RATE * 2 + 4096
-logger = logging.getLogger(__name__)
+GROQ_TRANSCRIPTIONS_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_MODEL = "whisper-large-v3-turbo"
 
 
 def decode_recording(encoded: str) -> bytes:
@@ -35,46 +41,54 @@ def decode_recording(encoded: str) -> bytes:
         raise ValueError("Voice note audio is invalid.") from exc
 
 
+def encode_wav(pcm: bytes) -> bytes:
+    output = io.BytesIO()
+    with wave.open(output, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(SAMPLE_RATE)
+        audio.writeframes(pcm)
+    return output.getvalue()
+
+
 async def transcribe_pcm(pcm: bytes) -> str:
-    # Lazy imports let disabled deployments run without constructing an AWS client.
-    from aws_sdk_transcribe_streaming.client import AsyncTranscribeStreamingClient
-    from aws_sdk_transcribe_streaming.config import AsyncTranscribeStreamingConfig
-    from aws_sdk_transcribe_streaming.models import (
-        StartStreamTranscriptionInput, AudioStreamAudioEvent, AudioEvent, TranscriptEvent,
-    )
-    from smithy_http.aio.crt import AWSCRTHTTPClient
-    region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
-    config = await AsyncTranscribeStreamingConfig.resolve(
-        region=region, transport=AWSCRTHTTPClient(),
-    )
-    async with AsyncTranscribeStreamingClient(config=config) as client:
-        stream = await client.start_stream_transcription(input=StartStreamTranscriptionInput(
-            language_code="en-US", media_sample_rate_hertz=SAMPLE_RATE, media_encoding="pcm",
-        ))
-        _, output = await stream.await_output()
-        final = {}
-
-        async def send():
-            try:
-                for offset in range(0, len(pcm), 3200):
-                    await stream.input_stream.send(AudioStreamAudioEvent(
-                        value=AudioEvent(audio_chunk=pcm[offset:offset + 3200])))
-            finally:
-                await stream.input_stream.close()
-
-        async def receive():
-            async for event in output:
-                if isinstance(event.value, TranscriptEvent) and event.value.transcript:
-                    for result in event.value.transcript.results or []:
-                        if not result.is_partial and result.alternatives:
-                            text = result.alternatives[0].transcript
-                            if text:
-                                final[result.result_id] = text
-
-        async with asyncio.TaskGroup() as tasks:
-            tasks.create_task(send())
-            tasks.create_task(receive())
-        return " ".join(final.values()).strip()
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Voice transcription is not configured.")
+    # No retries: avoid unintended duplicate provider charges. The frontend
+    # retains the playable recording and offers an explicit retry.
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(24.0, connect=5.0), follow_redirects=False
+        ) as client:
+            response = await client.post(
+                GROQ_TRANSCRIPTIONS_URL,
+                headers={"Authorization": f"Bearer {api_key}"},
+                data={
+                    "model": GROQ_MODEL,
+                    "language": "en",
+                    "response_format": "json",
+                    "temperature": "0",
+                },
+                files={"file": ("voice-note.wav", encode_wav(pcm), "audio/wav")},
+            )
+    except httpx.TimeoutException as exc:
+        raise TimeoutError("Speech transcription timed out.") from exc
+    except httpx.RequestError as exc:
+        raise RuntimeError("Speech transcription provider unavailable.") from exc
+    # Provider response bodies can contain sensitive detail: never log or return them.
+    if response.status_code != 200:
+        raise RuntimeError(f"Speech transcription provider returned HTTP {response.status_code}.")
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError("Speech transcription provider returned invalid JSON.") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("text"), str):
+        raise RuntimeError("Speech transcription provider returned an invalid transcript.")
+    transcript = data["text"].strip()
+    if len(transcript) > 8000:
+        raise RuntimeError("Speech transcription provider returned an oversized transcript.")
+    return transcript
 
 
 async def transcribe_recording(encoded: str) -> str:
