@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: stage1-live-bedrock-72
@@ -31,7 +32,7 @@ jobs:
       NEXT_PUBLIC_DEMO_MODE: 'true'
       AWS_MAX_ATTEMPTS: '1'
       AWS_RETRY_MODE: standard
-      STAGE1_LIVE_BUDGET_USD: '0.90'
+      STAGE1_LIVE_BUDGET_USD: '1.00'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -104,6 +105,14 @@ jobs:
               else:
                   raise RuntimeError("Isolated benchmark servers did not become ready")
           PY
+      - name: Restore completed live cases and cumulative cost
+        if: steps.enabled.outputs.run == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: stage1-live-timing-and-budget
+          run-id: 42804619312
+          github-token: ${{ github.token }}
+          path: /tmp/stage1-prior
       - name: Run approved live inference with bounded budget
         if: steps.enabled.outputs.run == 'true'
         env:
