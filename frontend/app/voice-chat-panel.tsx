@@ -42,7 +42,6 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const [sendAfterStop, setSendAfterStop] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const sendingRef = useRef(false);
-  const transcriptionAbort = useRef<AbortController | null>(null);
   const transcriptRef = useRef('');
   const recordingRef = useRef(false);
   const recognitionFailed = useRef(false);
@@ -89,7 +88,6 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
 
   function discard() {
     recordingRef.current = false;
-    transcriptionAbort.current?.abort();
     sendingRef.current = false;
     setTranscribing(false);
     settleRecognition.current();
@@ -126,8 +124,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     return () => {
       closedRef.current = true;
       recordingRef.current = false;
-      transcriptionAbort.current?.abort();
-      settleRecognition.current();
+        settleRecognition.current();
       window.removeEventListener('keydown', onKeyDown);
       if (timerRef.current) clearInterval(timerRef.current);
       try { recognizerRef.current?.abort(); } catch { /* Ignore. */ }
@@ -235,9 +232,6 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     sendingRef.current = true;
     setTranscribing(true);
     setError('');
-    const controller = new AbortController();
-    transcriptionAbort.current = controller;
-    const timeout = window.setTimeout(() => controller.abort(), 45000);
     try {
       // Browser recognition may produce its final words after MediaRecorder stops.
       if (recognitionSettled.current) {
@@ -246,11 +240,11 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
           new Promise<void>(resolve => window.setTimeout(resolve, 1500)),
         ]);
       }
-      if (closedRef.current || controller.signal.aborted) return;
+      if (closedRef.current) return;
       const text = transcriptRef.current.trim();
       if (!text) throw new Error("No speech was recognized. Tap the microphone to record again, then Send.");
 
-      if (closedRef.current || controller.signal.aborted) return;
+      if (closedRef.current) return;
       transferredRef.current = previewUrl;
       onSend(text, { url: previewUrl, duration: Math.max(1, elapsed) });
       onClose();
@@ -260,9 +254,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
           ? cause.message : 'Sending timed out. Your recording is kept; try Send again.');
       }
     } finally {
-      window.clearTimeout(timeout);
       releaseStream();
-      transcriptionAbort.current = null;
       sendingRef.current = false;
       if (!closedRef.current) {
         setSendAfterStop(false);
@@ -311,6 +303,12 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
         {recording && (
           <button type="button" className="voice-inline-stop" onClick={stopCapture} aria-label="Stop recording to preview" title="Stop recording">
             <Square size={16} fill="currentColor"/>
+          </button>
+        )}
+        {!recording && previewUrl && !transcript.trim() && (
+          <button type="button" className="voice-inline-stop" onClick={() => void startCapture()}
+            disabled={transcribing} aria-label="Record voice note again" title="Record again">
+            <Mic size={18}/>
           </button>
         )}
         {!recording && previewUrl && (
