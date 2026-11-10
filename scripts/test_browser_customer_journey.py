@@ -306,7 +306,7 @@ def main():
             finally:
                 second_tab.close()
             # Stop a pending response, restore its prompt and resend a correction.
-            page.evaluate("""() => {
+            page.evaluate(r"""() => {
                 const originalFetch = window.fetch.bind(window);
                 window.fetch = (input, init) => {
                     const url = typeof input === 'string' ? input : input.url;
@@ -335,7 +335,7 @@ def main():
             page.wait_for_function("""() => window.cancelledMistakenPrompt === true &&
                 !document.querySelector('#message-input').disabled""")
             assert page.locator("#message-input").input_value() == "Cancel this mistaken prompt"
-            assert page.locator("#message-input").evaluate("(element) => element === document.activeElement")
+            page.wait_for_function("document.activeElement === document.querySelector('#message-input')")
             page.locator("#message-input").fill("My corrected prompt")
             page.get_by_role("button", name="Send message").click()
             page.wait_for_function("!document.querySelector('#message-input').disabled")
