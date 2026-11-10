@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/voice-transcription-check.yml'
+      - 'core/services/voice_transcription.py'
 permissions:
   contents: read
 jobs:
