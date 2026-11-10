@@ -26,12 +26,13 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onSend: (transcript: string, clip: VoiceClip) => void;
+  apiFetch: (path: string, init?: RequestInit) => Promise<Response>;
   disabled: boolean;
 };
 
 const formatTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
-export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Props) {
+export default function VoiceChatPanel({ open, onClose, onSend, disabled, apiFetch }: Props) {
   const [recording, setRecording] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -40,6 +41,14 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const [error, setError] = useState('');
   const [playing, setPlaying] = useState(false);
   const [sendAfterStop, setSendAfterStop] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const sendingRef = useRef(false);
+  const transcriptionAbort = useRef<AbortController | null>(null);
+  const transcriptRef = useRef('');
+  const recordingRef = useRef(false);
+  const recognitionFailed = useRef(false);
+  const recognitionSettled = useRef<Promise<void> | null>(null);
+  const settleRecognition = useRef<() => void>(() => {});
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recognizerRef = useRef<SpeechRecognizer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -54,16 +63,21 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  function updateTranscript(value: string) {
+    transcriptRef.current = value;
+    setTranscript(value);
+  }
+
   function releaseStream() {
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
   }
 
   function stopCapture() {
+    recordingRef.current = false;
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
     try { recognizerRef.current?.stop(); } catch { /* Recognition may already have stopped. */ }
-    recognizerRef.current = null;
     if (recorderRef.current?.state === 'recording') {
       setProcessing(true);
       recorderRef.current.stop();
@@ -75,6 +89,11 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   }
 
   function discard() {
+    recordingRef.current = false;
+    transcriptionAbort.current?.abort();
+    sendingRef.current = false;
+    setTranscribing(false);
+    settleRecognition.current();
     setSendAfterStop(false);
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
@@ -89,7 +108,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     if (previewUrlRef.current && previewUrlRef.current !== transferredRef.current) URL.revokeObjectURL(previewUrlRef.current);
     previewUrlRef.current = '';
     setPreviewUrl('');
-    setTranscript('');
+    updateTranscript('');
     setElapsed(0);
     setError('');
     setRecording(false);
@@ -107,6 +126,9 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     window.addEventListener('keydown', onKeyDown);
     return () => {
       closedRef.current = true;
+      recordingRef.current = false;
+      transcriptionAbort.current?.abort();
+      settleRecognition.current();
       window.removeEventListener('keydown', onKeyDown);
       if (timerRef.current) clearInterval(timerRef.current);
       try { recognizerRef.current?.abort(); } catch { /* Ignore. */ }
@@ -154,6 +176,8 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
       recorder.start(250);
       startedRef.current = Date.now();
       setRecording(true);
+      recordingRef.current = true;
+      recognitionFailed.current = false;
       timerRef.current = setInterval(() => {
         const seconds = Math.min(90, Math.floor((Date.now() - startedRef.current) / 1000));
         setElapsed(seconds);
@@ -165,25 +189,34 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
       const speechWindow = window as SpeechWindow;
       const Recognizer = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
       if (!Recognizer) {
-        setError('This browser cannot transcribe speech automatically. Type what you said before sending, or use Chrome/Edge.');
+        recognitionFailed.current = true;
         return;
       }
       const recognizer = new Recognizer();
       recognizerRef.current = recognizer;
+      recognitionSettled.current = new Promise(resolve => { settleRecognition.current = resolve; });
+      let previousSpeech = '';
       recognizer.lang = 'en-NG';
       recognizer.continuous = true;
       recognizer.interimResults = true;
       recognizer.onresult = event => {
         let text = '';
         for (let i = 0; i < event.results.length; i++) text += event.results[i][0]?.transcript ?? '';
-        setTranscript(text.trim());
+        updateTranscript((previousSpeech + ' ' + text).trim());
       };
       recognizer.onerror = event => {
-        if (event.error !== 'aborted') setError('Speech transcription was interrupted. Check or edit the words before sending.');
+        if (event.error !== 'aborted' && event.error !== 'no-speech') recognitionFailed.current = true;
       };
-      recognizer.onend = () => { if (recognizerRef.current === recognizer) recognizerRef.current = null; };
+      recognizer.onend = () => {
+        previousSpeech = transcriptRef.current;
+        if (recordingRef.current && !closedRef.current && !recognitionFailed.current) {
+          try { recognizer.start(); return; } catch { recognitionFailed.current = true; }
+        }
+        if (recognizerRef.current === recognizer) recognizerRef.current = null;
+        settleRecognition.current();
+      };
       try { recognizer.start(); }
-      catch { setError('Automatic transcription is unavailable. You can type what you said below.'); }
+      catch { recognitionFailed.current = true; recognizerRef.current = null; settleRecognition.current(); }
     } catch {
       releaseStream();
       setRecording(false);
@@ -197,20 +230,63 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     if (open) void startCaptureRef.current();
   }, [open]);
 
-  function sendNote() {
-    if (recording || processing || disabled || !previewUrl || !transcript.trim()) return;
-    transferredRef.current = previewUrl;
-    onSend(transcript.trim(), { url: previewUrl, duration: Math.max(1, elapsed) });
-    onClose();
+  async function sendNote() {
+    if (recording || processing || disabled || !previewUrl || sendingRef.current) return;
+    sendingRef.current = true;
+    setTranscribing(true);
+    setError('');
+    const controller = new AbortController();
+    transcriptionAbort.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 45000);
+    try {
+      // Browser recognition may produce its final words after MediaRecorder stops.
+      if (recognitionSettled.current) {
+        await Promise.race([
+          recognitionSettled.current,
+          new Promise<void>(resolve => window.setTimeout(resolve, 1500)),
+        ]);
+      }
+      if (closedRef.current || controller.signal.aborted) return;
+      let text = transcriptRef.current.trim();
+      if (!text || recognitionFailed.current || recognizerRef.current) {
+        const audio = await fetch(previewUrl, { signal: controller.signal }).then(response => response.blob());
+        const response = await apiFetch('/voice/transcribe', {
+          method: 'POST', body: audio,
+          headers: { 'Content-Type': audio.type || 'audio/webm' },
+          signal: controller.signal,
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || 'Could not transcribe your recording. Please try sending again.');
+        text = typeof result.transcript === 'string' ? result.transcript.trim() : '';
+        if (!text) throw new Error("I couldn't hear any words. Please record your note again.");
+        updateTranscript(text);
+      }
+      if (closedRef.current || controller.signal.aborted) return;
+      transferredRef.current = previewUrl;
+      onSend(text, { url: previewUrl, duration: Math.max(1, elapsed) });
+      onClose();
+    } catch (cause) {
+      if (!closedRef.current) {
+        setError(cause instanceof Error && cause.name !== 'AbortError'
+          ? cause.message : 'Sending timed out. Your recording is kept; try Send again.');
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      transcriptionAbort.current = null;
+      sendingRef.current = false;
+      if (!closedRef.current) {
+        setSendAfterStop(false);
+        setTranscribing(false);
+      }
+    }
   }
 
   // Sending while recording stops capture first. The audio and final transcript
   // are committed only after MediaRecorder has produced the playable clip.
   useEffect(() => {
     if (!sendAfterStop || recording || processing || !previewUrl || disabled) return;
-    if (!transcript.trim()) return; // Allow recognition to finish or the user to edit.
     setSendAfterStop(false);
-    sendNote();
+    void sendNote();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sendAfterStop, recording, processing, previewUrl, transcript, disabled]);
 
@@ -219,7 +295,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
       setSendAfterStop(true);
       stopCapture();
     } else if (previewUrl) {
-      sendNote();
+      void sendNote();
     } else {
       void startCapture();
     }
@@ -257,28 +333,23 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
           </button>
         )}
         <button type="button" className="voice-inline-send" onClick={handlePrimaryAction}
-          disabled={processing || disabled || sendAfterStop || (!recording && !!previewUrl && !transcript.trim())}
+          disabled={processing || disabled || sendAfterStop || transcribing}
           aria-label={recording ? 'Finish and send voice note' : previewUrl ? 'Send voice note' : 'Try recording again'}
           title={recording ? 'Finish and send' : previewUrl ? 'Send voice note' : 'Record'}>
-          {processing || sendAfterStop ? <span className="voice-inline-sending">···</span> : <Send size={21}/>}
+          {processing || sendAfterStop || transcribing ? <span className="voice-inline-sending">···</span> : <Send size={21}/>}
         </button>
       </section>
       {previewUrl && <audio ref={audioRef} src={previewUrl} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} preload="metadata"/>}
-      {(error || (previewUrl && !transcript.trim())) && (
-        <div className="voice-inline-help" role="status">
-          {error && <span className="voice-inline-error">{error}</span>}
-          {previewUrl && !transcript.trim() && <label htmlFor="voice-inline-text">Enter what you said so Naija Bites can understand your note:</label>}
-          {previewUrl && !transcript.trim() && <input id="voice-inline-text" value={transcript} onChange={event => setTranscript(event.target.value)} placeholder="Your spoken words"/>}
-        </div>
-      )}
+      {transcribing && <span className="voice-inline-help" role="status">Sending voice note…</span>}
+      {error && <div className="voice-inline-help voice-inline-error" role="alert">{error}</div>}
       {previewUrl && transcript.trim() && (
         <details className="voice-inline-transcript">
           <summary>Edit transcript</summary>
           <label htmlFor="voice-inline-edit">Words sent to Naija Bites</label>
-          <textarea id="voice-inline-edit" rows={2} value={transcript} onChange={event => setTranscript(event.target.value)}/>
+          <textarea id="voice-inline-edit" rows={2} value={transcript} onChange={event => updateTranscript(event.target.value)}/>
         </details>
       )}
-      <span className="sr-only">Voice notes are stored in this browser session; only the transcript is sent to the AI.</span>
+      <span className="sr-only">Voice recordings may be sent for transcription. The transcript is sent to the assistant.</span>
     </div>
   );
 }
