@@ -1442,8 +1442,8 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
 }
 
 /* Food doodles belong to the conversation canvas; voice-note blue stays unchanged. */
-.site-shell .conversation{background-color:#f7f8f2;background-image:linear-gradient(#f7f8f250,#f7f8f250),url('/chat-food-pattern.svg');background-size:auto,540px auto;background-repeat:repeat}
-.site-shell.theme-dark .conversation{background-color:#14251a;background-image:linear-gradient(#14251ae0,#14251ae0),url('/chat-food-pattern.svg')}
+.site-shell .conversation{background-color:#f7f8f2;background-image:linear-gradient(#f7f8f296,#f7f8f296),url('/chat-food-pattern.svg');background-size:auto,540px auto;background-repeat:repeat}
+.site-shell.theme-dark .conversation{background-color:#14251a;background-image:linear-gradient(#14251aec,#14251aec),url('/chat-food-pattern.svg')}
 @media(max-width:700px){.site-shell .conversation{background-size:auto,360px auto}}
 
 /* Stronger depth against the more visible wallpaper, without recoloring messages. */
