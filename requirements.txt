@@ -16,6 +16,9 @@ pydantic
 ag-ui-protocol
 ag-ui-strands
 
+# Text extraction from business PDF knowledge documents (no OCR)
+pypdf>=6.0,<7
+
 # Paystack HTTP API client
 httpx
 
