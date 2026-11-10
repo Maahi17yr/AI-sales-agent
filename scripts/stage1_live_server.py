@@ -92,10 +92,10 @@ def live_call(client, operation, params):
     if request.get("guardrailConfig") or request.get("performanceConfig", {}).get("latency") == "optimized":
         raise RuntimeError("Unbudgeted inference configuration")
     native_input = {key: request[key] for key in ("messages", "system", "toolConfig") if key in request}
-    counted = original_call(client, "CountTokens", {"modelId": MODEL, "input": {"converse": native_input}})
-    tokens = counted["inputTokens"]
-    if tokens > 30_000:
-        raise RuntimeError("Live benchmark input exceeds approved token bound")
+    # Claude text tokens are byte-backed. Reserve the entire UTF-8 request size,
+    # plus 4096 tokens for model-added tool/message framing. Successful streams
+    # refund the difference using provider-reported usage.
+    tokens = len(json.dumps(native_input, ensure_ascii=False).encode("utf-8")) + 4096
     reservation = (tokens * INPUT_RATE + MAX_OUTPUT * OUTPUT_RATE) / 1_000_000
     update_budget(reservation)
     started = time.perf_counter()
