@@ -2,36 +2,21 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Mic, Play, Send, Square, Trash2 } from 'lucide-react';
+import { recordingToWavBase64 } from './voice-audio';
 
 export type VoiceClip = { url: string; duration: number };
 
-type SpeechResult = { transcript: string };
-type SpeechResultEvent = { results: ArrayLike<{ isFinal: boolean; [index: number]: SpeechResult }> };
-type SpeechRecognizer = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((event: SpeechResultEvent) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-};
-type SpeechWindow = Window & {
-  SpeechRecognition?: new () => SpeechRecognizer;
-  webkitSpeechRecognition?: new () => SpeechRecognizer;
-};
 type Props = {
   open: boolean;
   onClose: () => void;
   onSend: (transcript: string, clip: VoiceClip) => void;
   disabled: boolean;
+  apiFetch: (path: string, init?: RequestInit) => Promise<Response>;
 };
 
 const formatTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
-export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Props) {
+export default function VoiceChatPanel({ open, onClose, onSend, disabled, apiFetch }: Props) {
   const [recording, setRecording] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -44,11 +29,9 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
   const sendingRef = useRef(false);
   const transcriptRef = useRef('');
   const recordingRef = useRef(false);
-  const recognitionFailed = useRef(false);
-  const recognitionSettled = useRef<Promise<void> | null>(null);
-  const settleRecognition = useRef<() => void>(() => {});
+  const uploadRef = useRef<AbortController | null>(null);
+  const recordingBlob = useRef<Blob | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const recognizerRef = useRef<SpeechRecognizer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const previewUrlRef = useRef('');
@@ -75,7 +58,6 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     recordingRef.current = false;
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
-    try { recognizerRef.current?.stop(); } catch { /* Recognition may already have stopped. */ }
     if (recorderRef.current?.state === 'recording') {
       setProcessing(true);
       recorderRef.current.stop();
@@ -90,12 +72,11 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     recordingRef.current = false;
     sendingRef.current = false;
     setTranscribing(false);
-    settleRecognition.current();
+    uploadRef.current?.abort();
     setSendAfterStop(false);
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
-    try { recognizerRef.current?.abort(); } catch { /* Already stopped. */ }
-    recognizerRef.current = null;
+    recordingBlob.current = null;
     if (recorderRef.current?.state === 'recording') {
       recorderRef.current.onstop = null;
       recorderRef.current.stop();
@@ -127,8 +108,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
         settleRecognition.current();
       window.removeEventListener('keydown', onKeyDown);
       if (timerRef.current) clearInterval(timerRef.current);
-      try { recognizerRef.current?.abort(); } catch { /* Ignore. */ }
-      recognizerRef.current = null;
+      recordingBlob.current = null;
       if (recorderRef.current?.state === 'recording') {
         recorderRef.current.onstop = null;
         recorderRef.current.stop();
@@ -160,12 +140,14 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
       recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
       recorder.onerror = () => { setError('Recording failed. Please try again.'); stopCapture(); };
       recorder.onstop = () => {
-        if (!recognizerRef.current) releaseStream();
+        releaseStream();
         recorderRef.current = null;
         setProcessing(false);
         if (closedRef.current) return;
         if (!chunks.length) { setSendAfterStop(false); setError('No audio was captured. Please try again.'); return; }
-        const url = URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }));
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+        recordingBlob.current = blob;
+        const url = URL.createObjectURL(blob);
         previewUrlRef.current = url;
         setPreviewUrl(url);
       };
@@ -173,47 +155,12 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
       startedRef.current = Date.now();
       setRecording(true);
       recordingRef.current = true;
-      recognitionFailed.current = false;
       timerRef.current = setInterval(() => {
         const seconds = Math.min(90, Math.floor((Date.now() - startedRef.current) / 1000));
         setElapsed(seconds);
         if (seconds >= 90) stopCapture();
       }, 250);
 
-      // Speech recognition converts the voice note to text for the existing
-      // Naija Bites agent. Audio itself is not uploaded to the backend.
-      const speechWindow = window as SpeechWindow;
-      const Recognizer = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
-      if (!Recognizer) {
-        recognitionFailed.current = true;
-        return;
-      }
-      const recognizer = new Recognizer();
-      recognizerRef.current = recognizer;
-      recognitionSettled.current = new Promise(resolve => { settleRecognition.current = resolve; });
-      let previousSpeech = '';
-      recognizer.lang = 'en-NG';
-      recognizer.continuous = true;
-      recognizer.interimResults = true;
-      recognizer.onresult = event => {
-        let text = '';
-        for (let i = 0; i < event.results.length; i++) text += event.results[i][0]?.transcript ?? '';
-        updateTranscript((previousSpeech + ' ' + text).trim());
-      };
-      recognizer.onerror = event => {
-        if (event.error !== 'aborted' && event.error !== 'no-speech') recognitionFailed.current = true;
-      };
-      recognizer.onend = () => {
-        previousSpeech = transcriptRef.current;
-        if (recordingRef.current && !closedRef.current && !recognitionFailed.current) {
-          try { recognizer.start(); return; } catch { recognitionFailed.current = true; }
-        }
-        if (recognizerRef.current === recognizer) recognizerRef.current = null;
-        settleRecognition.current();
-        if (!recordingRef.current) releaseStream();
-      };
-      try { recognizer.start(); }
-      catch { recognitionFailed.current = true; recognizerRef.current = null; settleRecognition.current(); }
     } catch {
       releaseStream();
       setRecording(false);
@@ -233,18 +180,30 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
     setTranscribing(true);
     setError('');
     try {
-      // Browser recognition may produce its final words after MediaRecorder stops.
-      if (recognitionSettled.current) {
-        await Promise.race([
-          recognitionSettled.current,
-          new Promise<void>(resolve => window.setTimeout(resolve, 1500)),
-        ]);
-      }
-      if (closedRef.current) return;
-      const text = transcriptRef.current.trim();
-      if (!text) throw new Error("No speech was recognized. Tap the microphone to record again, then Send.");
-
-      if (closedRef.current) return;
+      const blob = recordingBlob.current;
+      if (!blob) throw new Error('No recording is available. Please record again.');
+      const controller = new AbortController();
+      uploadRef.current = controller;
+      const timeout = window.setTimeout(() => controller.abort(), 30000);
+      let text = transcriptRef.current.trim();
+      try {
+        if (!text) {
+          const audio_base64 = await recordingToWavBase64(blob);
+          if (closedRef.current || controller.signal.aborted) return;
+          const response = await apiFetch('/voice/transcribe', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audio_base64 }), signal: controller.signal,
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(
+            typeof result.detail === 'string' ? result.detail : 'Could not transcribe this recording. Try Send again.'
+          );
+          text = typeof result.transcript === 'string' ? result.transcript.trim() : '';
+          if (!text) throw new Error('No speech was detected. You can play this recording or record again.');
+          updateTranscript(text);
+        }
+      } finally { window.clearTimeout(timeout); }
+      if (closedRef.current || controller.signal.aborted) return;
       transferredRef.current = previewUrl;
       onSend(text, { url: previewUrl, duration: Math.max(1, elapsed) });
       onClose();
@@ -328,7 +287,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
         </button>
       </section>
       {previewUrl && <audio ref={audioRef} src={previewUrl} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} preload="metadata"/>}
-      {transcribing && <span className="voice-inline-help" role="status">Sending voice note…</span>}
+      {transcribing && <span className="voice-inline-help" role="status">Transcribing and sending voice note…</span>}
       {error && <div className="voice-inline-help voice-inline-error" role="alert">{error}</div>}
       {previewUrl && transcript.trim() && (
         <details className="voice-inline-transcript">
@@ -337,7 +296,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled }: Prop
           <textarea id="voice-inline-edit" rows={2} value={transcript} onChange={event => updateTranscript(event.target.value)}/>
         </details>
       )}
-      <span className="sr-only">Your browser transcribes the voice note. Only its text is sent to the assistant.</span>
+      <span className="sr-only">Your completed recording is sent securely for transcription. Only the resulting text is sent to the ordering assistant.</span>
     </div>
   );
 }
