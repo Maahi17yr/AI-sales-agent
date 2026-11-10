@@ -76,6 +76,13 @@ jobs:
         run: python -m scripts.diagnose_sse_proxy
       - name: Run real Chromium customer journey with mocked providers
         run: python -m scripts.test_browser_customer_journey
+      - name: Save responsive UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-ui-corrections
+          path: /tmp/naija-ui-*.png
+          if-no-files-found: ignore
       - name: Verify auth 429 cooldown and no redundant session preflight
         run: python -m scripts.test_browser_auth_rate_limit
       - name: Measure streaming in Chromium against the unbuffered proxy

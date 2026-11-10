@@ -74,7 +74,9 @@ def main():
 
         def mock_agent(route):
             agent_calls.append(route.request.url)
-            request_text = json.dumps(route.request.post_data_json or {})
+            payload = route.request.post_data_json or {}
+            user_messages = [item for item in payload.get("messages", []) if item.get("role") == "user"]
+            request_text = user_messages[-1].get("content", "") if user_messages else ""
             if "Simulate network interruption" in request_text:
                 route.abort("failed")
                 return
@@ -153,7 +155,7 @@ def main():
             page.wait_for_function("""() => window.successToastRecords.some(
                 record => record.kind === 'payment' && record.duration !== undefined)""")
             payment_toast = page.evaluate("window.successToastRecords.find(record => record.kind === 'payment')")
-            assert 950 <= payment_toast["duration"] <= 2000, payment_toast
+            assert 2450 <= payment_toast["duration"] <= 3500, payment_toast
             assert abs(payment_toast["center"] - payment_toast["viewport"] / 2) <= 1, payment_toast
             assert page.get_by_role("region", name="Paystack test payment").count() == 0
             page.reload(wait_until="domcontentloaded")
@@ -303,8 +305,80 @@ def main():
                 page.get_by_text("Fictional menu is ready.").last.wait_for(timeout=30000)
             finally:
                 second_tab.close()
-            # Clearing history acts immediately, reports failures persistently,
-            # and shows success only as a one-second floating toast.
+            # Stop a pending response, restore its prompt and resend a correction.
+            page.evaluate(r"""() => {
+                const originalFetch = window.fetch.bind(window);
+                window.fetch = (input, init) => {
+                    const url = typeof input === 'string' ? input : input.url;
+                    if (url?.endsWith('/api/backend/agent') && init?.body) {
+                        const messages = JSON.parse(init.body).messages;
+                        if (messages[messages.length - 1].content === 'Cancel this mistaken prompt') {
+                            return Promise.resolve(new Response(new ReadableStream({
+                                start(controller) {
+                                    controller.enqueue(new TextEncoder().encode(
+                                        'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"Partial reply"}\n\n'));
+                                    init.signal.addEventListener('abort', () => {
+                                        window.cancelledMistakenPrompt = true;
+                                        controller.error(new DOMException('Aborted', 'AbortError'));
+                                    }, {once: true});
+                                }
+                            }), {headers: {'Content-Type': 'text/event-stream'}}));
+                        }
+                    }
+                    return originalFetch(input, init);
+                };
+            }""")
+            page.locator("#message-input").fill("Cancel this mistaken prompt")
+            page.get_by_role("button", name="Send message").click()
+            page.get_by_text("Partial reply", exact=True).wait_for()
+            page.get_by_role("button", name="Stop response").click()
+            page.wait_for_function("""() => window.cancelledMistakenPrompt === true &&
+                !document.querySelector('#message-input').disabled""")
+            assert page.locator("#message-input").input_value() == "Cancel this mistaken prompt"
+            page.wait_for_function("document.activeElement === document.querySelector('#message-input')")
+            page.locator("#message-input").fill("My corrected prompt")
+            page.get_by_role("button", name="Send message").click()
+            page.wait_for_function("!document.querySelector('#message-input').disabled")
+
+            # Final browser words can arrive after recording stops.
+            page.evaluate("""() => {
+                window.SpeechRecognition = class {
+                    start() {}
+                    stop() {
+                        setTimeout(() => {
+                            this.onresult?.({results:[{0:{transcript:'One plate of jollof rice please'},isFinal:true}]});
+                            this.onend?.();
+                        }, 150);
+                    }
+                    abort() {}
+                };
+                const devices = navigator.mediaDevices || {};
+                Object.defineProperty(devices, 'getUserMedia', {configurable:true,
+                    value: async () => ({getTracks: () => [{stop() {}}]})});
+                Object.defineProperty(navigator, 'mediaDevices', {value: devices, configurable:true});
+                window.MediaRecorder = class {
+                    constructor() { this.state = 'inactive'; this.mimeType = 'audio/webm'; }
+                    start() { this.state = 'recording'; }
+                    stop() {
+                        this.state = 'inactive';
+                        queueMicrotask(() => {
+                            this.ondataavailable?.({data: new Blob(['fictional-audio'], {type:'audio/webm'})});
+                            this.onstop?.();
+                        });
+                    }
+                };
+            }""")
+            calls_before_voice = len(agent_calls)
+            page.get_by_role("button", name="Record voice note").click()
+            page.get_by_role("button", name="Finish and send voice note").wait_for()
+            page.get_by_role("button", name="Finish and send voice note").click()
+            page.get_by_role("region", name="Voice note composer").wait_for(state="detached")
+            page.wait_for_function("!document.querySelector('#message-input').disabled")
+            assert len(agent_calls) == calls_before_voice + 1
+            assert page.locator("#voice-inline-text").count() == 0
+
+            # Clearing history requires in-app confirmation and reports failures persistently,
+            # and shows success only as a 2.5-second floating toast.
             dialogs = []
             def unexpected_dialog(dialog):
                 dialogs.append(dialog.type)
@@ -322,6 +396,13 @@ def main():
                     route.continue_()
             page.route("**/api/backend/chats", fail_clear)
             clear_button.evaluate("(button) => button.click()")
+            confirmation = page.get_by_role("dialog", name="Delete all conversations?")
+            confirmation.wait_for()
+            confirmation.get_by_role("button", name="Cancel", exact=True).click()
+            confirmation.wait_for(state="hidden")
+            assert page.locator(".chat-history-clear").count() == 1
+            clear_button.evaluate("(button) => button.click()")
+            confirmation.get_by_role("button", name="Delete conversations", exact=True).click()
             page.locator(".history-notice").filter(has_text="Could not clear history").wait_for()
             page.wait_for_timeout(1200)
             assert page.locator(".history-notice").is_visible()
@@ -342,6 +423,7 @@ def main():
                 observer.observe(document.body, {subtree:true, childList:true});
             }""")
             clear_button.evaluate("(button) => button.click()")
+            confirmation.get_by_role("button", name="Delete conversations", exact=True).click()
             toast = page.locator(".history-toast")
             toast.wait_for()
             assert toast.inner_text() == "Chat history cleared successfully."
@@ -349,7 +431,7 @@ def main():
             assert toast.evaluate("(element) => getComputedStyle(element).position") == "fixed"
             toast.wait_for(state="detached", timeout=5000)
             duration = page.evaluate("window.historyToastTiming.duration")
-            assert 950 <= duration <= 2000, duration
+            assert 2450 <= duration <= 3500, duration
             history_toast = page.evaluate("window.successToastRecords.find(record => record.kind === 'history')")
             assert abs(history_toast["center"] - history_toast["viewport"] / 2) <= 1, history_toast
             assert dialogs == [], dialogs
@@ -358,7 +440,23 @@ def main():
             assert page.locator(".chat-history-item").count() == 0
             assert page.locator(".history-toast").count() == 0
             assert page.get_by_text("Fictional menu is ready.").count() == 0
-            print("PASS: Chromium journey, chat isolation, immediate history clearing and one-second success toast")
+            print("PASS: cancellation/resend, browser voice send, confirmation and toast timing")
+            for width, height in [(320, 740), (768, 1024), (1280, 800), (1920, 1080)]:
+                page.set_viewport_size({"width": width, "height": height})
+                assert page.locator(".desktop-sidebar-toggle").count() == 0
+                if width < 1440:
+                    page.get_by_role("button", name="Open navigation").click()
+                    page.wait_for_function("document.querySelector('#main-navigation').getBoundingClientRect().left >= -1")
+                    page.locator(".sidebar-close-mobile").click()
+                else:
+                    page.mouse.move(width - 20, 100)
+                    page.locator("#main-navigation").hover(position={"x": 25, "y": 160})
+                    page.wait_for_function("!document.querySelector('.site-shell').classList.contains('sidebar-collapsed')")
+                    page.locator("#message-input").focus()
+                page.wait_for_timeout(300)
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), width
+                page.screenshot(path=f"/tmp/naija-ui-{width}.png", full_page=True)
+            print("PASS: responsive UI, cancellation/resend, voice send, confirmation and 2.5-second toasts")
         except Exception:
             if "second_tab" in locals() and not second_tab.is_closed():
                 print("SECOND_TAB_DIAGNOSTIC_BODY:", second_tab.locator("body").inner_text()[-1800:])
