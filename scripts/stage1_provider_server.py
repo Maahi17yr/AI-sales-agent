@@ -44,4 +44,5 @@ if __name__ == "__main__":
     os.environ.update(AWS_ACCESS_KEY_ID="fixture", AWS_SECRET_ACCESS_KEY="fixture",
                       AWS_DEFAULT_REGION="us-east-1", BEDROCK_MODEL_ID="fixture")
     with patch.object(BaseClient, "_make_api_call", provider_call):
-        uvicorn.run(app, host="127.0.0.1", port=8002)
+        uvicorn.run(app, host="127.0.0.1", port=8444,
+                    ssl_keyfile="/tmp/naija-proxy-test.key", ssl_certfile="/tmp/naija-proxy-test.crt")
