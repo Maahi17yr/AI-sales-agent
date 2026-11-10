@@ -59,7 +59,7 @@ def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page()
-        page.goto("http://127.0.0.1:3002/")
+        page.goto("http://127.0.0.1:3000/")
         page.get_by_role("button", name="Create an account").click()
         page.locator('input[name="name"]').fill("Stage One")
         page.locator('input[name="email"]').fill(f"stage1-{uuid4().hex}@example.test")
