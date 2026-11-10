@@ -348,6 +348,14 @@ def main():
                 Object.defineProperty(devices, 'getUserMedia', {configurable:true,
                     value: async () => ({getTracks: () => [{stop() {}}]})});
                 Object.defineProperty(navigator, 'mediaDevices', {value: devices, configurable:true});
+                window.AudioContext = class {
+                    async decodeAudioData() { return {duration: 1}; }
+                    async close() {}
+                };
+                window.OfflineAudioContext = class {
+                    createBufferSource() { return {connect() {}, start() {}}; }
+                    async startRendering() { return {getChannelData: () => new Float32Array(16000)}; }
+                };
                 window.MediaRecorder = class {
                     constructor() { this.state = 'inactive'; this.mimeType = 'audio/webm'; }
                     start() { this.state = 'recording'; }
@@ -363,16 +371,23 @@ def main():
             voice_uploads = []
             def transcribe_recording(route):
                 voice_uploads.append(route.request.post_data_buffer)
-                route.fulfill(status=200, content_type="application/json",
-                              body='{"transcript":"One plate of jollof rice please"}')
+                if len(voice_uploads) == 1:
+                    route.fulfill(status=503, content_type="application/json",
+                                  body='{"detail":"Try sending your recording again."}')
+                else:
+                    route.fulfill(status=200, content_type="application/json",
+                                  body='{"transcript":"One plate of jollof rice please"}')
             page.route("**/api/backend/voice/transcribe", transcribe_recording)
             calls_before_voice = len(agent_calls)
             page.get_by_role("button", name="Record voice note").click()
             page.get_by_role("button", name="Finish and send voice note").wait_for()
             page.get_by_role("button", name="Finish and send voice note").click()
+            page.get_by_role("alert").filter(has_text="Try sending").wait_for()
+            assert len(agent_calls) == calls_before_voice
+            page.get_by_role("button", name="Send voice note", exact=True).click()
             page.get_by_role("region", name="Voice note composer").wait_for(state="detached")
             page.wait_for_function("!document.querySelector('#message-input').disabled")
-            assert len(voice_uploads) == 1 and voice_uploads[0]
+            assert len(voice_uploads) == 2 and voice_uploads[0].startswith(b'RIFF')
             assert len(agent_calls) == calls_before_voice + 1
             assert page.locator("#voice-inline-text").count() == 0
             page.unroute("**/api/backend/voice/transcribe", transcribe_recording)
