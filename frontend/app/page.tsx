@@ -1311,11 +1311,11 @@ export default function Home() {
               <textarea ref={textareaRef} id="message-input" rows={1} aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} disabled={busy || confirming}/>
               <button type="button" className="voice-launch" onClick={() => setVoicePanelOpen(true)} disabled={busy || confirming || !threadId} aria-label="Record voice note" title="Record voice note"><Mic size={20}/></button>
               {busy ? (
-                <button type="button" className="composer-stop" onClick={stopResponse} aria-label="Stop response" title="Stop response">
+                <button key="stop-response" type="button" className="composer-stop" onClick={(event) => { event.preventDefault(); stopResponse(); }} aria-label="Stop response" title="Stop response">
                   <Square size={16} fill="currentColor" aria-hidden="true" />
                 </button>
               ) : (
-                <button type="submit" aria-label="Send message" disabled={!draft.trim() || confirming || !threadId}><Send size={20}/></button>
+                <button key="send-message" type="submit" aria-label="Send message" disabled={!draft.trim() || confirming || !threadId}><Send size={20}/></button>
               )}
             </form>
           )}
