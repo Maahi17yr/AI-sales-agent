@@ -234,6 +234,13 @@ export default function Home() {
   const [historyReady, setHistoryReady] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
   const [historyNotice, setHistoryNotice] = useState('');
+  const [historyCleared, setHistoryCleared] = useState(false);
+
+  useEffect(() => {
+    if (!historyCleared) return;
+    const timer = window.setTimeout(() => setHistoryCleared(false), 1000);
+    return () => window.clearTimeout(timer);
+  }, [historyCleared]);
   const clearingHistoryRef = useRef(false);
   const pendingHistoryWrites = useRef(new Set<Promise<unknown>>());
 
@@ -604,10 +611,10 @@ export default function Home() {
 
   async function clearAllHistory() {
     if (busy || confirming || paymentBusy || clearingHistoryRef.current || !historyReady || savedChats.length === 0) return;
-    if (!window.confirm('Permanently delete all saved conversations? This cannot be undone. Your cart and orders will not be deleted.')) return;
     clearingHistoryRef.current = true;
     setClearingHistory(true);
     setHistoryNotice('');
+    setHistoryCleared(false);
     // Wait for pending cloud saves, otherwise a late PUT can recreate deleted chats.
     setHistoryReady(false);
     try {
@@ -634,7 +641,7 @@ export default function Home() {
       setCheckoutError('');
       setCheckoutResult('');
       setMobileMenuOpen(false);
-      setHistoryNotice('Chat history cleared successfully.');
+      setHistoryCleared(true);
     } catch (error) {
       setHistoryNotice(error instanceof Error ? error.message : 'Unable to clear history. Please try again.');
     } finally {
@@ -1022,13 +1029,13 @@ export default function Home() {
     }
   }
 
-  // A floating notification disappears three seconds after its message changes.
+  // Success toasts last one second; warnings allow three seconds for reading.
   // Clearing the timer also prevents updates after this view unmounts.
   useEffect(() => {
     if (!paymentMessage) return;
-    const timeout = window.setTimeout(() => setPaymentMessage(''), 3000);
+    const timeout = window.setTimeout(() => setPaymentMessage(''), paymentToastSuccess ? 1000 : 3000);
     return () => window.clearTimeout(timeout);
-  }, [paymentMessage]);
+  }, [paymentMessage, paymentToastSuccess]);
 
   // Verify the return with the backend, then add a durable, idempotent chat
   // message. Never ask the LLM to decide whether payment was successful.
@@ -1138,7 +1145,7 @@ export default function Home() {
   }
 
   return (
-    <main className={`site-shell theme-${theme} ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''} ${sidebarCollapsed && !sidebarHoverExpanded ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
+    <main className={`site-shell theme-${theme} ${sidebarCollapsed && !sidebarHoverExpanded ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
       {mobileMenuOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} />}
       <aside className="side-panel" id="main-navigation" aria-label="Main navigation" onMouseEnter={startSidebarHover} onMouseLeave={cancelSidebarHover}>
         <div className="identity">
@@ -1157,9 +1164,6 @@ export default function Home() {
         <div className="sidebar-foot"><span className={`connect-dot ${online ? 'up' : ''}`}/><span>{online === null ? 'Connecting…' : online ? 'Ready to take your order' : 'Connection unavailable'}</span></div>
       </aside>
       <section className="chat-layout">
-        {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && (
-          <div className="demo-notice" role="note">Demo only · Paystack TEST payments · No real orders or deliveries. Use fictional details.</div>
-        )}
         <header className="chat-header">
           <button type="button" className="sidebar-toggle desktop-sidebar-toggle" onClick={() => { cancelSidebarHover(); setSidebarCollapsed(value => !value); }} aria-label={sidebarCollapsed && !sidebarHoverExpanded ? 'Expand sidebar' : 'Collapse sidebar'} aria-controls="main-navigation" aria-expanded={!sidebarCollapsed || sidebarHoverExpanded} title={sidebarCollapsed && !sidebarHoverExpanded ? 'Expand sidebar' : 'Collapse sidebar'}>{sidebarCollapsed && !sidebarHoverExpanded ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</button>
           <button type="button" className="sidebar-toggle mobile-sidebar-toggle" onClick={() => setMobileMenuOpen(true)} aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileMenuOpen} title="Open navigation"><Menu size={21}/></button>
@@ -1293,6 +1297,12 @@ export default function Home() {
         onViewCart={() => { void send('Show me my current cart and help me check out.'); }}
         apiFetch={apiFetch} refreshKey={messages.length + (busy ? 1 : 0)}
         disabled={busy || confirming || !threadId} checkoutTotal={checkout?.summary.total}/>
+      {historyCleared && (
+        <div className="payment-toast history-toast" role="status" aria-live="polite" aria-atomic="true">
+          <Check size={20} aria-hidden="true" />
+          <span>Chat history cleared successfully.</span>
+        </div>
+      )}
       {paymentMessage && (
         <div
           className={`payment-toast ${paymentToastSuccess ? 'payment-toast--success' : 'payment-toast--warning'}`}

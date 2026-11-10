@@ -35,6 +35,30 @@ def main():
         browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
         context = browser.new_context()
         page = context.new_page()
+        page.add_init_script("""(() => {
+            window.successToastRecords = [];
+            const active = new Map();
+            new MutationObserver(() => {
+                for (const element of document.querySelectorAll('.history-toast, .payment-toast--success')) {
+                    if (active.has(element)) continue;
+                    const rect = element.getBoundingClientRect();
+                    const record = {
+                        kind: element.classList.contains('history-toast') ? 'history' : 'payment',
+                        start: performance.now(),
+                        center: rect.left + rect.width / 2,
+                        viewport: window.innerWidth
+                    };
+                    active.set(element, record);
+                    window.successToastRecords.push(record);
+                }
+                for (const [element, record] of active) {
+                    if (!element.isConnected) {
+                        record.duration = performance.now() - record.start;
+                        active.delete(element);
+                    }
+                }
+            }).observe(document, {subtree:true, childList:true});
+        })();""")
         agent_calls = []
         page.on('console', lambda msg: print('BROWSER_CONSOLE:', msg.type, msg.text[:300]) if msg.type == 'error' else None)
         page.on('requestfailed', lambda req: print('BROWSER_REQUEST_FAILED:', req.url, req.failure))
@@ -126,6 +150,11 @@ def main():
             page.get_by_role("button", name="Pay Now (Test Mode)").click()
 
             page.get_by_text(re.compile("Payment verified!")).wait_for(timeout=30000)
+            page.wait_for_function("""() => window.successToastRecords.some(
+                record => record.kind === 'payment' && record.duration !== undefined)""")
+            payment_toast = page.evaluate("window.successToastRecords.find(record => record.kind === 'payment')")
+            assert 950 <= payment_toast["duration"] <= 2000, payment_toast
+            assert abs(payment_toast["center"] - payment_toast["viewport"] / 2) <= 1, payment_toast
             assert page.get_by_role("region", name="Paystack test payment").count() == 0
             page.reload(wait_until="domcontentloaded")
             page.locator("#message-input").wait_for(timeout=30000)
@@ -274,7 +303,62 @@ def main():
                 page.get_by_text("Fictional menu is ready.").last.wait_for(timeout=30000)
             finally:
                 second_tab.close()
-            print("PASS: Chromium journey, failed streams, network recovery, shared-tab logout, account switching and chat isolation")
+            # Clearing history acts immediately, reports failures persistently,
+            # and shows success only as a one-second floating toast.
+            dialogs = []
+            def unexpected_dialog(dialog):
+                dialogs.append(dialog.type)
+                dialog.dismiss()
+            page.on("dialog", unexpected_dialog)
+            clear_button = page.locator(".chat-history-clear")
+            page.wait_for_function("""() => {
+                const button = document.querySelector('.chat-history-clear');
+                return button && !button.disabled;
+            }""")
+            def fail_clear(route):
+                if route.request.method == "DELETE":
+                    route.fulfill(status=503, content_type="application/json", body='{"detail":"Unavailable"}')
+                else:
+                    route.continue_()
+            page.route("**/api/backend/chats", fail_clear)
+            clear_button.evaluate("(button) => button.click()")
+            page.locator(".history-notice").filter(has_text="Could not clear history").wait_for()
+            page.wait_for_timeout(1200)
+            assert page.locator(".history-notice").is_visible()
+            assert page.locator(".history-toast").count() == 0
+            assert clear_button.count() == 1
+            page.unroute("**/api/backend/chats", fail_clear)
+            page.evaluate("""() => {
+                window.historyToastTiming = {};
+                const observer = new MutationObserver(() => {
+                    const toast = document.querySelector('.history-toast');
+                    if (toast && window.historyToastTiming.start === undefined) {
+                        window.historyToastTiming.start = performance.now();
+                    } else if (!toast && window.historyToastTiming.start !== undefined) {
+                        window.historyToastTiming.duration = performance.now() - window.historyToastTiming.start;
+                        observer.disconnect();
+                    }
+                });
+                observer.observe(document.body, {subtree:true, childList:true});
+            }""")
+            clear_button.evaluate("(button) => button.click()")
+            toast = page.locator(".history-toast")
+            toast.wait_for()
+            assert toast.inner_text() == "Chat history cleared successfully."
+            assert page.locator(".history-notice").count() == 0
+            assert toast.evaluate("(element) => getComputedStyle(element).position") == "fixed"
+            toast.wait_for(state="detached", timeout=5000)
+            duration = page.evaluate("window.historyToastTiming.duration")
+            assert 950 <= duration <= 2000, duration
+            history_toast = page.evaluate("window.successToastRecords.find(record => record.kind === 'history')")
+            assert abs(history_toast["center"] - history_toast["viewport"] / 2) <= 1, history_toast
+            assert dialogs == [], dialogs
+            page.reload(wait_until="domcontentloaded")
+            page.locator("#message-input").wait_for(timeout=30000)
+            assert page.locator(".chat-history-item").count() == 0
+            assert page.locator(".history-toast").count() == 0
+            assert page.get_by_text("Fictional menu is ready.").count() == 0
+            print("PASS: Chromium journey, chat isolation, immediate history clearing and one-second success toast")
         except Exception:
             if "second_tab" in locals() and not second_tab.is_closed():
                 print("SECOND_TAB_DIAGNOSTIC_BODY:", second_tab.locator("body").inner_text()[-1800:])
