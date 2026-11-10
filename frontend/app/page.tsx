@@ -1145,7 +1145,7 @@ export default function Home() {
   }
 
   return (
-    <main className={`site-shell theme-${theme} ${process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'is-demo' : ''} ${sidebarCollapsed && !sidebarHoverExpanded ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
+    <main className={`site-shell theme-${theme} ${sidebarCollapsed && !sidebarHoverExpanded ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'mobile-nav-open' : ''}`}>
       {mobileMenuOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} />}
       <aside className="side-panel" id="main-navigation" aria-label="Main navigation" onMouseEnter={startSidebarHover} onMouseLeave={cancelSidebarHover}>
         <div className="identity">
@@ -1164,9 +1164,6 @@ export default function Home() {
         <div className="sidebar-foot"><span className={`connect-dot ${online ? 'up' : ''}`}/><span>{online === null ? 'Connecting…' : online ? 'Ready to take your order' : 'Connection unavailable'}</span></div>
       </aside>
       <section className="chat-layout">
-        {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && (
-          <div className="demo-notice" role="note">Demo only · Paystack TEST payments · No real orders or deliveries. Use fictional details.</div>
-        )}
         <header className="chat-header">
           <button type="button" className="sidebar-toggle desktop-sidebar-toggle" onClick={() => { cancelSidebarHover(); setSidebarCollapsed(value => !value); }} aria-label={sidebarCollapsed && !sidebarHoverExpanded ? 'Expand sidebar' : 'Collapse sidebar'} aria-controls="main-navigation" aria-expanded={!sidebarCollapsed || sidebarHoverExpanded} title={sidebarCollapsed && !sidebarHoverExpanded ? 'Expand sidebar' : 'Collapse sidebar'}>{sidebarCollapsed && !sidebarHoverExpanded ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</button>
           <button type="button" className="sidebar-toggle mobile-sidebar-toggle" onClick={() => setMobileMenuOpen(true)} aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileMenuOpen} title="Open navigation"><Menu size={21}/></button>
