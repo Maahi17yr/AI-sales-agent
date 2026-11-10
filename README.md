@@ -24,7 +24,7 @@ See **[Architecture and request flow](docs/ARCHITECTURE.md)** for a readable wal
 
 - **Hosted demo:** Set `DATABASE_URL` to a Neon PostgreSQL connection string. In `NAIJA_BITES_ENV=demo`, startup fails if this variable is missing; the server must never silently fall back to SQLite.
 - **Local development:** Leave `DATABASE_URL` unset to use a local SQLite database for fictional data.
-- **RAG knowledge search:** `core/rag/` builds a **separate** SQLite FTS5 index from Markdown business-policy documents. It is not the customer/order database.
+- **RAG knowledge search:** `core/rag/` builds a **separate** SQLite FTS5 index from Markdown or text-based PDF business-policy documents. It is not the customer/order database.
 
 Never commit secrets or use actual customer/payment data. AWS Bedrock usage may incur costs.
 
