@@ -2,6 +2,7 @@
 import json
 import math
 import statistics
+from pathlib import Path
 from uuid import uuid4
 
 from playwright.sync_api import sync_playwright
@@ -44,7 +45,12 @@ def run_turn(page, text, expected_words):
     assert bubble.inner_text().split() == ["bite"] * expected_words
     trace = page.evaluate("window.stage1")
     assert event["request_id"] and event["text_events"] > 0
-    return {**event, "first_dom_ms": trace["first"], "last_dom_ms": trace["last"],
+    records = [json.loads(line.split("STAGE1_SERVER ", 1)[1]) for line in
+               Path("/tmp/stage1-provider.log").read_text().splitlines() if "STAGE1_SERVER " in line]
+    server = next(record for record in records if record["request_id"] == event["request_id"])
+    assert bool(server["menu_tool_ms"]) == ("browse_menu" in text), server
+    delivery = event["first_text_epoch_ms"] - server["server_first_text_epoch_ms"]
+    return {**event, **server, "first_text_delivery_ms": delivery, "first_dom_ms": trace["first"], "last_dom_ms": trace["last"],
             "max_dom_gap_ms": trace["gap"], "dom_updates": trace["changes"]}
 
 
@@ -68,7 +74,7 @@ def main():
         ]:
             runs = [run_turn(page, prompt, count) for _ in range(5)]
             print("STAGE1_MOCK_RUNS", scenario, json.dumps(runs), flush=True)
-            for key in ("first_token_ms", "first_dom_ms", "max_text_gap_ms", "max_dom_gap_ms", "total_ms"):
+            for key in ("first_token_ms", "first_text_delivery_ms", "first_dom_ms", "max_text_gap_ms", "max_dom_gap_ms", "total_ms"):
                 values = sorted(row[key] for row in runs)
                 print(scenario, key, "p50", round(statistics.median(values), 1),
                       "p95", round(values[math.ceil(len(values) * .95) - 1], 1))
