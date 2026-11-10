@@ -1386,9 +1386,22 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
 .theme-dark .food-memory-detail { background: rgba(147,197,148,.10); }
 .theme-dark .food-memory-notice { color: #bbe0be; }
 
-/* Keep the brief history success toast below the chat header. */
-.history-toast { top: 128px; }
-.site-shell.theme-dark .history-toast {
+/* Center brief success notifications below the chat header. */
+.history-toast,
+.payment-toast--success {
+  top: 128px;
+  left: 50%;
+  right: auto;
+  width: min(390px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  animation-name: success-toast-enter;
+}
+@keyframes success-toast-enter {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+.site-shell.theme-dark .history-toast,
+.site-shell.theme-dark .payment-toast--success {
   background: #243c2a;
   color: #ddf1d5;
   border-color: #527348;
