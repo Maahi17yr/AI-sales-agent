@@ -1,0 +1,56 @@
+name: Isolated voice transcription access check
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/voice-transcription-check.yml'
+permissions:
+  contents: read
+jobs:
+  speech-model:
+    if: github.event.pull_request.number == 74 && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Enable the single synthetic-audio check
+        id: enabled
+        run: |
+          if git log -1 --format=%s | grep -qF '[voice-check]'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.enabled.outputs.run == 'true'
+        with:
+          python-version: '3.12'
+      - name: Prepare synthetic speech
+        if: steps.enabled.outputs.run == 'true'
+        run: |
+          python -m pip install boto3
+          sudo apt-get update -qq
+          sudo apt-get install -y espeak-ng
+          espeak-ng -w /tmp/voice-check.wav 'I would like one plate of jollof rice please'
+      - name: Transcribe one synthetic recording
+        if: steps.enabled.outputs.run == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.STAGE1_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGE1_AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.STAGE1_AWS_SESSION_TOKEN }}
+          AWS_REGION: ${{ secrets.STAGE1_AWS_REGION }}
+          AWS_MAX_ATTEMPTS: '1'
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from core.services.voice_transcription import transcribe
+          if not os.environ.get("AWS_SESSION_TOKEN"):
+              os.environ.pop("AWS_SESSION_TOKEN", None)
+          text = transcribe(Path("/tmp/voice-check.wav").read_bytes(), "audio/wav")
+          assert "rice" in text.lower(), "Synthetic spoken rice order was not recognized"
+          print("PASS: one synthetic recording was transcribed by the Bedrock speech model")
+          PY
