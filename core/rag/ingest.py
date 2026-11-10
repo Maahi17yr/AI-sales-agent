@@ -110,9 +110,11 @@ def _remove_repeated_margins(pages: list[str]) -> list[str]:
     """Conservatively omit short headers/footers repeated on >=80% of 3+ pages."""
     if len(pages) < 3:
         return pages
-    line_sets = [[line for line in text.splitlines() if line.strip()] for text in pages]
-    firsts = Counter(lines[0] for lines in line_sets if lines)
-    lasts = Counter(lines[-1] for lines in line_sets if lines)
+    # Inspect only nonempty margin lines; preserve interior blank lines and
+    # paragraph breaks in the actual page text.
+    line_sets = [text.splitlines() for text in pages]
+    firsts = Counter(next((line for line in lines if line.strip()), "") for lines in line_sets)
+    lasts = Counter(next((line for line in reversed(lines) if line.strip()), "") for lines in line_sets)
 
     def repeated(counts: Counter) -> set[str]:
         threshold = max(3, (len(pages) * 4 + 4) // 5)
