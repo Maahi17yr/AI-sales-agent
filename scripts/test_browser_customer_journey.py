@@ -77,6 +77,14 @@ def main():
             payload = route.request.post_data_json or {}
             user_messages = [item for item in payload.get("messages", []) if item.get("role") == "user"]
             request_text = user_messages[-1].get("content", "") if user_messages else ""
+            if request_text == "Cancel my draft order":
+                from core.services.checkout_state import cancel_draft_order
+                result = cancel_draft_order(f"customer-{customer_id}")
+                assert result["success"], result
+                body = ('data: ' + json.dumps({"type":"CHECKOUT_STATE","checkout":result["checkout"]})
+                        + chr(10)*2 + 'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"Draft order cancelled."}' + chr(10)*2)
+                route.fulfill(status=200, content_type="text/event-stream", body=body)
+                return
             if "Simulate network interruption" in request_text:
                 route.abort("failed")
                 return
@@ -408,6 +416,20 @@ def main():
             page.get_by_role("region", name="Order review recovery").wait_for(state="detached")
             page.reload(wait_until="domcontentloaded")
             page.locator("#message-input").wait_for()
+            assert page.get_by_role("region", name="Order review recovery").count() == 0
+
+            # A verified chat cancellation also removes an already-open form.
+            with get_connection() as conn:
+                conn.execute("UPDATE conversation_sessions SET cart_data=? WHERE session_id=?", (
+                    json.dumps({"items":[{"product_id":product_id,"quantity":1,"variant":"standard","modifications":[]}]}),
+                    f"customer-{customer_id}",
+                ))
+            page.reload(wait_until="domcontentloaded")
+            page.get_by_role("button", name="Prepare order review").click()
+            page.locator("#message-input").fill("Cancel my draft order")
+            page.get_by_role("button", name="Send message").click()
+            page.get_by_text("Draft order cancelled.", exact=True).wait_for()
+            page.wait_for_function("!document.querySelector('#message-input').disabled")
             assert page.get_by_role("region", name="Order review recovery").count() == 0
 
             # Clearing history requires in-app confirmation and reports failures persistently,
