@@ -1,0 +1,79 @@
+"""Chromium -> production Next -> FastAPI -> Strands -> mocked Bedrock -> React."""
+import json
+import math
+import statistics
+from uuid import uuid4
+
+from playwright.sync_api import sync_playwright
+from scripts.test_browser_customer_journey import require_isolated
+
+
+def run_turn(page, text, expected_words):
+    page.locator("#message-input").fill(text)
+    page.evaluate("""() => {
+        const rows = () => document.querySelectorAll('.message-row.assistant .bubble');
+        const count = rows().length;
+        const start = performance.now();
+        const trace = window.stage1 = {first: null, last: null, gap: 0, changes: 0};
+        let size = 0;
+        window.stageObserver?.disconnect();
+        window.stageObserver = new MutationObserver(() => {
+            const bubbles = rows();
+            if (bubbles.length <= count) return;
+            const current = bubbles[bubbles.length-1].textContent.length;
+            if (current <= size) return;
+            const now = performance.now() - start;
+            trace.first ??= now;
+            if (trace.last !== null) trace.gap = Math.max(trace.gap, now - trace.last);
+            trace.last = now;
+            trace.changes++;
+            size = current;
+        });
+        window.stageObserver.observe(document.querySelector('.conversation'),
+            {subtree: true, childList: true, characterData: true});
+    }""")
+    with page.expect_console_message(predicate=lambda msg: msg.text.startswith("[Naija Bites latency]"), timeout=30000) as log:
+        page.get_by_role("button", name="Send message").click()
+    event = log.value.args[-1].json_value()
+    bubble = page.locator(".message-row.assistant .bubble").last
+    page.wait_for_function("""n => {
+        const rows = document.querySelectorAll('.message-row.assistant .bubble');
+        return rows.length && rows[rows.length-1].textContent.trim().split(/\\s+/).length === n
+            && window.stage1.first !== null;
+    }""", arg=expected_words)
+    assert bubble.inner_text().split() == ["bite"] * expected_words
+    trace = page.evaluate("window.stage1")
+    assert event["request_id"] and event["text_events"] > 0
+    return {**event, "first_dom_ms": trace["first"], "last_dom_ms": trace["last"],
+            "max_dom_gap_ms": trace["gap"], "dom_updates": trace["changes"]}
+
+
+def main():
+    require_isolated()
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page()
+        page.goto("http://127.0.0.1:3002/")
+        page.get_by_role("button", name="Create an account").click()
+        page.locator('input[name="name"]').fill("Stage One")
+        page.locator('input[name="email"]').fill(f"stage1-{uuid4().hex}@example.test")
+        page.locator('input[name="password"]').fill("Stage1-Fictional-Password-25!")
+        page.get_by_role("button", name="Create account").click()
+        page.locator("#message-input").wait_for()
+        for scenario, prompt, count in [
+            ("simple", "Stage one simple question.", 10),
+            ("menu", "Use browse_menu to show the menu.", 10),
+            ("long", "Give me a long response.", 100),
+            ("followup", "Following up on our earlier conversation.", 10),
+        ]:
+            runs = [run_turn(page, prompt, count) for _ in range(5)]
+            print("STAGE1_MOCK_RUNS", scenario, json.dumps(runs), flush=True)
+            for key in ("first_token_ms", "first_dom_ms", "max_text_gap_ms", "max_dom_gap_ms", "total_ms"):
+                values = sorted(row[key] for row in runs)
+                print(scenario, key, "p50", round(statistics.median(values), 1),
+                      "p95", round(values[math.ceil(len(values) * .95) - 1], 1))
+        browser.close()
+
+
+if __name__ == "__main__":
+    main()
