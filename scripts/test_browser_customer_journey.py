@@ -310,7 +310,7 @@ def main():
                 dialogs.append(dialog.type)
                 dialog.dismiss()
             page.on("dialog", unexpected_dialog)
-            clear_button = page.get_by_role("button", name="Clear all saved conversations")
+            clear_button = page.locator(".chat-history-clear")
             page.wait_for_function("""() => {
                 const button = document.querySelector('.chat-history-clear');
                 return button && !button.disabled;
