@@ -9,6 +9,9 @@ checkout summaries, but cannot approve orders or payments.
 
 import os
 import json
+import threading
+
+import boto3
 
 from strands import Agent, tool
 from strands.models.bedrock import BedrockModel
@@ -24,6 +27,16 @@ from core.memory.context import make_conversation_manager
 from core.memory import preferences
 from core.memory.tools import make_preference_tools
 
+_bedrock_sessions = threading.local()
+
+
+def _bedrock_session(region: str):
+    """Reuse AWS service definitions and credential providers within one thread."""
+    session = getattr(_bedrock_sessions, "session", None)
+    if session is None or session.region_name != region:
+        session = boto3.Session(region_name=region)
+        _bedrock_sessions.session = session
+    return session
 
 
 def make_agent(session_id: str) -> Agent:
@@ -127,7 +140,7 @@ def make_agent(session_id: str) -> Agent:
 
     model = BedrockModel(
         model_id=model_id,
-        region_name=region,
+        boto_session=_bedrock_session(region),
     )
 
     # ---------------------------------------

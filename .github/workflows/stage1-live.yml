@@ -1,0 +1,138 @@
+name: Stage 1 bounded live Bedrock benchmark
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'scripts/stage1_live_*.py'
+      - '.github/workflows/stage1-live.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stage1-live-bedrock-72
+  cancel-in-progress: false
+
+jobs:
+  live-bedrock:
+    if: github.event.pull_request.number == 72 && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NAIJA_BITES_ENV: development
+      NAIJA_BITES_TEST_MOCK_PAYMENTS: '1'
+      NAIJA_BITES_DATA_DIR: /tmp/naija-bites-live-stage1
+      NEXT_BACKEND_URL: https://localhost:8443
+      NAIJA_BITES_TEST_HTTPS: '1'
+      NAIJA_BITES_TEST_CA_CERT: /tmp/naija-proxy-test.crt
+      NODE_EXTRA_CA_CERTS: /tmp/naija-proxy-test.crt
+      NEXT_PUBLIC_DEMO_MODE: 'true'
+      AWS_MAX_ATTEMPTS: '1'
+      AWS_RETRY_MODE: standard
+      STAGE1_LIVE_BUDGET_USD: '1.00'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Check explicit one-run marker
+        id: enabled
+        shell: bash
+        run: |
+          if git log -1 --format=%s | grep -qF '[stage1-live-approved]'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.enabled.outputs.run == 'true'
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        if: steps.enabled.outputs.run == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install test dependencies
+        if: steps.enabled.outputs.run == 'true'
+        run: |
+          python -m pip install -r requirements.txt playwright==1.56.0
+          python -m playwright install --with-deps chromium
+          cd frontend
+          npm ci
+      - name: Prepare isolated database and trusted local TLS
+        if: steps.enabled.outputs.run == 'true'
+        run: |
+          mkdir -p "$NAIJA_BITES_DATA_DIR"
+          python -m data.database.models
+          python - <<'PY'
+          from data.database.models import get_connection
+          with get_connection() as conn:
+              product = conn.execute(
+                  "INSERT INTO products (name, category, description, price, available) VALUES (?, ?, ?, ?, ?)",
+                  ("Stage One Jollof Rice", "rice", "Fictional CI rice dish", 4500, 1),
+              ).lastrowid
+              conn.execute("INSERT INTO inventory (product_id, variant, quantity) VALUES (?, ?, ?)",
+                           (product, "standard", 100))
+          PY
+          umask 077
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout /tmp/naija-proxy-test.key -out /tmp/naija-proxy-test.crt \
+            -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1'
+      - name: Build and start production Next with disposable auth backend
+        if: steps.enabled.outputs.run == 'true'
+        run: |
+          cd frontend
+          npm run build
+          cd ..
+          python -m scripts.mock_payment_backend > /tmp/stage1-live-auth.log 2>&1 &
+          (cd frontend && NEXT_BACKEND_URL=https://localhost:8444 npm run start -- --port 3000) > /tmp/stage1-live-next.log 2>&1 &
+          python - <<'PY'
+          import time
+          import httpx
+          with httpx.Client(verify="/tmp/naija-proxy-test.crt", timeout=2) as client:
+              for _ in range(60):
+                  try:
+                      if client.get("https://localhost:8443/ping").is_success and client.get("http://127.0.0.1:3000/").is_success:
+                          break
+                  except httpx.TransportError:
+                      pass
+                  time.sleep(1)
+              else:
+                  raise RuntimeError("Isolated benchmark servers did not become ready")
+          PY
+      - name: Restore completed live cases and cumulative cost
+        if: steps.enabled.outputs.run == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: stage1-live-timing-and-budget
+          run-id: 42804619312
+          github-token: ${{ github.token }}
+          path: /tmp/stage1-prior
+      - name: Run approved live inference with bounded budget
+        if: steps.enabled.outputs.run == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.STAGE1_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGE1_AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.STAGE1_AWS_SESSION_TOKEN }}
+          AWS_REGION: ${{ secrets.STAGE1_AWS_REGION }}
+          AWS_DEFAULT_REGION: ${{ secrets.STAGE1_AWS_REGION }}
+          BEDROCK_MODEL_ID: ${{ secrets.STAGE1_BEDROCK_MODEL_ID }}
+        run: python -m scripts.stage1_live_journey
+      - name: Preserve timing and budget records
+        if: always() && steps.enabled.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-live-timing-and-budget
+          path: |
+            /tmp/stage1-live-results.json
+            /tmp/stage1-live-budget.json
+          if-no-files-found: warn
+      - name: Show safe backend timing and error categories on failure
+        if: failure()
+        run: |
+          grep -E 'STAGE1_SERVER|agent_stream_failure|Error:|Exception:' /tmp/stage1-live-provider.log | tail -20 || true

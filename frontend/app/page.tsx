@@ -125,6 +125,11 @@ const API = '/api/backend';
 const uid = () => crypto.randomUUID();
 
 // Remove model-internal planning, including incomplete streaming think blocks.
+function isBaselineStreamRendering(): boolean {
+  return process.env.NODE_ENV === 'development' &&
+    new URLSearchParams(window.location.search).has('stream_render_baseline');
+}
+
 function customerFacingText(text: string): string {
   return text
     .replace(/<(?:think|thinking)\b[^>]*>[\s\S]*?<\/(?:think|thinking)\s*>/gi, '')
@@ -403,9 +408,19 @@ export default function Home() {
 
   useEffect(() => {
     if (!historyReady) return;
-    try { window.localStorage.setItem(historyKey(customer.id), JSON.stringify(savedChats)); }
-    catch { /* Storage may be disabled or full; chat still works in this tab. */ }
-  }, [customer.id, historyReady, savedChats]);
+    const save = () => {
+      try { window.localStorage.setItem(historyKey(customer.id), JSON.stringify(savedChats)); }
+      catch { /* Storage may be disabled or full; chat still works in this tab. */ }
+    };
+    if (!busy || isBaselineStreamRendering()) { save(); return; }
+    // Keep a recoverable snapshot during a reply without serializing every chat per frame.
+    window.addEventListener('pagehide', save);
+    const timer = window.setTimeout(save, 250);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('pagehide', save);
+    };
+  }, [busy, customer.id, historyReady, savedChats]);
 
 
   // Persist the active conversation after the streaming response settles.
@@ -665,11 +680,52 @@ export default function Home() {
     const requestStartedAt = performance.now();
     let headersReceivedAt: number | null = null;
     let firstTokenAt: number | null = null;
+    let lastTextAt: number | null = null;
+    let maxTextGapMs = 0;
+    let textEvents = 0;
 
     const assistantId = uid();
     let assistantText = '';
     let gotText = false;
     let gotCheckoutEvent = false;
+    let scheduledTextFrame: number | null = null;
+    let renderedText = '';
+    // Coalesce bursty streaming deltas into at most one React state update
+    // per animation frame. Keep consuming SSE immediately; never delay tools,
+    // checkout events, cancellation, or the final complete response.
+    const renderAssistantText = () => {
+      scheduledTextFrame = null;
+      const textSnapshot = customerFacingText(assistantText);
+      if (!textSnapshot.trim() || textSnapshot === renderedText) return;
+      renderedText = textSnapshot;
+      setMessages((current) => {
+        const exists = current.some((message) => message.id === assistantId);
+        if (exists) {
+          return current.map((message) =>
+            message.id === assistantId
+              ? { ...message, content: textSnapshot }
+              : message
+          );
+        }
+        return [...current, { id: assistantId, role: 'assistant', content: textSnapshot }];
+      });
+    };
+    const queueAssistantRender = () => {
+      // A/B control is available in local development only. Production always
+      // uses frame coalescing; checkout/tool behavior is unchanged.
+      if (!renderedText || isBaselineStreamRendering()) {
+        renderAssistantText();
+      } else if (scheduledTextFrame === null) {
+        scheduledTextFrame = window.requestAnimationFrame(renderAssistantText);
+      }
+    };
+    const flushAssistantRender = () => {
+      if (scheduledTextFrame !== null) {
+        window.cancelAnimationFrame(scheduledTextFrame);
+        scheduledTextFrame = null;
+      }
+      renderAssistantText();
+    };
 
     const controller = new AbortController();
     abort.current = controller;
@@ -758,38 +814,17 @@ export default function Home() {
           typeof evt.delta === 'string'
         ) {
           gotText = true;
-          setShowTyping(false);
-          if (firstTokenAt === null) firstTokenAt = performance.now();
+          const receivedAt = performance.now();
+          if (firstTokenAt === null) {
+            firstTokenAt = receivedAt;
+            setShowTyping(false);
+          }
+          if (lastTextAt !== null) maxTextGapMs = Math.max(maxTextGapMs, receivedAt - lastTextAt);
+          lastTextAt = receivedAt;
+          textEvents++;
           assistantText += evt.delta;
 
-          const textSnapshot = customerFacingText(assistantText);
-          if (!textSnapshot.trim()) return;
-
-          setMessages((current) => {
-            const exists = current.some(
-              (message) => message.id === assistantId
-            );
-
-            if (exists) {
-              return current.map((message) =>
-                message.id === assistantId
-                  ? {
-                      ...message,
-                      content: textSnapshot,
-                    }
-                  : message
-              );
-            }
-
-            return [
-              ...current,
-              {
-                id: assistantId,
-                role: 'assistant',
-                content: textSnapshot,
-              },
-            ];
-          });
+          queueAssistantRender();
         } else if (evt.type === 'RUN_ERROR') {
           throw new Error(
             evt.message ||
@@ -824,6 +859,9 @@ export default function Home() {
       if (buffer.trim()) {
         processFrame(buffer);
       }
+      // The browser may not schedule another frame before SSE completion.
+      // Commit every final delta immediately, including extremely fast replies.
+      flushAssistantRender();
 
       if (!gotText && !gotCheckoutEvent) {
         throw new Error(
@@ -833,7 +871,11 @@ export default function Home() {
 
       // Diagnostic timings (no message content or personal data logged).
       console.info('[Naija Bites latency]', {
+        request_id: response.headers.get('x-request-id'),
+        max_text_gap_ms: Math.round(maxTextGapMs),
+        text_events: textEvents,
         response_headers_ms: headersReceivedAt === null ? null : Math.round(headersReceivedAt - requestStartedAt),
+        first_text_epoch_ms: firstTokenAt === null ? null : performance.timeOrigin + firstTokenAt,
         first_token_ms: firstTokenAt === null ? null : Math.round(firstTokenAt - requestStartedAt),
         total_ms: Math.round(performance.now() - requestStartedAt),
       });
@@ -852,6 +894,8 @@ export default function Home() {
           : 'Unexpected request error.'
       );
     } finally {
+      // Error/cancel paths must not lose any text already received.
+      flushAssistantRender();
       setBusy(false);
       setShowTyping(false);
       abort.current = null;
