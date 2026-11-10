@@ -498,6 +498,7 @@ export default function Home() {
   const applyCheckoutState = useCallback((data: CheckoutResponse) => {
     if (data.success !== true || typeof data.pending !== 'boolean') return;
     setCartHasItems(Boolean(data.cart_has_items));
+    if (!data.cart_has_items) setRecoveryOpen(false);
     if (data.pending && data.summary && data.fingerprint) {
       const token = data.checkout_id || data.fingerprint;
       if (lastCheckoutFingerprint.current !== token) {
@@ -565,6 +566,32 @@ export default function Home() {
       document.removeEventListener('visibilitychange', syncIfVisible);
     };
   }, [busy, confirming, refreshCheckout]);
+
+  async function cancelDraftOrder() {
+    if (recoveryBusy || busy || confirming) return;
+    setRecoveryBusy(true);
+    setCheckoutError('');
+    // Invalidate older snapshots before cancellation, including prepare responses.
+    checkoutSyncSequence.current++;
+    try {
+      const response = await apiFetch('/checkout/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(
+        typeof data.detail === 'string' ? data.detail : 'Could not cancel the draft order.'
+      );
+      checkoutSyncSequence.current++;
+      applyCheckoutState(data as CheckoutResponse);
+      setRecoveryOpen(false);
+      setReviewOpen(false);
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : 'Could not cancel the draft order.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
 
   async function prepareCheckoutDirect() {
     if (recoveryBusy || busy || confirming) return;
@@ -1261,7 +1288,7 @@ export default function Home() {
                       <input required maxLength={120} value={recoveryForm.delivery_area} onChange={e => setRecoveryForm(prev => ({...prev, delivery_area: e.target.value}))}/>
                     </label>
                     <div className="checkout-recovery-actions">
-                      <button type="button" className="secondary-action" onClick={() => setRecoveryOpen(false)}>Cancel</button>
+                      <button type="button" className="secondary-action" disabled={recoveryBusy || busy || confirming} onClick={() => void cancelDraftOrder()}>{recoveryBusy ? 'Cancelling…' : 'Cancel order'}</button>
                       <button type="submit" className="primary-action" disabled={recoveryBusy || confirming}>
                         {recoveryBusy ? 'Preparing…' : 'Review order'}
                       </button>
@@ -1305,7 +1332,7 @@ export default function Home() {
         <div className="composer-area">
           <div className="composer-intro"><Sparkles size={15}/> Ask me anything about your next meal</div>
           {voicePanelOpen ? (
-            <VoiceChatPanel open={voicePanelOpen} onClose={() => setVoicePanelOpen(false)} onSend={(text, clip) => { void send(text, clip); }} disabled={busy || confirming || !threadId} />
+            <VoiceChatPanel apiFetch={apiFetch} open={voicePanelOpen} onClose={() => setVoicePanelOpen(false)} onSend={(text, clip) => { void send(text, clip); }} disabled={busy || confirming || !threadId} />
           ) : (
             <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
               <textarea ref={textareaRef} id="message-input" rows={1} aria-label="Message Naija Bites" placeholder="Tell me what you’re craving…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} disabled={busy || confirming}/>

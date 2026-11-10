@@ -1442,6 +1442,11 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
 }
 
 /* Food doodles belong to the conversation canvas; voice-note blue stays unchanged. */
-.site-shell .conversation{background-color:#f7f8f2;background-image:linear-gradient(#f7f8f273,#f7f8f273),url('/chat-food-pattern.svg');background-size:auto,540px auto;background-repeat:repeat}
-.site-shell.theme-dark .conversation{background-color:#14251a;background-image:linear-gradient(#14251ae6,#14251ae6),url('/chat-food-pattern.svg')}
+.site-shell .conversation{background-color:#f7f8f2;background-image:linear-gradient(#f7f8f286,#f7f8f286),url('/chat-food-pattern.svg');background-size:auto,540px auto;background-repeat:repeat}
+.site-shell.theme-dark .conversation{background-color:#14251a;background-image:linear-gradient(#14251ae9,#14251ae9),url('/chat-food-pattern.svg')}
 @media(max-width:700px){.site-shell .conversation{background-size:auto,360px auto}}
+
+/* Stronger depth against the softened wallpaper, without recoloring messages. */
+.site-shell .message-row .bubble:not(.bubble--voice){box-shadow:0 14px 30px rgba(25,47,30,.20),0 4px 10px rgba(25,47,30,.09)}
+.site-shell.theme-dark .message-row .bubble:not(.bubble--voice){box-shadow:0 15px 32px rgba(2,10,5,.46),0 4px 10px rgba(2,10,5,.24)}
+.site-shell .message-row.user .bubble.bubble--voice{box-shadow:0 15px 30px #214d8c47,0 4px 10px #214d8c2b}

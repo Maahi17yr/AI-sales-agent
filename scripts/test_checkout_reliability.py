@@ -8,7 +8,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 os.environ["NAIJA_BITES_ENV"] = "development"
 os.environ["DATABASE_URL"] = ""
@@ -72,6 +72,67 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             "delivery_address": "Fictional Test Street, Lekki",
             "delivery_area": "Lekki Phase 1",
         })
+
+    async def test_voice_transcription_is_authenticated_and_disabled_by_default(self):
+        with patch.dict(os.environ, {"NAIJA_BITES_VOICE_TRANSCRIPTION": ""}):
+            response = await self.client.post("/voice/transcribe", json={"audio_base64": "invalid"})
+            self.assertEqual(response.status_code, 503)
+        anonymous = httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://127.0.0.1:8000")
+        try:
+            response = await anonymous.post("/voice/transcribe", json={"audio_base64": "invalid"})
+            self.assertEqual(response.status_code, 401)
+            self.assertEqual((await anonymous.post("/checkout/cancel", json={})).status_code, 401)
+        finally:
+            await anonymous.aclose()
+
+    async def test_voice_transcription_maps_provider_failures_without_discarding_audio(self):
+        with patch.dict(os.environ, {"NAIJA_BITES_VOICE_TRANSCRIPTION": "true"}):
+            for failure, status in [(ValueError("Invalid audio"), 400),
+                                    (TimeoutError(), 504), (PermissionError("private provider detail"), 503)]:
+                with patch("core.services.voice_transcription.transcribe_recording",
+                           new_callable=AsyncMock, side_effect=failure):
+                    response = await self.client.post("/voice/transcribe", json={"audio_base64": "recorded"})
+                    self.assertEqual(response.status_code, status)
+                    self.assertNotIn("private provider detail", response.text)
+            with patch("core.services.voice_transcription.transcribe_recording",
+                       new_callable=AsyncMock, return_value="One jollof please"):
+                response = await self.client.post("/voice/transcribe", json={"audio_base64": "recorded"})
+                self.assertEqual(response.json()["transcript"], "One jollof please")
+            with patch("core.services.voice_transcription.transcribe_recording",
+                       new_callable=AsyncMock, return_value=""):
+                response = await self.client.post("/voice/transcribe", json={"audio_base64": "recorded"})
+                self.assertEqual(response.status_code, 422)
+
+    async def test_cancel_draft_removes_review_and_rejects_old_approval(self):
+        ready = (await self.prepare()).json()
+        cancelled = await self.client.post("/checkout/cancel", json={})
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertFalse(cancelled.json()["pending"])
+        self.assertFalse(cancelled.json()["cart_has_items"])
+        self.assertFalse((await self.client.get("/checkout")).json()["pending"])
+        self.assertEqual((await self.client.post("/checkout/cancel", json={})).status_code, 200)
+        stale = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True, "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"],
+        })
+        self.assertEqual(stale.status_code, 409)
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT quantity FROM inventory WHERE product_id = ?",
+                                         (self.product_id,)).fetchone()[0], 10)
+
+    async def test_cancel_draft_cannot_cancel_placed_order(self):
+        ready = (await self.prepare()).json()
+        placed = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True, "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"],
+        })
+        self.assertEqual(placed.status_code, 200, placed.text)
+        response = await self.client.post("/checkout/cancel", json={})
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual((await self.client.get("/checkout")).json()["payment_order_id"],
+                         placed.json()["order_id"])
 
     async def test_prepared_review_survives_reload_and_confirmation_is_idempotent(self):
         before = (await self.client.get("/checkout")).json()

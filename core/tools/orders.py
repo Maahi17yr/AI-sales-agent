@@ -155,4 +155,16 @@ def make_order_tools(session_id: str):
             "order": order,
         }
 
-    return [create_order, get_order_status]
+    @tool
+    def cancel_current_draft_order() -> dict:
+        """Cancel the customer's unplaced cart and prepared review.
+        
+        Use when the customer says cancel my order while still preparing checkout.
+        Does not cancel a placed order, refund payment or change inventory.
+        """
+        if session_customer() is None:
+            return {"success": False, "message": "Customer session is not verified."}
+        from core.services.checkout_state import cancel_draft_order
+        return cancel_draft_order(session_id)
+
+    return [create_order, get_order_status, cancel_current_draft_order]

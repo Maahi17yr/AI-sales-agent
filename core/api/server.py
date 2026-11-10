@@ -73,7 +73,7 @@ from data.database import repository
 from core.intelligence.agent import make_agent
 
 from core.services.checkout import CheckoutService
-from core.services.checkout_state import get_checkout_state, dismiss_payment_card
+from core.services.checkout_state import get_checkout_state, dismiss_payment_card, cancel_draft_order
 from core.memory.context import bounded_chat_messages
 from core.memory.token_metrics import log_token_usage
 from core.services.cart import CartService
@@ -209,6 +209,10 @@ class CheckoutApproval(BaseModel):
     customer_approved: StrictBool
     reviewed_fingerprint: str
     checkout_id: str | None = Field(default=None, max_length=100)
+
+
+class VoiceTranscriptionRequest(BaseModel):
+    audio_base64: str = Field(min_length=1, max_length=3846000)
 
 
 class CheckoutPrepareRequest(BaseModel):
@@ -714,6 +718,38 @@ async def dismiss_checkout_payment(payload: PaymentDismiss, request: Request):
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return get_checkout_state(session_id)
+
+
+@app.post("/voice/transcribe")
+async def transcribe_voice(payload: VoiceTranscriptionRequest, request: Request):
+    session_id = _customer_session(request)
+    if os.getenv("NAIJA_BITES_VOICE_TRANSCRIPTION", "").lower() != "true":
+        raise HTTPException(status_code=503, detail="Voice transcription is temporarily unavailable. Your recording is kept.")
+    from core.services.voice_transcription import transcribe_recording
+    async with _agent_lock(session_id):
+        try:
+            transcript = await transcribe_recording(payload.audio_base64)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except TimeoutError as exc:
+            raise HTTPException(status_code=504, detail="Transcription took too long. Your recording is kept; try Send again.") from exc
+        except Exception as exc:
+            logging.getLogger(__name__).error("voice_transcription_failed type=%s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Could not transcribe this recording. Your recording is kept; try Send again.") from exc
+    if not transcript:
+        raise HTTPException(status_code=422, detail="No speech was detected in this recording. You can play it back or record again.")
+    return {"success": True, "transcript": transcript}
+
+
+@app.post("/checkout/cancel")
+async def cancel_draft_checkout(request: Request):
+    """Cancel only the unplaced cart and prepared review, never a paid order."""
+    session_id = _customer_session(request)
+    async with _agent_lock(session_id):
+        result = cancel_draft_order(session_id)
+        if not result["success"]:
+            raise HTTPException(status_code=409, detail=result["message"])
+        return result["checkout"]
 
 
 @app.post("/checkout/prepare")

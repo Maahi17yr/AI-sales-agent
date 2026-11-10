@@ -77,6 +77,14 @@ def main():
             payload = route.request.post_data_json or {}
             user_messages = [item for item in payload.get("messages", []) if item.get("role") == "user"]
             request_text = user_messages[-1].get("content", "") if user_messages else ""
+            if request_text == "Cancel my draft order":
+                from core.services.checkout_state import cancel_draft_order
+                result = cancel_draft_order(f"customer-{customer_id}")
+                assert result["success"], result
+                body = ('data: ' + json.dumps({"type":"CHECKOUT_STATE","checkout":result["checkout"]})
+                        + chr(10)*2 + 'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"Draft order cancelled."}' + chr(10)*2)
+                route.fulfill(status=200, content_type="text/event-stream", body=body)
+                return
             if "Simulate network interruption" in request_text:
                 route.abort("failed")
                 return
@@ -340,42 +348,89 @@ def main():
             page.get_by_role("button", name="Send message").click()
             page.wait_for_function("!document.querySelector('#message-input').disabled")
 
-            # Final browser words can arrive after recording stops.
+            # Android must finish recording and release its mic before transcription.
             page.evaluate("""() => {
-                window.SpeechRecognition = class {
-                    start() {}
-                    stop() {
-                        setTimeout(() => {
-                            this.onresult?.({results:[{0:{transcript:'One plate of jollof rice please'},isFinal:true}]});
-                            this.onend?.();
-                        }, 150);
-                    }
-                    abort() {}
-                };
+                window.voiceMicReleased = false;
+                window.SpeechRecognition = class { constructor() { throw Error('Concurrent recognition must not run'); } };
+                window.webkitSpeechRecognition = window.SpeechRecognition;
                 const devices = navigator.mediaDevices || {};
                 Object.defineProperty(devices, 'getUserMedia', {configurable:true,
-                    value: async () => ({getTracks: () => [{stop() {}}]})});
+                    value: async () => ({getTracks: () => [{stop() { window.voiceMicReleased = true; }}]})});
                 Object.defineProperty(navigator, 'mediaDevices', {value: devices, configurable:true});
                 window.MediaRecorder = class {
-                    constructor() { this.state = 'inactive'; this.mimeType = 'audio/webm'; }
+                    constructor() { this.state = 'inactive'; this.mimeType = 'audio/wav'; }
                     start() { this.state = 'recording'; }
                     stop() {
                         this.state = 'inactive';
+                        const bytes = new ArrayBuffer(32044), v = new DataView(bytes);
+                        const text = (at, s) => [...s].forEach((c,i) => v.setUint8(at+i,c.charCodeAt(0)));
+                        text(0,'RIFF');v.setUint32(4,32036,true);text(8,'WAVE');text(12,'fmt ');
+                        v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+                        v.setUint32(24,16000,true);v.setUint32(28,32000,true);
+                        v.setUint16(32,2,true);v.setUint16(34,16,true);text(36,'data');v.setUint32(40,32000,true);
+                        for(let i=0;i<16000;i++)v.setInt16(44+i*2,Math.sin(i*.1)*10000,true);
                         queueMicrotask(() => {
-                            this.ondataavailable?.({data: new Blob(['fictional-audio'], {type:'audio/webm'})});
+                            this.ondataavailable?.({data: new Blob([bytes], {type:'audio/wav'})});
                             this.onstop?.();
                         });
                     }
                 };
             }""")
+            voice_requests = []
+            def transcribe_recorded_note(route):
+                assert page.evaluate("window.voiceMicReleased") is True
+                payload = route.request.post_data_json
+                assert len(payload["audio_base64"]) > 1000
+                voice_requests.append(payload)
+                if len(voice_requests) == 1:
+                    route.fulfill(status=503, content_type="application/json",
+                                  body='{"detail":"Transcription unavailable. Your recording is kept."}')
+                else:
+                    route.fulfill(status=200, content_type="application/json",
+                                  body='{"success":true,"transcript":"One plate of jollof rice please"}')
+            page.route("**/api/backend/voice/transcribe", transcribe_recorded_note)
             calls_before_voice = len(agent_calls)
             page.get_by_role("button", name="Record voice note").click()
-            page.get_by_role("button", name="Finish and send voice note").wait_for()
             page.get_by_role("button", name="Finish and send voice note").click()
+            page.get_by_role("alert").filter(has_text="Transcription unavailable").wait_for()
+            assert len(agent_calls) == calls_before_voice
+            assert page.get_by_role("button", name="Preview voice note").is_visible()
+            page.get_by_role("button", name="Send voice note", exact=True).click()
             page.get_by_role("region", name="Voice note composer").wait_for(state="detached")
             page.wait_for_function("!document.querySelector('#message-input').disabled")
             assert len(agent_calls) == calls_before_voice + 1
-            assert page.locator("#voice-inline-text").count() == 0
+            assert len(voice_requests) == 2
+            assert page.locator(".bubble--voice").count() > 0
+
+            # The real Cancel order action must remove the full delivery form/card.
+            with get_connection() as conn:
+                conn.execute("UPDATE conversation_sessions SET cart_data=? WHERE session_id=?", (
+                    json.dumps({"items":[{"product_id":product_id,"quantity":1,"variant":"standard","modifications":[]}]}),
+                    f"customer-{customer_id}",
+                ))
+            page.reload(wait_until="domcontentloaded")
+            page.get_by_role("button", name="Prepare order review").wait_for()
+            page.get_by_role("button", name="Prepare order review").click()
+            page.locator(".checkout-recovery-form").wait_for()
+            page.get_by_role("button", name="Cancel order", exact=True).click()
+            page.get_by_role("region", name="Order review recovery").wait_for(state="detached")
+            page.reload(wait_until="domcontentloaded")
+            page.locator("#message-input").wait_for()
+            assert page.get_by_role("region", name="Order review recovery").count() == 0
+
+            # A verified chat cancellation also removes an already-open form.
+            with get_connection() as conn:
+                conn.execute("UPDATE conversation_sessions SET cart_data=? WHERE session_id=?", (
+                    json.dumps({"items":[{"product_id":product_id,"quantity":1,"variant":"standard","modifications":[]}]}),
+                    f"customer-{customer_id}",
+                ))
+            page.reload(wait_until="domcontentloaded")
+            page.get_by_role("button", name="Prepare order review").click()
+            page.locator("#message-input").fill("Cancel my draft order")
+            page.get_by_role("button", name="Send message").click()
+            page.get_by_text("Draft order cancelled.", exact=True).wait_for()
+            page.wait_for_function("!document.querySelector('#message-input').disabled")
+            assert page.get_by_role("region", name="Order review recovery").count() == 0
 
             # Clearing history requires in-app confirmation and reports failures persistently,
             # and shows success only as a 2.5-second floating toast.
