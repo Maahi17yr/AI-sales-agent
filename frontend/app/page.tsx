@@ -698,8 +698,8 @@ export default function Home() {
     const queueAssistantRender = () => {
       // A/B control is available in local development only. Production always
       // uses frame coalescing; checkout/tool behavior is unchanged.
-      if (process.env.NODE_ENV === 'development' &&
-          new URLSearchParams(window.location.search).has('stream_render_baseline')) {
+      if (!renderedText || (process.env.NODE_ENV === 'development' &&
+          new URLSearchParams(window.location.search).has('stream_render_baseline'))) {
         renderAssistantText();
       } else if (scheduledTextFrame === null) {
         scheduledTextFrame = window.requestAnimationFrame(renderAssistantText);
