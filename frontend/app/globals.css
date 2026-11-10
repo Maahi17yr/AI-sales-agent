@@ -1406,3 +1406,37 @@ body:has(.site-shell.theme-dark) { background: #0e1b14; }
   color: #ddf1d5;
   border-color: #527348;
 }
+
+/* Customer UI readability remains fluid across viewport widths. */
+.site-shell .bubble { font-size: clamp(1rem, 1.45vw, 1.2rem); line-height: 1.55; }
+.site-shell .composer textarea { font-size: clamp(1.0625rem, 1.2vw, 1.125rem); }
+.site-shell .agent-title h1 { font-size: clamp(1rem, 1.3vw, 1.25rem); }
+.site-shell :is(.side-link, .new-chat, .open-food-panel, .payment-toast, .history-notice) { font-size: .9375rem; }
+.site-shell .chat-history-item { font-size: .875rem; }
+.site-shell :is(.composer-intro, .composer-caption, .agent-title p) { font-size: .8125rem; }
+
+.clear-history-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+  max-height: calc(var(--app-height, 100dvh) - 2rem);
+  overflow-y: auto;
+  padding: 0;
+  border: 1px solid #dce7d4;
+  border-radius: 20px;
+  background: #fffefa;
+  color: #25362a;
+  box-shadow: 0 24px 80px #142b1940;
+}
+.clear-history-dialog::backdrop { background: #10241880; }
+.clear-history-content { padding: clamp(1.25rem, 4vw, 1.75rem); }
+.clear-history-content h2 { margin: 0 0 .75rem; font-size: clamp(1.25rem, 3vw, 1.5rem); line-height: 1.2; }
+.clear-history-content p { margin: 0; font-size: 1rem; line-height: 1.55; }
+.clear-history-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .75rem; margin-top: 1.5rem; }
+.clear-history-buttons button { min-height: 44px; padding: .7rem 1rem; border: 1px solid #cfddc7; border-radius: 12px; background: #f0f5e9; color: #304e32; font-size: 1rem; }
+.clear-history-buttons .clear-history-confirm { background: #354f35; border-color: #354f35; color: #fff; }
+.site-shell.theme-dark .clear-history-dialog { background: #24392c; color: #eff6ed; border-color: #527348; }
+.site-shell.theme-dark .clear-history-buttons button { background: #324c37; color: #eff6ed; border-color: #5c7751; }
+.site-shell.theme-dark .clear-history-buttons .clear-history-confirm { background: #c8dfa4; color: #223526; }
+@media (max-width: 379px) {
+  .clear-history-buttons { flex-direction: column-reverse; }
+  .clear-history-buttons button { width: 100%; }
+}
