@@ -403,9 +403,19 @@ export default function Home() {
 
   useEffect(() => {
     if (!historyReady) return;
-    try { window.localStorage.setItem(historyKey(customer.id), JSON.stringify(savedChats)); }
-    catch { /* Storage may be disabled or full; chat still works in this tab. */ }
-  }, [customer.id, historyReady, savedChats]);
+    const save = () => {
+      try { window.localStorage.setItem(historyKey(customer.id), JSON.stringify(savedChats)); }
+      catch { /* Storage may be disabled or full; chat still works in this tab. */ }
+    };
+    if (!busy) { save(); return; }
+    // Keep a recoverable snapshot during a reply without serializing every chat per frame.
+    window.addEventListener('pagehide', save);
+    const timer = window.setTimeout(save, 250);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('pagehide', save);
+    };
+  }, [busy, customer.id, historyReady, savedChats]);
 
 
   // Persist the active conversation after the streaming response settles.
