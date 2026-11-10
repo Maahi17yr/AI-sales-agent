@@ -440,6 +440,7 @@ def main():
             assert page.locator(".chat-history-item").count() == 0
             assert page.locator(".history-toast").count() == 0
             assert page.get_by_text("Fictional menu is ready.").count() == 0
+            print("PASS: cancellation/resend, browser voice send, confirmation and toast timing")
             for width, height in [(320, 740), (768, 1024), (1280, 800), (1920, 1080)]:
                 page.set_viewport_size({"width": width, "height": height})
                 assert page.locator(".desktop-sidebar-toggle").count() == 0
@@ -448,7 +449,8 @@ def main():
                     page.wait_for_function("document.querySelector('#main-navigation').getBoundingClientRect().left >= -1")
                     page.locator(".sidebar-close-mobile").click()
                 else:
-                    page.locator("#main-navigation").hover()
+                    page.mouse.move(width - 20, 100)
+                    page.locator("#main-navigation").hover(position={"x": 25, "y": 160})
                     page.wait_for_function("!document.querySelector('.site-shell').classList.contains('sidebar-collapsed')")
                     page.locator("#message-input").focus()
                 page.wait_for_timeout(300)
