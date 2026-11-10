@@ -1029,7 +1029,7 @@ export default function Home() {
     }
   }
 
-  // A floating notification disappears three seconds after its message changes.
+  // Success toasts last one second; warnings allow three seconds for reading.
   // Clearing the timer also prevents updates after this view unmounts.
   useEffect(() => {
     if (!paymentMessage) return;
