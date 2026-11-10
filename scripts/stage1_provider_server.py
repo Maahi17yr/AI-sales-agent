@@ -12,6 +12,7 @@ from botocore.client import BaseClient
 
 # Import enforces the existing /tmp, development, no DATABASE_URL and mock-provider guards.
 from scripts import mock_payment_backend
+from core.api import server
 from core.api.server import app
 
 
@@ -39,6 +40,17 @@ class TraceRequests:
         finally:
             print("STAGE1_SERVER", json.dumps(record), flush=True)
             trace.reset(token)
+
+
+real_make_agent = server.make_agent
+
+
+def timed_make_agent(session_id):
+    started = time.perf_counter()
+    try:
+        return real_make_agent(session_id)
+    finally:
+        trace.get()["agent_init_ms"] = round((time.perf_counter() - started) * 1000, 2)
 
 
 real_menu = repository.get_orderable_products
@@ -88,6 +100,10 @@ def provider_call(client, operation, params):
 if __name__ == "__main__":
     os.environ.update(AWS_ACCESS_KEY_ID="fixture", AWS_SECRET_ACCESS_KEY="fixture",
                       AWS_DEFAULT_REGION="us-east-1", BEDROCK_MODEL_ID="fixture")
-    with patch.object(BaseClient, "_make_api_call", provider_call), patch.object(repository, "get_orderable_products", timed_menu):
+    with (
+        patch.object(BaseClient, "_make_api_call", provider_call),
+        patch.object(repository, "get_orderable_products", timed_menu),
+        patch.object(server, "make_agent", timed_make_agent),
+    ):
         uvicorn.run(TraceRequests(app), host="127.0.0.1", port=8444,
                     ssl_keyfile="/tmp/naija-proxy-test.key", ssl_certfile="/tmp/naija-proxy-test.crt")
