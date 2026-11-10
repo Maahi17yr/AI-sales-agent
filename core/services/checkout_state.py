@@ -147,3 +147,13 @@ def get_checkout_state(session_id: str) -> dict:
         return state
     finally:
         conn.close()
+
+
+def cancel_draft_order(session_id: str) -> dict:
+    """Discard only an unplaced cart/review. Never modify durable orders or stock."""
+    from core.services.cart import CartService
+    state = get_checkout_state(session_id)
+    if state["status"] == "payment_pending":
+        return {"success": False, "message": "This order is already placed. Contact support to cancel it."}
+    CartService(session_id).clear_cart()
+    return {"success": True, "message": "Draft order cancelled.", "checkout": get_checkout_state(session_id)}
