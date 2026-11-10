@@ -29,3 +29,6 @@ python-dotenv
 # ship with Python and require no separate pip installation.
 # Hosted PostgreSQL (Neon or another PostgreSQL provider)
 psycopg[binary]>=3.2,<4
+
+# Speech-to-text fallback for recorded voice notes
+amazon-transcribe>=0.6,<0.7
