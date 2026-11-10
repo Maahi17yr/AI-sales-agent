@@ -1033,9 +1033,9 @@ export default function Home() {
   // Clearing the timer also prevents updates after this view unmounts.
   useEffect(() => {
     if (!paymentMessage) return;
-    const timeout = window.setTimeout(() => setPaymentMessage(''), 3000);
+    const timeout = window.setTimeout(() => setPaymentMessage(''), paymentToastSuccess ? 1000 : 3000);
     return () => window.clearTimeout(timeout);
-  }, [paymentMessage]);
+  }, [paymentMessage, paymentToastSuccess]);
 
   // Verify the return with the backend, then add a durable, idempotent chat
   // message. Never ask the LLM to decide whether payment was successful.
