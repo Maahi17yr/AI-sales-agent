@@ -105,7 +105,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled, apiFet
     return () => {
       closedRef.current = true;
       recordingRef.current = false;
-        settleRecognition.current();
+      uploadRef.current?.abort();
       window.removeEventListener('keydown', onKeyDown);
       if (timerRef.current) clearInterval(timerRef.current);
       recordingBlob.current = null;
@@ -189,7 +189,8 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled, apiFet
       try {
         if (!text) {
           const audio_base64 = await recordingToWavBase64(blob);
-          if (closedRef.current || controller.signal.aborted) return;
+          if (closedRef.current) return;
+          if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
           const response = await apiFetch('/voice/transcribe', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ audio_base64 }), signal: controller.signal,
