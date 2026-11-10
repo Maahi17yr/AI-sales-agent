@@ -168,7 +168,7 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled, apiFet
         recorderRef.current = null;
         setProcessing(false);
         if (closedRef.current) return;
-        if (!chunks.length) { setError('No audio was captured. Please try again.'); return; }
+        if (!chunks.length) { setSendAfterStop(false); setError('No audio was captured. Please try again.'); return; }
         const url = URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }));
         previewUrlRef.current = url;
         setPreviewUrl(url);
