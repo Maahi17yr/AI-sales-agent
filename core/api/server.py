@@ -604,13 +604,18 @@ async def run_agent(
     async def stream():
         # Log only timing and event counts; never log customer text or tokens.
         started = time.perf_counter()
+        init_ms = lock_ms = first_text_ms = previous_text = None
+        max_gap_ms = text_events = 0
         first_event_ms = None
         event_count = 0
         outcome = "completed"
         model_agent = None
         try:
             async with _agent_lock(session_id):
+                acquired = time.perf_counter()
+                lock_ms = round((acquired - started) * 1000)
                 model_agent = make_agent(session_id)
+                init_ms = round((time.perf_counter() - acquired) * 1000)
                 agent = StrandsAgent(
                     agent=model_agent,
                     name="naija_bites",
@@ -620,6 +625,14 @@ async def run_agent(
                     event_count += 1
                     if first_event_ms is None:
                         first_event_ms = round((time.perf_counter() - started) * 1000)
+                    if getattr(event, 'type', None) == 'TEXT_MESSAGE_CONTENT' and getattr(event, 'delta', ''):
+                        now = time.perf_counter()
+                        if previous_text is None:
+                            first_text_ms = round((now - started) * 1000)
+                        else:
+                            max_gap_ms = max(max_gap_ms, round((now - previous_text) * 1000))
+                        previous_text = now
+                        text_events += 1
                     yield encoder.encode(event)
                 # Structured, trusted UI action after the agent has finished.
                 # This is independent of whatever the model says in its reply.
@@ -652,11 +665,14 @@ async def run_agent(
                     logging.getLogger(__name__).warning(
                         "agent_token_usage_failure type=%s", type(exc).__name__)
             logging.getLogger(__name__).info(
-                "agent_stream_latency total_ms=%d first_event_ms=%s events=%d outcome=%s",
+                "agent_stream_latency total_ms=%d first_event_ms=%s events=%d outcome=%s "
+                "request_id=%s lock_ms=%s init_ms=%s first_text_ms=%s text_events=%d max_text_gap_ms=%d",
                 round((time.perf_counter() - started) * 1000),
                 first_event_ms,
                 event_count,
                 outcome,
+                getattr(request.state, 'request_id', 'unknown'), lock_ms, init_ms,
+                first_text_ms, text_events, max_gap_ms,
             )
 
     return StreamingResponse(
