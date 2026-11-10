@@ -8,7 +8,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 os.environ["NAIJA_BITES_ENV"] = "development"
 os.environ["DATABASE_URL"] = ""
@@ -72,6 +72,37 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             "delivery_address": "Fictional Test Street, Lekki",
             "delivery_area": "Lekki Phase 1",
         })
+
+    async def test_voice_transcription_is_authenticated_and_disabled_by_default(self):
+        with patch.dict(os.environ, {"NAIJA_BITES_VOICE_TRANSCRIPTION": ""}):
+            response = await self.client.post("/voice/transcribe", json={"audio_base64": "invalid"})
+            self.assertEqual(response.status_code, 503)
+        anonymous = httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://127.0.0.1:8000")
+        try:
+            response = await anonymous.post("/voice/transcribe", json={"audio_base64": "invalid"})
+            self.assertEqual(response.status_code, 401)
+            self.assertEqual((await anonymous.post("/checkout/cancel", json={})).status_code, 401)
+        finally:
+            await anonymous.aclose()
+
+    async def test_voice_transcription_maps_provider_failures_without_discarding_audio(self):
+        with patch.dict(os.environ, {"NAIJA_BITES_VOICE_TRANSCRIPTION": "true"}):
+            for failure, status in [(ValueError("Invalid audio"), 400),
+                                    (TimeoutError(), 504), (PermissionError("private provider detail"), 503)]:
+                with patch("core.services.voice_transcription.transcribe_recording",
+                           new_callable=AsyncMock, side_effect=failure):
+                    response = await self.client.post("/voice/transcribe", json={"audio_base64": "recorded"})
+                    self.assertEqual(response.status_code, status)
+                    self.assertNotIn("private provider detail", response.text)
+            with patch("core.services.voice_transcription.transcribe_recording",
+                       new_callable=AsyncMock, return_value="One jollof please"):
+                response = await self.client.post("/voice/transcribe", json={"audio_base64": "recorded"})
+                self.assertEqual(response.json()["transcript"], "One jollof please")
+            with patch("core.services.voice_transcription.transcribe_recording",
+                       new_callable=AsyncMock, return_value=""):
+                response = await self.client.post("/voice/transcribe", json={"audio_base64": "recorded"})
+                self.assertEqual(response.status_code, 422)
 
     async def test_cancel_draft_removes_review_and_rejects_old_approval(self):
         ready = (await self.prepare()).json()
