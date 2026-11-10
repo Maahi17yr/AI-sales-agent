@@ -73,6 +73,36 @@ class ReliableCheckoutTests(unittest.IsolatedAsyncioTestCase):
             "delivery_area": "Lekki Phase 1",
         })
 
+    async def test_cancel_draft_removes_review_and_rejects_old_approval(self):
+        ready = (await self.prepare()).json()
+        cancelled = await self.client.post("/checkout/cancel", json={})
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertFalse(cancelled.json()["pending"])
+        self.assertFalse(cancelled.json()["cart_has_items"])
+        self.assertFalse((await self.client.get("/checkout")).json()["pending"])
+        self.assertEqual((await self.client.post("/checkout/cancel", json={})).status_code, 200)
+        stale = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True, "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"],
+        })
+        self.assertEqual(stale.status_code, 409)
+        with models.get_connection() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT quantity FROM inventory WHERE product_id = ?",
+                                         (self.product_id,)).fetchone()[0], 10)
+
+    async def test_cancel_draft_cannot_cancel_placed_order(self):
+        ready = (await self.prepare()).json()
+        placed = await self.client.post("/checkout/confirm", json={
+            "customer_approved": True, "reviewed_fingerprint": ready["fingerprint"],
+            "checkout_id": ready["checkout_id"],
+        })
+        self.assertEqual(placed.status_code, 200, placed.text)
+        response = await self.client.post("/checkout/cancel", json={})
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual((await self.client.get("/checkout")).json()["payment_order_id"],
+                         placed.json()["order_id"])
+
     async def test_prepared_review_survives_reload_and_confirmation_is_idempotent(self):
         before = (await self.client.get("/checkout")).json()
         self.assertTrue(before["cart_has_items"])
