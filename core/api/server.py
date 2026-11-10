@@ -49,7 +49,7 @@ from pydantic import BaseModel, StrictBool, Field
 from typing import Literal
 from uuid import UUID
 import time
-from core.services import paystack_service, auth_service
+from core.services import paystack_service, auth_service, voice_transcription
 from core.api.owner import router as owner_router
 
 from ag_ui.core import RunAgentInput
@@ -574,6 +574,28 @@ def current_cart(request: Request):
             "discount": discount["discount_amount"],
             "discount_eligible": discount["eligible"],
             "discount_message": discount["message"]}
+
+
+@app.post("/voice/transcribe")
+async def transcribe_voice_note(request: Request):
+    session_id = _customer_session(request)
+    media_type = request.headers.get("content-type", "")
+    if media_type.split(";", 1)[0].strip().lower() not in voice_transcription.AUDIO_FORMATS:
+        raise HTTPException(status_code=415, detail="This audio format is not supported.")
+    audio = bytearray()
+    async for chunk in request.stream():
+        audio.extend(chunk)
+        if len(audio) > voice_transcription.MAX_AUDIO_BYTES:
+            raise HTTPException(status_code=413, detail="This voice note is too large.")
+    # Bound simultaneous transcription work to one request per signed-in customer.
+    async with _agent_lock(session_id):
+        try:
+            text = await asyncio.to_thread(voice_transcription.transcribe, bytes(audio), media_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return JSONResponse({"transcript": text}, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/agent")
