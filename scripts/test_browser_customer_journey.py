@@ -35,6 +35,30 @@ def main():
         browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
         context = browser.new_context()
         page = context.new_page()
+        page.add_init_script("""() => {
+            window.successToastRecords = [];
+            const active = new Map();
+            new MutationObserver(() => {
+                for (const element of document.querySelectorAll('.history-toast, .payment-toast--success')) {
+                    if (active.has(element)) continue;
+                    const rect = element.getBoundingClientRect();
+                    const record = {
+                        kind: element.classList.contains('history-toast') ? 'history' : 'payment',
+                        start: performance.now(),
+                        center: rect.left + rect.width / 2,
+                        viewport: window.innerWidth
+                    };
+                    active.set(element, record);
+                    window.successToastRecords.push(record);
+                }
+                for (const [element, record] of active) {
+                    if (!element.isConnected) {
+                        record.duration = performance.now() - record.start;
+                        active.delete(element);
+                    }
+                }
+            }).observe(document, {subtree:true, childList:true});
+        }""")
         agent_calls = []
         page.on('console', lambda msg: print('BROWSER_CONSOLE:', msg.type, msg.text[:300]) if msg.type == 'error' else None)
         page.on('requestfailed', lambda req: print('BROWSER_REQUEST_FAILED:', req.url, req.failure))
@@ -126,6 +150,11 @@ def main():
             page.get_by_role("button", name="Pay Now (Test Mode)").click()
 
             page.get_by_text(re.compile("Payment verified!")).wait_for(timeout=30000)
+            page.wait_for_function("""() => window.successToastRecords.some(
+                record => record.kind === 'payment' && record.duration !== undefined)""")
+            payment_toast = page.evaluate("window.successToastRecords.find(record => record.kind === 'payment')")
+            assert 950 <= payment_toast["duration"] <= 2000, payment_toast
+            assert abs(payment_toast["center"] - payment_toast["viewport"] / 2) <= 1, payment_toast
             assert page.get_by_role("region", name="Paystack test payment").count() == 0
             page.reload(wait_until="domcontentloaded")
             page.locator("#message-input").wait_for(timeout=30000)
@@ -321,6 +350,8 @@ def main():
             toast.wait_for(state="detached", timeout=5000)
             duration = page.evaluate("window.historyToastTiming.duration")
             assert 950 <= duration <= 2000, duration
+            history_toast = page.evaluate("window.successToastRecords.find(record => record.kind === 'history')")
+            assert abs(history_toast["center"] - history_toast["viewport"] / 2) <= 1, history_toast
             assert dialogs == [], dialogs
             page.reload(wait_until="domcontentloaded")
             page.locator("#message-input").wait_for(timeout=30000)
