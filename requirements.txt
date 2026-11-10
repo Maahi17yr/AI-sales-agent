@@ -31,5 +31,4 @@ python-dotenv
 psycopg[binary]>=3.2,<4
 
 
-# Dedicated speech transcription; microphone recording is completed before upload.
-aws-sdk-transcribe-streaming[awscrt]==0.11.0
+# Groq Whisper speech transcription uses the existing httpx dependency.
