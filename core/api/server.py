@@ -716,6 +716,18 @@ async def dismiss_checkout_payment(payload: PaymentDismiss, request: Request):
         return get_checkout_state(session_id)
 
 
+@app.post("/checkout/cancel")
+async def cancel_draft_checkout(request: Request):
+    """Cancel only the unplaced cart and prepared review, never a paid order."""
+    session_id = _customer_session(request)
+    async with _agent_lock(session_id):
+        state = get_checkout_state(session_id)
+        if state["status"] == "payment_pending":
+            raise HTTPException(status_code=409, detail="This order is already placed. Contact support to cancel it.")
+        CartService(session_id).clear_cart()
+        return get_checkout_state(session_id)
+
+
 @app.post("/checkout/prepare")
 async def prepare_checkout_direct(payload: CheckoutPrepareRequest, request: Request):
     """Recovery path when the AI failed to invoke its preparation tool.
