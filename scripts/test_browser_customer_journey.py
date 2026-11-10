@@ -274,7 +274,60 @@ def main():
                 page.get_by_text("Fictional menu is ready.").last.wait_for(timeout=30000)
             finally:
                 second_tab.close()
-            print("PASS: Chromium journey, failed streams, network recovery, shared-tab logout, account switching and chat isolation")
+            # Clearing history acts immediately, reports failures persistently,
+            # and shows success only as a one-second floating toast.
+            dialogs = []
+            def unexpected_dialog(dialog):
+                dialogs.append(dialog.type)
+                dialog.dismiss()
+            page.on("dialog", unexpected_dialog)
+            clear_button = page.get_by_role("button", name="Clear all saved conversations")
+            page.wait_for_function("""() => {
+                const button = document.querySelector('.chat-history-clear');
+                return button && !button.disabled;
+            }""")
+            def fail_clear(route):
+                if route.request.method == "DELETE":
+                    route.fulfill(status=503, content_type="application/json", body='{"detail":"Unavailable"}')
+                else:
+                    route.continue_()
+            page.route("**/api/backend/chats", fail_clear)
+            clear_button.evaluate("(button) => button.click()")
+            page.locator(".history-notice").filter(has_text="Could not clear history").wait_for()
+            page.wait_for_timeout(1200)
+            assert page.locator(".history-notice").is_visible()
+            assert page.locator(".history-toast").count() == 0
+            assert clear_button.count() == 1
+            page.unroute("**/api/backend/chats", fail_clear)
+            page.evaluate("""() => {
+                window.historyToastTiming = {};
+                const observer = new MutationObserver(() => {
+                    const toast = document.querySelector('.history-toast');
+                    if (toast && window.historyToastTiming.start === undefined) {
+                        window.historyToastTiming.start = performance.now();
+                    } else if (!toast && window.historyToastTiming.start !== undefined) {
+                        window.historyToastTiming.duration = performance.now() - window.historyToastTiming.start;
+                        observer.disconnect();
+                    }
+                });
+                observer.observe(document.body, {subtree:true, childList:true});
+            }""")
+            clear_button.evaluate("(button) => button.click()")
+            toast = page.locator(".history-toast")
+            toast.wait_for()
+            assert toast.inner_text() == "Chat history cleared successfully."
+            assert page.locator(".history-notice").count() == 0
+            assert toast.evaluate("(element) => getComputedStyle(element).position") == "fixed"
+            toast.wait_for(state="detached", timeout=5000)
+            duration = page.evaluate("window.historyToastTiming.duration")
+            assert 950 <= duration <= 2000, duration
+            assert dialogs == [], dialogs
+            page.reload(wait_until="domcontentloaded")
+            page.locator("#message-input").wait_for(timeout=30000)
+            assert page.locator(".chat-history-item").count() == 0
+            assert page.locator(".history-toast").count() == 0
+            assert page.get_by_text("Fictional menu is ready.").count() == 0
+            print("PASS: Chromium journey, chat isolation, immediate history clearing and one-second success toast")
         except Exception:
             if "second_tab" in locals() and not second_tab.is_closed():
                 print("SECOND_TAB_DIAGNOSTIC_BODY:", second_tab.locator("body").inner_text()[-1800:])
