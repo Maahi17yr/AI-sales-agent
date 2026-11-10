@@ -70,14 +70,14 @@ The older deployment documents in `docs/` may describe previous branch names or 
 
 The customer records a voice note in the browser, then the authenticated FastAPI
 endpoint sends the completed mono 16 kHz WAV recording to Groq
-(\`whisper-large-v3-turbo\`). Only the transcribed text is sent to the existing
+(`whisper-large-v3-turbo`). Only the transcribed text is sent to the existing
 Claude/Bedrock ordering agent; the Groq key never goes to the frontend.
 
-To enable voice notes on Render, add **\`GROQ_API_KEY\`** as a secret environment
+To enable voice notes on Render, add **`GROQ_API_KEY`** as a secret environment
 variable (create one at https://console.groq.com/keys). Then set
-**\`NAIJA_BITES_VOICE_TRANSCRIPTION=true\`** on the backend service. The feature is
+**`NAIJA_BITES_VOICE_TRANSCRIPTION=true`** on the backend service. The feature is
 **disabled by default** until both configuration and a real mobile transcription
-check are completed. Never commit the API key or expose it via \`NEXT_PUBLIC_*\`.
+check are completed. Never commit the API key or expose it via `NEXT_PUBLIC_*`.
 
 Voice recordings are capped at 90 seconds and retained in the browser if
 transcription fails. Retries are customer-initiated; no payment or order action
