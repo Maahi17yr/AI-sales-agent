@@ -157,6 +157,18 @@ jobs:
           PY
       - name: Gate cold and warm SSE from actual production Next.js build
         run: python -m scripts.diagnose_sse_proxy
+      - name: Exercise four customer scenarios through the real agent adapter
+        run: |
+          python -m pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+          python -m scripts.stage1_provider_server > /tmp/stage1-provider.log 2>&1 &
+          (cd frontend && NEXT_BACKEND_URL=https://localhost:8444 npm run start -- --port 3002) > /tmp/stage1-next.log 2>&1 &
+          for attempt in {1..40}; do
+            if curl --cacert /tmp/naija-proxy-test.crt -fsS https://localhost:8444/ping && curl -fsS http://127.0.0.1:3002/ -o /dev/null; then break; fi
+            sleep 1
+          done
+          python -m scripts.stage1_agent_journey
+          grep 'agent_stream_latency' /tmp/stage1-provider.log || true
       - name: Show isolated production server diagnostics on failure
         if: failure()
         run: |
