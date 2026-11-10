@@ -42,7 +42,7 @@ def run_one(page, mode: str, run: int) -> dict:
         {subtree:true, childList:true, characterData:true});
     }""")
     page.locator("#message-input").fill(f"benchmark {mode} {run}")
-    page.evaluate("window.__streamMeasure.start = performance.now()")
+    page.evaluate("""() => document.addEventListener(\'click\', () => {\n        window.__streamMeasure.start = performance.now();\n    }, {once: true, capture: true})""")
     page.get_by_role("button", name="Send message").click()
     page.wait_for_function("""size => {
       const all = document.querySelectorAll('.message-row.assistant .bubble');
