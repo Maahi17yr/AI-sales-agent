@@ -861,6 +861,7 @@ export default function Home() {
         max_text_gap_ms: Math.round(maxTextGapMs),
         text_events: textEvents,
         response_headers_ms: headersReceivedAt === null ? null : Math.round(headersReceivedAt - requestStartedAt),
+        first_text_epoch_ms: firstTokenAt === null ? null : performance.timeOrigin + firstTokenAt,
         first_token_ms: firstTokenAt === null ? null : Math.round(firstTokenAt - requestStartedAt),
         total_ms: Math.round(performance.now() - requestStartedAt),
       });
