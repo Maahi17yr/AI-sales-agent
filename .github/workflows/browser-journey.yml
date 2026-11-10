@@ -78,6 +78,8 @@ jobs:
         run: python -m scripts.test_browser_customer_journey
       - name: Verify auth 429 cooldown and no redundant session preflight
         run: python -m scripts.test_browser_auth_rate_limit
+      - name: Measure streaming in Chromium against the unbuffered proxy
+        run: python -m scripts.benchmark_stream_browser
       - name: Show isolated server diagnostics on failure
         if: failure()
         run: |
