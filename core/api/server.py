@@ -73,7 +73,7 @@ from data.database import repository
 from core.intelligence.agent import make_agent
 
 from core.services.checkout import CheckoutService
-from core.services.checkout_state import get_checkout_state, dismiss_payment_card
+from core.services.checkout_state import get_checkout_state, dismiss_payment_card, cancel_draft_order
 from core.memory.context import bounded_chat_messages
 from core.memory.token_metrics import log_token_usage
 from core.services.cart import CartService
@@ -721,11 +721,10 @@ async def cancel_draft_checkout(request: Request):
     """Cancel only the unplaced cart and prepared review, never a paid order."""
     session_id = _customer_session(request)
     async with _agent_lock(session_id):
-        state = get_checkout_state(session_id)
-        if state["status"] == "payment_pending":
-            raise HTTPException(status_code=409, detail="This order is already placed. Contact support to cancel it.")
-        CartService(session_id).clear_cart()
-        return get_checkout_state(session_id)
+        result = cancel_draft_order(session_id)
+        if not result["success"]:
+            raise HTTPException(status_code=409, detail=result["message"])
+        return result["checkout"]
 
 
 @app.post("/checkout/prepare")
