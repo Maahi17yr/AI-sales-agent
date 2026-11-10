@@ -34,6 +34,8 @@ jobs:
       STAGE1_LIVE_BUDGET_USD: '0.90'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Check explicit one-run marker
         id: enabled
         shell: bash
