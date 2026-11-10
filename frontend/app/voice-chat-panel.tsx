@@ -32,6 +32,46 @@ type Props = {
 
 const formatTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
+async function transcriptionWav(recording: Blob): Promise<Blob> {
+  const decoder = new AudioContext();
+  try {
+    const decoded = await decoder.decodeAudioData(await recording.arrayBuffer());
+    if (!decoded.duration || decoded.duration > 90.5) throw new Error('Record a note of up to 90 seconds.');
+    const renderer = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
+    const source = renderer.createBufferSource();
+    source.buffer = decoded;
+    source.connect(renderer.destination);
+    source.start();
+    const mono = await renderer.startRendering();
+    const samples = mono.getChannelData(0);
+    const bytes = new ArrayBuffer(44 + samples.length * 2);
+    const wav = new DataView(bytes);
+    const label = (offset: number, value: string) => {
+      for (let index = 0; index < value.length; index++) wav.setUint8(offset + index, value.charCodeAt(index));
+    };
+    label(0, 'RIFF');
+    wav.setUint32(4, bytes.byteLength - 8, true);
+    label(8, 'WAVE');
+    label(12, 'fmt ');
+    wav.setUint32(16, 16, true);
+    wav.setUint16(20, 1, true);
+    wav.setUint16(22, 1, true);
+    wav.setUint32(24, 16000, true);
+    wav.setUint32(28, 32000, true);
+    wav.setUint16(32, 2, true);
+    wav.setUint16(34, 16, true);
+    label(36, 'data');
+    wav.setUint32(40, samples.length * 2, true);
+    for (let index = 0; index < samples.length; index++) {
+      const sample = Math.max(-1, Math.min(1, samples[index]));
+      wav.setInt16(44 + index * 2, sample * (sample < 0 ? 32768 : 32767), true);
+    }
+    return new Blob([bytes], { type: 'audio/wav' });
+  } finally {
+    await decoder.close();
+  }
+}
+
 export default function VoiceChatPanel({ open, onClose, onSend, disabled, apiFetch }: Props) {
   const [recording, setRecording] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -249,7 +289,9 @@ export default function VoiceChatPanel({ open, onClose, onSend, disabled, apiFet
       if (closedRef.current || controller.signal.aborted) return;
       let text = transcriptRef.current.trim();
       if (!text || recognitionFailed.current || recognizerRef.current) {
-        const audio = await fetch(previewUrl, { signal: controller.signal }).then(response => response.blob());
+        const recorded = await fetch(previewUrl, { signal: controller.signal }).then(response => response.blob());
+        const audio = await transcriptionWav(recorded);
+        if (closedRef.current || controller.signal.aborted) return;
         const response = await apiFetch('/voice/transcribe', {
           method: 'POST', body: audio,
           headers: { 'Content-Type': audio.type || 'audio/webm' },
