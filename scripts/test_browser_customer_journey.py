@@ -35,7 +35,7 @@ def main():
         browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
         context = browser.new_context()
         page = context.new_page()
-        page.add_init_script("""() => {
+        page.add_init_script("""(() => {
             window.successToastRecords = [];
             const active = new Map();
             new MutationObserver(() => {
@@ -58,7 +58,7 @@ def main():
                     }
                 }
             }).observe(document, {subtree:true, childList:true});
-        }""")
+        })();""")
         agent_calls = []
         page.on('console', lambda msg: print('BROWSER_CONSOLE:', msg.type, msg.text[:300]) if msg.type == 'error' else None)
         page.on('requestfailed', lambda req: print('BROWSER_REQUEST_FAILED:', req.url, req.failure))
