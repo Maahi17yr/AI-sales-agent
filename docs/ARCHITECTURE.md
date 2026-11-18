@@ -36,7 +36,7 @@ data/database/                   Schema, repository, database connections
 ## Supporting components
 
 - `core/memory/` — Session and customer preference operations. Strands model-message session files are stored locally and may be ephemeral on hosted free-tier infrastructure.
-- `core/rag/` — Fictional policy Markdown documents, FTS5 indexing and retrieval. The RAG index uses a **separate local SQLite file**, even when customer/order records use Neon.
+- `core/rag/` — Fictional policy Markdown documents and optional text-based PDFs, page-aware FTS5 indexing and retrieval. The RAG index uses a **separate local SQLite file**, even when customer/order records use Neon.
 - `core/observability/` — Optional tracing and tool-call instrumentation.
 - `scripts/` — Local command-line entrypoint and maintenance/diagnostic utilities. These are not API routes.
 - `docs/` — Architecture and setup notes.
