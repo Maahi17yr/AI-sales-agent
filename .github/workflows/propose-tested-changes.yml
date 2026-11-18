@@ -10,6 +10,8 @@ on:
       - completed
     branches:
       - main
+  # Run manually to test the cross-account token without writing to the old repository.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,6 +21,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-credential-read-only:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check token can read the old repository; do not mutate anything
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRODUCTION_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo '::error::PRODUCTION_SYNC_TOKEN is not available to this workflow.'
+            exit 1
+          fi
+          name="$(gh api repos/Maahi17yr/AI-sales-agent --jq '.full_name')"
+          if [[ "$name" != "Maahi17yr/AI-sales-agent" ]]; then
+            echo '::error::The token could not access the expected old repository.'
+            exit 1
+          fi
+          echo 'Success: the token is available and can read the old repository.'
+          echo 'No branches, pull requests, or deployments were changed.'
+
   propose-production-pr:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
