@@ -66,6 +66,7 @@ def create_tables():
             )
         """)
 
+
         # 3. CUSTOMERS
         conn.execute("""
             CREATE TABLE IF NOT EXISTS customers (
@@ -116,6 +117,86 @@ def create_tables():
                 target_customer_id INTEGER NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (target_customer_id) REFERENCES customers(id)
+            )
+        """)
+
+        # Prepared-food stock is opt-in; inactive variants use legacy counts.
+        # After activation, prepared stock is the sole checkout inventory source.
+        # Amounts are whole g, mL, or pieces; no floating point stock math.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS prepared_stock (
+                product_id INTEGER NOT NULL,
+                variant TEXT NOT NULL DEFAULT 'standard',
+                unit TEXT NOT NULL CHECK (unit IN ('g', 'ml', 'piece')),
+                quantity_units INTEGER NOT NULL DEFAULT 0 CHECK (quantity_units >= 0),
+                serving_units INTEGER NOT NULL CHECK (serving_units > 0),
+                tolerance_units INTEGER NOT NULL DEFAULT 0
+                    CHECK (tolerance_units >= 0 AND tolerance_units < serving_units),
+                extra_units INTEGER NOT NULL CHECK (extra_units > 0),
+                extra_tolerance_units INTEGER NOT NULL DEFAULT 0
+                    CHECK (extra_tolerance_units >= 0 AND extra_tolerance_units < extra_units),
+                extra_price INTEGER NOT NULL DEFAULT 0 CHECK (extra_price >= 0),
+                active INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0, 1)),
+                PRIMARY KEY (product_id, variant),
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS prepared_stock_movements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                variant TEXT NOT NULL DEFAULT 'standard',
+                actor_customer_id INTEGER NOT NULL,
+                action TEXT NOT NULL CHECK (action IN ('add', 'remove', 'set')),
+                change_units INTEGER NOT NULL,
+                before_units INTEGER NOT NULL CHECK (before_units >= 0),
+                after_units INTEGER NOT NULL CHECK (after_units >= 0),
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id, variant)
+                    REFERENCES prepared_stock(product_id, variant) ON DELETE RESTRICT,
+                FOREIGN KEY (actor_customer_id) REFERENCES customers(id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prepared_stock_movements_recent
+            ON prepared_stock_movements(product_id, variant, id)
+        """)
+
+
+        # Existing early-development prepared-stock databases predate activation.
+        # Additive migration; never reset prepared quantities.
+        if os.getenv("DATABASE_URL", "").strip():
+            active_exists = conn.execute("""
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'prepared_stock' AND column_name = 'active'
+            """).fetchone() is not None
+        else:
+            active_exists = any(
+                row["name"] == "active"
+                for row in conn.execute("PRAGMA table_info(prepared_stock)").fetchall()
+            )
+        if not active_exists:
+            conn.execute("""ALTER TABLE prepared_stock
+                ADD COLUMN active INTEGER NOT NULL DEFAULT 0
+                CHECK (active IN (0, 1))""")
+
+        # Add-on mapping is explicit and optional: an absent row means the
+        # existing independently stocked ingredient/add-on rule remains live.
+        # Physical stock targets must have their own active prepared record.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS prepared_stock_addon_links (
+                product_id INTEGER NOT NULL,
+                ingredient_id INTEGER NOT NULL,
+                source TEXT NOT NULL CHECK (source IN ('self_extra', 'prepared_other')),
+                target_product_id INTEGER,
+                target_variant TEXT,
+                PRIMARY KEY (product_id, ingredient_id),
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT,
+                FOREIGN KEY (target_product_id, target_variant)
+                    REFERENCES prepared_stock(product_id, variant)
+                    ON DELETE RESTRICT
             )
         """)
 
@@ -190,6 +271,28 @@ def create_tables():
                 FOREIGN KEY (product_id)
                     REFERENCES products(id)
                     ON DELETE RESTRICT
+            )
+        """)
+
+
+        # An order allocates prepared stock only once at the existing
+        # pre-payment checkout-commit stage. Separate from manual movement
+        # history to preserve the earlier movement table/check constraint.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS prepared_order_deductions (
+                order_id INTEGER NOT NULL,
+                product_id INTEGER NOT NULL,
+                variant TEXT NOT NULL DEFAULT 'standard',
+                customer_id INTEGER NOT NULL,
+                quantity_units INTEGER NOT NULL CHECK (quantity_units > 0),
+                before_units INTEGER NOT NULL CHECK (before_units >= 0),
+                after_units INTEGER NOT NULL CHECK (after_units >= 0),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (order_id, product_id, variant),
+                FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE RESTRICT,
+                FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+                FOREIGN KEY (product_id, variant)
+                    REFERENCES prepared_stock(product_id, variant) ON DELETE RESTRICT
             )
         """)
 

@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Bell, ChartNoAxesCombined, ChefHat, ChevronRight, CircleAlert,
-  ClipboardList, CreditCard, LayoutDashboard, LogOut, Megaphone,
+  ClipboardList, CreditCard, LayoutDashboard, LogOut, Megaphone, PackageOpen,
   MessageSquareText, RefreshCw, Settings2, ShieldCheck, Users, UtensilsCrossed,
 } from 'lucide-react';
 import { useAuth } from '../auth-provider';
 import './owner.css';
+import PreparedStockPanel from './prepared-stock-panel';
 
-type Tab = 'overview' | 'orders' | 'menu' | 'customers';
+type Tab = 'overview' | 'orders' | 'menu' | 'prepared' | 'customers';
 type Overview = {
   order_count: number; pending_orders: number; confirmed_orders: number;
   paid_revenue: number; paid_revenue_today: number; currency: string;
@@ -24,7 +25,7 @@ type Order = {
 };
 type Product = {
   id: number; name: string; category: string; description: string | null;
-  price: number; available: boolean; variants: { variant: string; quantity: number }[];
+  price: number; available: boolean; variants: { variant: string; quantity: number; source: 'legacy' | 'prepared' }[];
 };
 type Customer = {
   id: number; name: string | null; email: string | null; phone: string | null;
@@ -34,7 +35,8 @@ type Customer = {
 const menuItems: { id: Tab; title: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', title: 'Overview', icon: LayoutDashboard },
   { id: 'orders', title: 'Orders', icon: ClipboardList },
-  { id: 'menu', title: 'Menu & stock', icon: UtensilsCrossed },
+  { id: 'menu', title: 'Menu & pricing', icon: UtensilsCrossed },
+  { id: 'prepared', title: 'Prepared stock', icon: PackageOpen },
   { id: 'customers', title: 'Customers', icon: Users },
 ];
 const upcoming = [
@@ -208,13 +210,15 @@ export default function OwnerHome() {
           </>}
 
           {!loading && tab === 'menu' && <>
-            <div className="owner-heading"><div><span className="owner-eyebrow">YOUR CATALOGUE</span><h1>Menu & stock</h1><p>Manage product prices and availability. Stock is shown for reference.</p></div></div>
+            <div className="owner-heading"><div><span className="owner-eyebrow">YOUR CATALOGUE</span><h1>Menu & pricing</h1><p>Edit prices and availability. The legacy checkout stock counts are still active during the prepared-stock pilot.</p></div></div>
             <div className="owner-panel"><div className="owner-section-title"><h2>Products</h2><input className="owner-search" placeholder="Search meals…" aria-label="Search meals" value={search} onChange={e => setSearch(e.target.value)}/></div>
-              <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>Meal</th><th>Price</th><th>Stock</th><th>Available</th><th>Action</th></tr></thead><tbody>
-                {products.filter(p => !filter || (p.name + ' ' + p.category).toLowerCase().includes(filter)).map(product => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.category}</small></td><td>{editProduct === product.id ? <input className="owner-number" type="number" min="0" max="100000000" value={draftPrice} onChange={e => setDraftPrice(e.target.value)} aria-label={`Price for ${product.name}`}/> : money(product.price)}</td><td>{product.variants.length ? product.variants.map(v => `${v.variant}: ${v.quantity}`).join(', ') : 'No stock entries'}</td><td>{editProduct === product.id ? <label className="owner-check"><input type="checkbox" checked={draftAvailable} onChange={e => setDraftAvailable(e.target.checked)}/> Available</label> : <span className={'owner-pill ' + (product.available ? 'green' : 'neutral')}>{product.available ? 'Available' : 'Hidden'}</span>}</td><td>{editProduct === product.id ? <div className="owner-row-actions"><button className="owner-small-btn" disabled={busy} onClick={() => void saveProduct(product)}>Save</button><button className="owner-small-btn ghost" disabled={busy} onClick={() => setEditProduct(null)}>Cancel</button></div> : <button className="owner-small-btn" disabled={busy} onClick={() => { setEditProduct(product.id); setDraftPrice(String(product.price)); setDraftAvailable(product.available); }}>Edit</button>}</td></tr>)}
+              <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>Meal</th><th>Price</th><th>Available portions / source</th><th>Available</th><th>Action</th></tr></thead><tbody>
+                {products.filter(p => !filter || (p.name + ' ' + p.category).toLowerCase().includes(filter)).map(product => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.category}</small></td><td>{editProduct === product.id ? <input className="owner-number" type="number" min="0" max="100000000" value={draftPrice} onChange={e => setDraftPrice(e.target.value)} aria-label={`Price for ${product.name}`}/> : money(product.price)}</td><td>{product.variants.length ? product.variants.map(v => `${v.variant}: ${v.quantity} (${v.source})`).join(', ') : 'No stock entries'}</td><td>{editProduct === product.id ? <label className="owner-check"><input type="checkbox" checked={draftAvailable} onChange={e => setDraftAvailable(e.target.checked)}/> Available</label> : <span className={'owner-pill ' + (product.available ? 'green' : 'neutral')}>{product.available ? 'Available' : 'Hidden'}</span>}</td><td>{editProduct === product.id ? <div className="owner-row-actions"><button className="owner-small-btn" disabled={busy} onClick={() => void saveProduct(product)}>Save</button><button className="owner-small-btn ghost" disabled={busy} onClick={() => setEditProduct(null)}>Cancel</button></div> : <button className="owner-small-btn" disabled={busy} onClick={() => { setEditProduct(product.id); setDraftPrice(String(product.price)); setDraftAvailable(product.available); }}>Edit</button>}</td></tr>)}
               </tbody></table></div>{!products.length && <p className="owner-empty">No products yet.</p>}
             </div>
           </>}
+
+          {!loading && tab === 'prepared' && <PreparedStockPanel products={products} />}
 
           {!loading && tab === 'customers' && <>
             <div className="owner-heading"><div><span className="owner-eyebrow">YOUR COMMUNITY</span><h1>Customers</h1><p>Latest 100 customer accounts and their verified purchase totals.</p></div></div>

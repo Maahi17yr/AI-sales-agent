@@ -23,12 +23,34 @@ def to_list(rows):
 # 1. PRODUCT OPERATIONS
 # ==========================================
 
+
+# Legacy catalogue listings are unchanged until a product has an activated
+# prepared variant. Once activated, show that product only if some variant
+# (prepared or legacy) has at least one sellable serving.
+_ACTIVE_LISTING_SQL = """
+    AND (
+        NOT EXISTS (SELECT 1 FROM prepared_stock active_ps
+                    WHERE active_ps.product_id = products.id AND active_ps.active = 1)
+        OR EXISTS (
+            SELECT 1 FROM inventory iv
+            LEFT JOIN prepared_stock ps ON ps.product_id = iv.product_id
+                                        AND ps.variant = iv.variant
+            WHERE iv.product_id = products.id
+              AND CASE WHEN ps.active = 1
+                       THEN ps.quantity_units / (ps.serving_units + ps.tolerance_units)
+                       ELSE iv.quantity END > 0
+        )
+    )
+"""
+
+
 def get_all_products():
     """Return all available products."""
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT * FROM products
             WHERE available = 1
+        """ + _ACTIVE_LISTING_SQL + """
             ORDER BY category, name
         """).fetchall()
 
@@ -90,7 +112,13 @@ def get_stocks_by_variants(product_variants):
             where = " OR ".join("(product_id = ? AND variant = ?)" for _ in subset)
             params = [value for pair in subset for value in pair]
             rows = conn.execute(
-                "SELECT product_id, variant, quantity FROM inventory WHERE " + where,
+                """SELECT i.product_id, i.variant,
+                   CASE WHEN ps.active = 1
+                        THEN ps.quantity_units / (ps.serving_units + ps.tolerance_units)
+                        ELSE i.quantity END AS quantity
+                   FROM inventory i LEFT JOIN prepared_stock ps
+                     ON ps.product_id = i.product_id AND ps.variant = i.variant
+                   WHERE """ + where.replace("product_id = ?", "i.product_id = ?").replace("variant = ?", "i.variant = ?"),
                 params,
             ).fetchall()
             stocks.update(((row["product_id"], row["variant"]), row["quantity"])
@@ -102,7 +130,7 @@ def search_products(query=None, category=None,
                     min_price=None, max_price=None):
     """Search products using optional filters."""
 
-    sql = "SELECT * FROM products WHERE available = 1"
+    sql = "SELECT * FROM products WHERE available = 1" + _ACTIVE_LISTING_SQL
     params = []
 
     if query:
@@ -140,7 +168,12 @@ def get_orderable_products(query=None, category=None, min_price=None, max_price=
              WHERE p.available = 1
                AND EXISTS (
                    SELECT 1 FROM inventory AS i
-                   WHERE i.product_id = p.id AND i.quantity > 0
+                   LEFT JOIN prepared_stock AS ps
+                     ON ps.product_id = i.product_id AND ps.variant = i.variant
+                   WHERE i.product_id = p.id
+                     AND CASE WHEN ps.active = 1
+                              THEN ps.quantity_units / (ps.serving_units + ps.tolerance_units)
+                              ELSE i.quantity END > 0
                )"""
     params = []
     if query is not None and str(query).strip():
@@ -165,27 +198,23 @@ def get_orderable_products(query=None, category=None, min_price=None, max_price=
 # ==========================================
 
 def get_stock(product_id, variant="standard"):
-    """Return the stock quantity for a product variant."""
-
-    with get_connection() as conn:
-        row = conn.execute("""
-            SELECT quantity FROM inventory
-            WHERE product_id = ? AND variant = ?
-        """, (product_id, variant)).fetchone()
-
-    return row["quantity"] if row else 0
+    """Return customer-safe effective serving count from the active source."""
+    return get_stocks_by_variants([(product_id, variant)]).get((product_id, variant), 0)
 
 
 def get_product_variants(product_id):
-    """Return all inventory variants for a product."""
-
+    """Only public portion counts, never internal grams or serving estimates."""
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT variant, quantity
-            FROM inventory
-            WHERE product_id = ?
+            SELECT i.variant,
+                   CASE WHEN ps.active = 1
+                        THEN ps.quantity_units / (ps.serving_units + ps.tolerance_units)
+                        ELSE i.quantity END AS quantity
+            FROM inventory i
+            LEFT JOIN prepared_stock ps ON ps.product_id = i.product_id
+                                       AND ps.variant = i.variant
+            WHERE i.product_id = ?
         """, (product_id,)).fetchall()
-
     return to_list(rows)
 
 
@@ -200,6 +229,11 @@ def update_stock(product_id, quantity, variant="standard"):
         raise ValueError("Stock must be a non-negative integer.")
 
     with get_connection() as conn:
+        active = conn.execute("""SELECT 1 FROM prepared_stock
+            WHERE product_id = ? AND variant = ? AND active = 1""",
+            (product_id, variant)).fetchone()
+        if active:
+            raise ValueError("This product uses prepared stock; adjust it in Owner Mode.")
         cursor = conn.execute("""
             UPDATE inventory
             SET quantity = ?

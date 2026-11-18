@@ -1,7 +1,8 @@
 name: Propose tested changes to connected production repository
 
-# Only successful CI for a push to development main can propose a draft PR.
-# This workflow never merges or deploys.
+# PRODUCTION SYNC DISABLED: merges to development main must never touch
+# the original production repo without a separately approved release change.
+# The job has a hard false condition until that approval is implemented.
 on:
   workflow_run:
     workflows:
@@ -45,7 +46,10 @@ jobs:
           echo 'No branches, pull requests, or deployments were changed.'
 
   propose-production-pr:
+    # Development-only hold: require explicit user-approved change to re-enable.
+    # This literal false is intentionally independent of secrets and variables.
     if: >-
+      false &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
