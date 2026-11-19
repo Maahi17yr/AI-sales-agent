@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Bell, ChartNoAxesCombined, ChefHat, ChevronRight, CircleAlert,
+  Bell, ChartNoAxesCombined, ChefHat, ChevronRight,
   ClipboardList, CreditCard, LayoutDashboard, LogOut, Megaphone, PackageOpen,
   MessageSquareText, RefreshCw, Settings2, ShieldCheck, Users, UtensilsCrossed,
 } from 'lucide-react';
@@ -10,6 +10,16 @@ import { useAuth } from '../auth-provider';
 import './owner.css';
 import PreparedStockPanel from './prepared-stock-panel';
 
+type OwnerEvent = {
+  key: string; category: 'order' | 'payment' | 'stock';
+  title: string; detail: string; created_at: string;
+  target: 'orders' | 'prepared' | null; read: boolean;
+};
+type NotificationResponse = { items: OwnerEvent[]; unread_count: number };
+const eventTime = (value: string) => {
+  const date = new Date(value.endsWith('Z') ? value : value.replace(' ', 'T') + 'Z');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en-NG', {dateStyle:'medium',timeStyle:'short'});
+};
 type Tab = 'overview' | 'orders' | 'menu' | 'prepared' | 'customers';
 type Overview = {
   order_count: number; pending_orders: number; confirmed_orders: number;
@@ -65,6 +75,10 @@ export default function OwnerHome() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [showAlerts, setShowAlerts] = useState(false);
+  const [notifications, setNotifications] = useState<OwnerEvent[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationError, setNotificationError] = useState('');
+  const [notificationLoading, setNotificationLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ title: string; message: string; run: () => Promise<void> } | null>(null);
   const [editProduct, setEditProduct] = useState<number | null>(null);
   const [draftPrice, setDraftPrice] = useState('');
@@ -94,7 +108,49 @@ export default function OwnerHome() {
     } finally { setLoading(false); }
   }, [apiFetch]);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadNotifications = useCallback(async () => {
+    setNotificationLoading(true);
+    try {
+      const response = await apiFetch('/owner/notifications');
+      if (!response.ok) throw new Error('Could not retrieve notifications.');
+      const data: NotificationResponse = await response.json();
+      setNotifications(data.items);
+      setUnreadCount(data.unread_count);
+      setNotificationError('');
+    } catch (cause) {
+      setNotificationError(cause instanceof Error ? cause.message : 'Could not retrieve notifications.');
+    } finally { setNotificationLoading(false); }
+  }, [apiFetch]);
+
+  useEffect(() => { void load(); void loadNotifications(); }, [load, loadNotifications]);
+  useEffect(() => {
+    if (!showAlerts) return;
+    const poll = window.setInterval(() => { void loadNotifications(); }, 60000);
+    return () => window.clearInterval(poll);
+  }, [showAlerts, loadNotifications]);
+
+  async function markNotification(key: string, read: boolean) {
+    try {
+      const response = await apiFetch('/owner/notifications/' + encodeURIComponent(key) + '/read', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ read }),
+      });
+      if (!response.ok) throw new Error('Could not update notification.');
+      await loadNotifications();
+    } catch (cause) {
+      setNotificationError(cause instanceof Error ? cause.message : 'Could not update notification.');
+    }
+  }
+
+  async function readAllNotifications() {
+    try {
+      const response = await apiFetch('/owner/notifications/read-all', { method: 'POST' });
+      if (!response.ok) throw new Error('Could not mark notifications as read.');
+      await loadNotifications();
+    } catch (cause) {
+      setNotificationError(cause instanceof Error ? cause.message : 'Could not update notifications.');
+    }
+  }
 
   useEffect(() => {
     if (!pendingAction) return;
@@ -148,11 +204,6 @@ export default function OwnerHome() {
     finally { setBusy(false); }
   }
 
-  const alerts = overview ? [
-    ...(overview.pending_orders > 0 ? [`${overview.pending_orders} order(s) awaiting payment`] : []),
-    ...(overview.confirmed_orders > 0 ? [`${overview.confirmed_orders} paid order(s) ready to prepare`] : []),
-    ...overview.low_stock.map(item => `Low stock: ${item.name} (${item.variant}) — ${item.quantity} left`),
-  ] : [];
   const maxSales = Math.max(1, ...(overview?.sales_trend.map(day => day.revenue) || [1]));
   const filter = search.trim().toLowerCase();
 
