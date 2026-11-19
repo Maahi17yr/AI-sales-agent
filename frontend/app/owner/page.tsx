@@ -230,8 +230,8 @@ export default function OwnerHome() {
         <header className="owner-topbar">
           <div className="owner-topbar-title"><span className="owner-topbar-kicker">NAIJA BITES / OWNER'S MODE</span><strong>{menuItems.find(item => item.id === tab)?.title}</strong></div>
           <div className="owner-topbar-actions">
-            <button className="owner-icon-btn" onClick={() => void load()} disabled={loading} title="Refresh dashboard" aria-label="Refresh dashboard"><RefreshCw size={19}/></button>
-            <button className="owner-icon-btn owner-alert-trigger" onClick={() => setShowAlerts(!showAlerts)} aria-label="Toggle notifications" aria-expanded={showAlerts}><Bell size={19}/>{alerts.length > 0 && <span>{alerts.length}</span>}</button>
+            <button className="owner-icon-btn" onClick={() => { void load(); void loadNotifications(); }} disabled={loading} title="Refresh dashboard" aria-label="Refresh dashboard"><RefreshCw size={19}/></button>
+            <button className="owner-icon-btn owner-alert-trigger" onClick={() => { setShowAlerts(!showAlerts); if (!showAlerts) void loadNotifications(); }} aria-label="Toggle notifications" aria-expanded={showAlerts} aria-controls="owner-notifications"><Bell size={19}/>{unreadCount > 0 && <span>{unreadCount > 99 ? "99+" : unreadCount}</span>}</button>
           </div>
         </header>
         <div className="owner-content">
