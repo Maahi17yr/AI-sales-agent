@@ -45,7 +45,7 @@ def main():
             # Closing the modal/backdrop is required before accessing the chat header.
             page.get_by_role("button", name="Show menu and order summary").click()
             page.get_by_role("button", name="Close menu", exact=True).click()
-            page.get_by_role("button", name="Start a fresh conversation").click()
+            page.locator("button.new-chat").click()
             expect(page.get_by_role("button", name="Show menu and order summary")).to_have_attribute("aria-expanded", "false")
             page.reload(wait_until="domcontentloaded")
             page.locator("#message-input").wait_for(timeout=30000)
