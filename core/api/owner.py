@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, StrictBool
 
 from core.services import auth_service, owner_dashboard_service as dashboard
 from core.services import prepared_stock_service as prepared_stock
+from core.services import owner_notifications_service as notifications
 
 router = APIRouter(prefix="/owner", tags=["owner"])
 
@@ -197,3 +198,30 @@ def owner_update_menu(product_id: int, payload: MenuUpdate, request: Request):
 def owner_customers(request: Request):
     require_owner(request)
     return {"customers": dashboard.list_customers()}
+
+
+class NotificationReadUpdate(BaseModel):
+    read: StrictBool
+
+
+@router.get("/notifications")
+def owner_notifications(request: Request):
+    owner = require_owner(request)
+    return notifications.list_notifications(owner["id"])
+
+
+@router.put("/notifications/{event_key:path}/read")
+def owner_notification_read(event_key: str, payload: NotificationReadUpdate, request: Request):
+    owner = require_owner(request)
+    try:
+        return notifications.set_read(owner["id"], event_key, payload.read)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/notifications/read-all")
+def owner_notifications_read_all(request: Request):
+    owner = require_owner(request)
+    return notifications.mark_all_read(owner["id"])
