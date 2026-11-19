@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, StrictBool
 from core.services import auth_service, owner_dashboard_service as dashboard
 from core.services import prepared_stock_service as prepared_stock
 from core.services import owner_notifications_service as notifications
+from core.services import owner_assistant_service as assistant
 
 router = APIRouter(prefix="/owner", tags=["owner"])
 
@@ -225,3 +226,28 @@ def owner_notification_read(event_key: str, payload: NotificationReadUpdate, req
 def owner_notifications_read_all(request: Request):
     owner = require_owner(request)
     return notifications.mark_all_read(owner["id"])
+
+
+class OwnerAssistantTurn(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=1200)
+
+
+class OwnerAssistantRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=600)
+    history: list[OwnerAssistantTurn] = Field(default_factory=list, max_length=8)
+
+
+@router.post("/assistant")
+def owner_assistant_message(payload: OwnerAssistantRequest, request: Request):
+    """Owner-only, read-only Bedrock analysis, never the customer ordering agent."""
+    require_owner(request)
+    try:
+        return assistant.answer(payload.message, [turn.model_dump() for turn in payload.history])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        # Provider failures must not leak credentials, model details or business data.
+        import logging
+        logging.getLogger(__name__).exception("Owner AI request failed")
+        raise HTTPException(status_code=503, detail="Owner AI is temporarily unavailable. Please retry.") from None

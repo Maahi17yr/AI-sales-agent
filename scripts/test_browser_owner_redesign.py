@@ -79,7 +79,7 @@ def main():
                 page.get_by_role("button", name="Open owner menu").click()
                 expect(navigation).to_be_visible(timeout=5000)
                 page.screenshot(path=f"/tmp/naija-ui-owner-drawer-{width}.png", full_page=True)
-                expect(navigation.locator(".owner-nav.disabled").filter(has_text="Owner AI")).to_be_visible(timeout=5000)
+                expect(navigation.get_by_role("button", name="Owner AI", exact=True)).to_be_visible(timeout=5000)
                 assert navigation.get_by_text("Soon", exact=True).count() >= 1
                 assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 3"), width
                 page.keyboard.press("Escape")
@@ -107,11 +107,9 @@ def main():
             assert panel.get_by_text("New order #" + str(order)).count() == 1
             assert panel.locator("time").count() >= 2
             panel.get_by_role("button", name="Mark all read").click()
-            page.wait_for_timeout(250)
-            assert panel.get_by_text("0 unread", exact=False).count() >= 1
+            expect(panel.get_by_text("0 unread", exact=False)).to_be_visible(timeout=10000)
             panel.get_by_role("button", name="Mark unread").first.click()
-            page.wait_for_timeout(250)
-            assert panel.get_by_text("1 unread", exact=False).count() >= 1
+            expect(panel.get_by_text("1 unread", exact=False)).to_be_visible(timeout=10000)
             panel.get_by_role("button", name="Close notifications").click()
 
             open_tab("Orders")
@@ -126,6 +124,26 @@ def main():
                 page.get_by_role("button", name="Preparing", exact=True).first.click()
                 page.get_by_role("alertdialog").screenshot(path="/tmp/naija-ui-owner-modal-390.png")
                 page.get_by_role("alertdialog").get_by_role("button", name="Cancel").click()
+            # Mock ONLY the external model response; the real API's owner-only
+            # access and read-only database guarantees are tested separately.
+            owner_ai_calls = []
+            def owner_ai_mock(route):
+                import json
+                owner_ai_calls.append(route.request.post_data_json)
+                route.fulfill(status=200, content_type="application/json",
+                              body=json.dumps({"reply": "Fictional verified revenue is ₦3,500.", "read_only": True}))
+            page.route("**/api/backend/owner/assistant", owner_ai_mock)
+            open_tab("Owner AI")
+            page.get_by_role("textbox", name="Ask Owner AI").fill("Summarise verified sales.")
+            page.get_by_role("button", name="Send question to Owner AI").click()
+            page.get_by_text("Fictional verified revenue is ₦3,500.").wait_for(timeout=15000)
+            assert owner_ai_calls and owner_ai_calls[0]["message"] == "Summarise verified sales."
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 3"), width
+            page.screenshot(path=f"/tmp/naija-ui-owner-ai-{width}.png", full_page=True)
+            page.unroute("**/api/backend/owner/assistant")
+            open_tab("Orders")
+            open_tab("Owner AI")
+            page.get_by_text("Fictional verified revenue is ₦3,500.").wait_for(timeout=5000)
             open_tab("Prepared stock")
             page.get_by_text("Food on hand").wait_for(timeout=15000)
             page.get_by_role("button", name="Switch to light mode").click()

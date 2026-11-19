@@ -10,6 +10,7 @@ on:
       - 'scripts/test_browser_customer_journey.py'
       - 'scripts/test_browser_prepared_stock.py'
       - 'scripts/test_browser_owner_redesign.py'
+      - 'scripts/test_browser_customer_menu_closed.py'
       - 'scripts/mock_payment_backend.py'
       - 'scripts/diagnose_sse_proxy.py'
       - '.github/workflows/browser-journey.yml'
@@ -88,6 +89,8 @@ jobs:
         run: python -m scripts.test_browser_prepared_stock
       - name: Browser verify owner dark mode, notifications, branded modals and responsive layouts
         run: python -m scripts.test_browser_owner_redesign
+      - name: Verify closed customer menu and full chat on seven viewport sizes
+        run: python -m scripts.test_browser_customer_menu_closed
       - name: Save responsive UI screenshots
         if: always()
         uses: actions/upload-artifact@v4

@@ -216,15 +216,8 @@ export default function Home() {
     catch { /* The toggle still works for this session. */ }
   }
 
-  // Desktop starts with the food menu visible; smaller screens use an opt-in drawer.
-  // Only change the default when crossing the desktop breakpoint, not on every resize.
-  useEffect(() => {
-    const desktop = window.matchMedia('(min-width: 1024px)');
-    const syncPanel = () => setFoodPanelOpen(desktop.matches);
-    syncPanel();
-    desktop.addEventListener('change', syncPanel);
-    return () => desktop.removeEventListener('change', syncPanel);
-  }, []);
+  // Begin every customer session with a full-width chat view at every viewport.
+  // The menu can still be opened explicitly from its header button.
   const [online, setOnline] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [showTyping, setShowTyping] = useState(false);
@@ -621,6 +614,7 @@ export default function Home() {
 
   function reset() {
     if (busy || confirming) return;
+    setFoodPanelOpen(false);
 
     abort.current?.abort();
     if (threadId) setSavedChats(prev => upsertChat(prev, threadId, messages));
