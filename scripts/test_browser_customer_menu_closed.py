@@ -42,7 +42,9 @@ def main():
             page.get_by_role("button", name="Close menu", exact=True).click()
             expect(page.get_by_role("button", name="Show menu and order summary")).to_have_attribute("aria-expanded", "false")
 
+            # Closing the modal/backdrop is required before accessing the chat header.
             page.get_by_role("button", name="Show menu and order summary").click()
+            page.get_by_role("button", name="Hide menu and order summary").click()
             page.get_by_role("button", name="Start a fresh conversation").click()
             expect(page.get_by_role("button", name="Show menu and order summary")).to_have_attribute("aria-expanded", "false")
             page.reload(wait_until="domcontentloaded")
