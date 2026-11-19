@@ -235,7 +235,24 @@ export default function OwnerHome() {
           </div>
         </header>
         <div className="owner-content">
-          {showAlerts && <section className="owner-alerts" aria-label="In-app notifications"><div className="owner-section-title"><h2>Notifications</h2><button onClick={() => setShowAlerts(false)}>Close</button></div>{alerts.length ? alerts.map((alert, i) => <p key={i}><CircleAlert size={16}/>{alert}</p>) : <p>You're all caught up.</p>}</section>}
+          {showAlerts && <section className="owner-alerts" id="owner-notifications" aria-label="In-app notifications">
+            <div className="owner-section-title"><div><h2>Notifications</h2><p>{unreadCount} unread · verified business activity</p></div>
+              <div className="owner-alert-controls"><button onClick={() => void loadNotifications()} disabled={notificationLoading}>Refresh</button>
+                <button onClick={() => void readAllNotifications()} disabled={!unreadCount}>Mark all read</button>
+                <button onClick={() => setShowAlerts(false)} aria-label="Close notifications">Close</button></div></div>
+            {notificationError && <p className="owner-message error" role="alert">{notificationError}</p>}
+            {notificationLoading && !notifications.length && <p className="owner-empty">Loading notifications…</p>}
+            {!notificationLoading && !notifications.length && !notificationError && <p className="owner-empty">No recorded business events yet.</p>}
+            <div className="owner-notification-list">{notifications.map(item =>
+              <article key={item.key} className={"owner-notification" + (item.read ? "" : " unread")}>
+                <span className="owner-notification-icon">{item.category === "order" ? <ClipboardList size={18}/> : item.category === "payment" ? <CreditCard size={18}/> : <PackageOpen size={18}/>}</span>
+                <div className="owner-notification-body"><strong>{item.title}</strong><span>{item.detail}</span><time>{eventTime(item.created_at)}</time></div>
+                <div className="owner-notification-actions">
+                  {!item.read && <span className="owner-unread-dot" aria-label="Unread"/>}
+                  <button onClick={() => void markNotification(item.key, !item.read)}>{item.read ? "Mark unread" : "Mark read"}</button>
+                  {item.target && <button onClick={() => { setTab(item.target === "orders" ? "orders" : "prepared"); setShowAlerts(false); }}>View</button>}
+                </div></article>)}</div>
+          </section>}
           {notice && <p className="owner-message success" role="status">{notice}</p>}
           {error && <p className="owner-message error" role="alert">{error}</p>}
           {loading && <p className="owner-message">Loading current business records…</p>}
