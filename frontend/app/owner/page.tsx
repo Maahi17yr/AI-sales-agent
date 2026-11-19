@@ -2,14 +2,25 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Bell, ChartNoAxesCombined, ChefHat, ChevronRight, CircleAlert,
-  ClipboardList, CreditCard, LayoutDashboard, LogOut, Megaphone,
+  Bell, ChartNoAxesCombined, ChefHat, ChevronRight,
+  ClipboardList, CreditCard, LayoutDashboard, LogOut, Megaphone, PackageOpen,
   MessageSquareText, RefreshCw, Settings2, ShieldCheck, Users, UtensilsCrossed,
 } from 'lucide-react';
 import { useAuth } from '../auth-provider';
 import './owner.css';
+import PreparedStockPanel from './prepared-stock-panel';
 
-type Tab = 'overview' | 'orders' | 'menu' | 'customers';
+type OwnerEvent = {
+  key: string; category: 'order' | 'payment' | 'stock';
+  title: string; detail: string; created_at: string;
+  target: 'orders' | 'prepared' | null; read: boolean;
+};
+type NotificationResponse = { items: OwnerEvent[]; unread_count: number };
+const eventTime = (value: string) => {
+  const date = new Date(value.endsWith('Z') ? value : value.replace(' ', 'T') + 'Z');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en-NG', {dateStyle:'medium',timeStyle:'short'});
+};
+type Tab = 'overview' | 'orders' | 'menu' | 'prepared' | 'customers';
 type Overview = {
   order_count: number; pending_orders: number; confirmed_orders: number;
   paid_revenue: number; paid_revenue_today: number; currency: string;
@@ -24,7 +35,7 @@ type Order = {
 };
 type Product = {
   id: number; name: string; category: string; description: string | null;
-  price: number; available: boolean; variants: { variant: string; quantity: number }[];
+  price: number; available: boolean; variants: { variant: string; quantity: number; source: 'legacy' | 'prepared' }[];
 };
 type Customer = {
   id: number; name: string | null; email: string | null; phone: string | null;
@@ -34,7 +45,8 @@ type Customer = {
 const menuItems: { id: Tab; title: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', title: 'Overview', icon: LayoutDashboard },
   { id: 'orders', title: 'Orders', icon: ClipboardList },
-  { id: 'menu', title: 'Menu & stock', icon: UtensilsCrossed },
+  { id: 'menu', title: 'Menu & pricing', icon: UtensilsCrossed },
+  { id: 'prepared', title: 'Prepared stock', icon: PackageOpen },
   { id: 'customers', title: 'Customers', icon: Users },
 ];
 const upcoming = [
@@ -63,6 +75,11 @@ export default function OwnerHome() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [showAlerts, setShowAlerts] = useState(false);
+  const [notifications, setNotifications] = useState<OwnerEvent[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationError, setNotificationError] = useState('');
+  const [notificationLoading, setNotificationLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{ title: string; message: string; run: () => Promise<void> } | null>(null);
   const [editProduct, setEditProduct] = useState<number | null>(null);
   const [draftPrice, setDraftPrice] = useState('');
   const [draftAvailable, setDraftAvailable] = useState(true);
@@ -91,12 +108,63 @@ export default function OwnerHome() {
     } finally { setLoading(false); }
   }, [apiFetch]);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadNotifications = useCallback(async () => {
+    setNotificationLoading(true);
+    try {
+      const response = await apiFetch('/owner/notifications');
+      if (!response.ok) throw new Error('Could not retrieve notifications.');
+      const data: NotificationResponse = await response.json();
+      setNotifications(data.items);
+      setUnreadCount(data.unread_count);
+      setNotificationError('');
+    } catch (cause) {
+      setNotificationError(cause instanceof Error ? cause.message : 'Could not retrieve notifications.');
+    } finally { setNotificationLoading(false); }
+  }, [apiFetch]);
 
-  async function changeOrder(order: Order) {
+  useEffect(() => { void load(); void loadNotifications(); }, [load, loadNotifications]);
+  useEffect(() => {
+    if (!showAlerts) return;
+    const poll = window.setInterval(() => { void loadNotifications(); }, 60000);
+    return () => window.clearInterval(poll);
+  }, [showAlerts, loadNotifications]);
+
+  async function markNotification(key: string, read: boolean) {
+    try {
+      const response = await apiFetch('/owner/notifications/' + encodeURIComponent(key) + '/read', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ read }),
+      });
+      if (!response.ok) throw new Error('Could not update notification.');
+      await loadNotifications();
+    } catch (cause) {
+      setNotificationError(cause instanceof Error ? cause.message : 'Could not update notification.');
+    }
+  }
+
+  async function readAllNotifications() {
+    try {
+      const response = await apiFetch('/owner/notifications/read-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      if (!response.ok) throw new Error('Could not mark notifications as read.');
+      await loadNotifications();
+    } catch (cause) {
+      setNotificationError(cause instanceof Error ? cause.message : 'Could not update notifications.');
+    }
+  }
+
+  useEffect(() => {
+    if (!pendingAction) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) setPendingAction(null);
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [pendingAction, busy]);
+
+  async function changeOrder(order: Order, confirmed = false) {
     const next = nextStatus[order.status];
     if (!next || busy) return;
-    if (!window.confirm(`Change order #${order.id} from ${human(order.status)} to ${human(next)}?`)) return;
+    if (!confirmed) { setPendingAction({ title: 'Update order status', message: `Change order #${order.id} from ${human(order.status)} to ${human(next)}?`, run: () => changeOrder(order, true) }); return; }
     setBusy(true); setNotice(''); setError('');
     try {
       const response = await apiFetch(`/owner/orders/${order.id}/status`, {
@@ -113,12 +181,12 @@ export default function OwnerHome() {
     finally { setBusy(false); }
   }
 
-  async function saveProduct(product: Product) {
+  async function saveProduct(product: Product, confirmed = false) {
     const price = Number(draftPrice);
     if (!Number.isSafeInteger(price) || price < 0 || draftPrice.trim() === '') {
       setError('Enter a valid non-negative price in naira.'); return;
     }
-    if (!window.confirm(`Save changes to ${product.name}?`)) return;
+    if (!confirmed) { setPendingAction({ title: 'Save menu changes', message: `Save changes to ${product.name}?`, run: () => saveProduct(product, true) }); return; }
     setBusy(true); setError(''); setNotice('');
     try {
       const response = await apiFetch(`/owner/menu/${product.id}`, {
@@ -136,11 +204,6 @@ export default function OwnerHome() {
     finally { setBusy(false); }
   }
 
-  const alerts = overview ? [
-    ...(overview.pending_orders > 0 ? [`${overview.pending_orders} order(s) awaiting payment`] : []),
-    ...(overview.confirmed_orders > 0 ? [`${overview.confirmed_orders} paid order(s) ready to prepare`] : []),
-    ...overview.low_stock.map(item => `Low stock: ${item.name} (${item.variant}) — ${item.quantity} left`),
-  ] : [];
   const maxSales = Math.max(1, ...(overview?.sales_trend.map(day => day.revenue) || [1]));
   const filter = search.trim().toLowerCase();
 
@@ -167,12 +230,29 @@ export default function OwnerHome() {
         <header className="owner-topbar">
           <div className="owner-topbar-title"><span className="owner-topbar-kicker">NAIJA BITES / OWNER'S MODE</span><strong>{menuItems.find(item => item.id === tab)?.title}</strong></div>
           <div className="owner-topbar-actions">
-            <button className="owner-icon-btn" onClick={() => void load()} disabled={loading} title="Refresh dashboard" aria-label="Refresh dashboard"><RefreshCw size={19}/></button>
-            <button className="owner-icon-btn owner-alert-trigger" onClick={() => setShowAlerts(!showAlerts)} aria-label="Toggle notifications" aria-expanded={showAlerts}><Bell size={19}/>{alerts.length > 0 && <span>{alerts.length}</span>}</button>
+            <button className="owner-icon-btn" onClick={() => { void load(); void loadNotifications(); }} disabled={loading} title="Refresh dashboard" aria-label="Refresh dashboard"><RefreshCw size={19}/></button>
+            <button className="owner-icon-btn owner-alert-trigger" onClick={() => { setShowAlerts(!showAlerts); if (!showAlerts) void loadNotifications(); }} aria-label="Toggle notifications" aria-expanded={showAlerts} aria-controls="owner-notifications"><Bell size={19}/>{unreadCount > 0 && <span>{unreadCount > 99 ? "99+" : unreadCount}</span>}</button>
           </div>
         </header>
         <div className="owner-content">
-          {showAlerts && <section className="owner-alerts" aria-label="In-app notifications"><div className="owner-section-title"><h2>Notifications</h2><button onClick={() => setShowAlerts(false)}>Close</button></div>{alerts.length ? alerts.map((alert, i) => <p key={i}><CircleAlert size={16}/>{alert}</p>) : <p>You're all caught up.</p>}</section>}
+          {showAlerts && <section className="owner-alerts" id="owner-notifications" aria-label="In-app notifications">
+            <div className="owner-section-title"><div><h2>Notifications</h2><p>{unreadCount} unread · verified business activity</p></div>
+              <div className="owner-alert-controls"><button onClick={() => void loadNotifications()} disabled={notificationLoading}>Refresh</button>
+                <button onClick={() => void readAllNotifications()} disabled={!unreadCount}>Mark all read</button>
+                <button onClick={() => setShowAlerts(false)} aria-label="Close notifications">Close</button></div></div>
+            {notificationError && <p className="owner-message error" role="alert">{notificationError}</p>}
+            {notificationLoading && !notifications.length && <p className="owner-empty">Loading notifications…</p>}
+            {!notificationLoading && !notifications.length && !notificationError && <p className="owner-empty">No recorded business events yet.</p>}
+            <div className="owner-notification-list">{notifications.map(item =>
+              <article key={item.key} className={"owner-notification" + (item.read ? "" : " unread")}>
+                <span className="owner-notification-icon">{item.category === "order" ? <ClipboardList size={18}/> : item.category === "payment" ? <CreditCard size={18}/> : <PackageOpen size={18}/>}</span>
+                <div className="owner-notification-body"><strong>{item.title}</strong><span>{item.detail}</span><time>{eventTime(item.created_at)}</time></div>
+                <div className="owner-notification-actions">
+                  {!item.read && <span className="owner-unread-dot" aria-label="Unread"/>}
+                  <button onClick={() => void markNotification(item.key, !item.read)}>{item.read ? "Mark unread" : "Mark read"}</button>
+                  {item.target && <button onClick={() => { setTab(item.target === "orders" ? "orders" : "prepared"); setShowAlerts(false); }}>View</button>}
+                </div></article>)}</div>
+          </section>}
           {notice && <p className="owner-message success" role="status">{notice}</p>}
           {error && <p className="owner-message error" role="alert">{error}</p>}
           {loading && <p className="owner-message">Loading current business records…</p>}
@@ -193,9 +273,7 @@ export default function OwnerHome() {
                 {overview.popular_meals.length ? overview.popular_meals.map((meal, i) => <div className="owner-popular-row" key={meal.name}><span className="owner-rank">{i + 1}</span><strong>{meal.name}</strong><span>{meal.quantity} sold</span></div>) : <p className="owner-empty">No verified sales yet.</p>}
               </article>
             </div>
-            <article className="owner-panel owner-quick"><div className="owner-section-title"><div><h2>Needs attention</h2><p>Operational alerts based on current records</p></div><Bell size={20}/></div>
-              {alerts.length ? alerts.slice(0, 5).map((alert, i) => <p key={i}><CircleAlert size={17}/>{alert}</p>) : <p>No outstanding alerts.</p>}
-            </article>
+
           </>}
 
           {!loading && tab === 'orders' && <>
@@ -208,13 +286,15 @@ export default function OwnerHome() {
           </>}
 
           {!loading && tab === 'menu' && <>
-            <div className="owner-heading"><div><span className="owner-eyebrow">YOUR CATALOGUE</span><h1>Menu & stock</h1><p>Manage product prices and availability. Stock is shown for reference.</p></div></div>
+            <div className="owner-heading"><div><span className="owner-eyebrow">YOUR CATALOGUE</span><h1>Menu & pricing</h1><p>Edit prices and availability. Stock availability reflects each variant's active inventory source.</p></div></div>
             <div className="owner-panel"><div className="owner-section-title"><h2>Products</h2><input className="owner-search" placeholder="Search meals…" aria-label="Search meals" value={search} onChange={e => setSearch(e.target.value)}/></div>
-              <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>Meal</th><th>Price</th><th>Stock</th><th>Available</th><th>Action</th></tr></thead><tbody>
-                {products.filter(p => !filter || (p.name + ' ' + p.category).toLowerCase().includes(filter)).map(product => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.category}</small></td><td>{editProduct === product.id ? <input className="owner-number" type="number" min="0" max="100000000" value={draftPrice} onChange={e => setDraftPrice(e.target.value)} aria-label={`Price for ${product.name}`}/> : money(product.price)}</td><td>{product.variants.length ? product.variants.map(v => `${v.variant}: ${v.quantity}`).join(', ') : 'No stock entries'}</td><td>{editProduct === product.id ? <label className="owner-check"><input type="checkbox" checked={draftAvailable} onChange={e => setDraftAvailable(e.target.checked)}/> Available</label> : <span className={'owner-pill ' + (product.available ? 'green' : 'neutral')}>{product.available ? 'Available' : 'Hidden'}</span>}</td><td>{editProduct === product.id ? <div className="owner-row-actions"><button className="owner-small-btn" disabled={busy} onClick={() => void saveProduct(product)}>Save</button><button className="owner-small-btn ghost" disabled={busy} onClick={() => setEditProduct(null)}>Cancel</button></div> : <button className="owner-small-btn" disabled={busy} onClick={() => { setEditProduct(product.id); setDraftPrice(String(product.price)); setDraftAvailable(product.available); }}>Edit</button>}</td></tr>)}
+              <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>Meal</th><th>Price</th><th>Available portions / source</th><th>Available</th><th>Action</th></tr></thead><tbody>
+                {products.filter(p => !filter || (p.name + ' ' + p.category).toLowerCase().includes(filter)).map(product => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.category}</small></td><td>{editProduct === product.id ? <input className="owner-number" type="number" min="0" max="100000000" value={draftPrice} onChange={e => setDraftPrice(e.target.value)} aria-label={`Price for ${product.name}`}/> : money(product.price)}</td><td>{product.variants.length ? product.variants.map(v => `${v.variant}: ${v.quantity} (${v.source})`).join(', ') : 'No stock entries'}</td><td>{editProduct === product.id ? <label className="owner-check"><input type="checkbox" checked={draftAvailable} onChange={e => setDraftAvailable(e.target.checked)}/> Available</label> : <span className={'owner-pill ' + (product.available ? 'green' : 'neutral')}>{product.available ? 'Available' : 'Hidden'}</span>}</td><td>{editProduct === product.id ? <div className="owner-row-actions"><button className="owner-small-btn" disabled={busy} onClick={() => void saveProduct(product)}>Save</button><button className="owner-small-btn ghost" disabled={busy} onClick={() => setEditProduct(null)}>Cancel</button></div> : <button className="owner-small-btn" disabled={busy} onClick={() => { setEditProduct(product.id); setDraftPrice(String(product.price)); setDraftAvailable(product.available); }}>Edit</button>}</td></tr>)}
               </tbody></table></div>{!products.length && <p className="owner-empty">No products yet.</p>}
             </div>
           </>}
+
+          {!loading && tab === 'prepared' && <PreparedStockPanel products={products} />}
 
           {!loading && tab === 'customers' && <>
             <div className="owner-heading"><div><span className="owner-eyebrow">YOUR COMMUNITY</span><h1>Customers</h1><p>Latest 100 customer accounts and their verified purchase totals.</p></div></div>
@@ -227,6 +307,17 @@ export default function OwnerHome() {
           <footer className="owner-footer">Naija Bites Owner's Mode · Phase 2 · Business data is access-controlled by FastAPI.</footer>
         </div>
       </section>
+      {pendingAction && <div className="owner-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setPendingAction(null); }}>
+        <section className="owner-modal" role="alertdialog" aria-modal="true" aria-labelledby="owner-confirm-title" aria-describedby="owner-confirm-description">
+          <div className="owner-modal-icon"><ShieldCheck size={25}/></div>
+          <h2 id="owner-confirm-title">{pendingAction.title}</h2>
+          <p id="owner-confirm-description">{pendingAction.message}</p>
+          <div className="owner-modal-actions">
+            <button type="button" autoFocus className="owner-small-btn ghost" disabled={busy} onClick={() => setPendingAction(null)}>Cancel</button>
+            <button type="button" className="owner-small-btn" disabled={busy} onClick={() => { const action = pendingAction.run; setPendingAction(null); void action(); }}>Confirm change</button>
+          </div>
+        </section>
+      </div>}
     </main>
   );
 }

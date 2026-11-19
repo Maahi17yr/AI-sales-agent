@@ -1,0 +1,138 @@
+name: Propose tested changes to connected production repository
+
+# PRODUCTION SYNC DISABLED: merges to development main must never touch
+# the original production repo without a separately approved release change.
+# The job has a hard false condition until that approval is implemented.
+on:
+  workflow_run:
+    workflows:
+      - Naija Bites chat safety checks
+    types:
+      - completed
+    branches:
+      - main
+  # Run manually to test the cross-account token without writing to the old repository.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-development-main-to-production-pr
+  cancel-in-progress: false
+
+jobs:
+  verify-credential-read-only:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check token can read the old repository; do not mutate anything
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRODUCTION_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo '::error::PRODUCTION_SYNC_TOKEN is not available to this workflow.'
+            exit 1
+          fi
+          name="$(gh api repos/Maahi17yr/AI-sales-agent --jq '.full_name')"
+          if [[ "$name" != "Maahi17yr/AI-sales-agent" ]]; then
+            echo '::error::The token could not access the expected old repository.'
+            exit 1
+          fi
+          echo 'Success: the token is available and can read the old repository.'
+          echo 'No branches, pull requests, or deployments were changed.'
+
+  propose-production-pr:
+    # Development-only hold: require explicit user-approved change to re-enable.
+    # This literal false is intentionally independent of secrets and variables.
+    if: >-
+      false &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == 'doe931397-rgb/AI-Sales-Agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exactly the tested development commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Propose a draft PR; never merge or deploy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRODUCTION_SYNC_TOKEN }}
+          SOURCE_GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_REPO: doe931397-rgb/AI-Sales-Agent
+          TARGET_REPO: Maahi17yr/AI-sales-agent
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo '::notice::Sync is disabled until PRODUCTION_SYNC_TOKEN is added to this repository Actions secrets.'
+            exit 0
+          fi
+
+          # Do not sync obsolete main commits or PR-only test results.
+          current_sha="$(GH_TOKEN="$SOURCE_GITHUB_TOKEN" gh api "repos/$SOURCE_REPO/branches/main" --jq '.commit.sha')"
+          if [[ "$TESTED_SHA" != "$current_sha" ]]; then
+            echo '::notice::Development main moved after this CI run. A newer run will handle it.'
+            exit 0
+          fi
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+
+          # Keep credentials out of remote URLs and logs.
+          askpass="$RUNNER_TEMP/production-git-askpass.sh"
+          cat > "$askpass" <<'SH'
+          #!/usr/bin/env bash
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          SH
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
+
+          git remote add production "https://github.com/$TARGET_REPO.git"
+          git fetch --no-tags production refs/heads/main:refs/remotes/production/main
+          target_sha="$(git rev-parse refs/remotes/production/main)"
+          if [[ "$target_sha" == "$TESTED_SHA" ]]; then
+            echo '::notice::Production and development main already match.'
+            exit 0
+          fi
+
+          # Never force-push or overwrite changes unique to the old repository.
+          if ! git merge-base --is-ancestor "$target_sha" "$TESTED_SHA"; then
+            echo '::error::The two main branches have diverged. Reconcile them manually before syncing.'
+            exit 1
+          fi
+
+          sync_branch='sync/from-development-main'
+          git push production "$TESTED_SHA:refs/heads/$sync_branch"
+
+          existing="$(gh pr list --repo "$TARGET_REPO" --state open --head "$sync_branch" --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing" ]]; then
+            echo "Updated existing unmerged sync PR #$existing."
+            exit 0
+          fi
+
+          gh pr create \
+            --repo "$TARGET_REPO" \
+            --base main \
+            --head "$sync_branch" \
+            --draft \
+            --title 'Sync CI-tested Naija Bites development changes' \
+            --body "This **draft** PR proposes updates from $SOURCE_REPO to the deployment-connected repository.
+
+          Tested development commit: $TESTED_SHA
+          Passing development CI: $CI_RUN_URL
+
+          **Review before release.** This workflow only pushes to a separate sync branch and opens or updates a draft PR. It never merges, changes production main, or deploys. Review changes to workflows, knowledge files and hosting settings carefully."

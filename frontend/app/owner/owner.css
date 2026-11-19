@@ -14,3 +14,115 @@
 .owner-table-scroll{overflow-x:auto}.owner-table{border-collapse:collapse;width:100%;min-width:680px;text-align:left;font-size:13px}.owner-table th{color:#8b9a88;font-size:11px;letter-spacing:.5px;text-transform:uppercase;padding:12px 12px 17px;border-bottom:1px solid #e7ece2}.owner-table td{padding:16px 12px;border-bottom:1px solid #eff2ec;vertical-align:middle;color:#526552}.owner-table td strong{color:#2c4430}.owner-table td small{display:block;color:#98a694;font-size:11px;margin-top:6px}.owner-table tr:last-child td{border:0}.owner-pill{display:inline-block;border-radius:30px;padding:7px 10px;font-size:11px;font-weight:700;white-space:nowrap}.owner-pill.green{background:#e7f3e1;color:#3d7a3a}.owner-pill.neutral{background:#f0f2ed;color:#69776a}.owner-small-btn{border:0;background:#375c35;color:white;border-radius:9px;padding:9px 12px;font-size:12px;font-weight:700;white-space:nowrap}.owner-small-btn.ghost{background:#edf2e9;color:#4f694b}.owner-muted{color:#9aab98}.owner-row-actions{display:flex;gap:6px}.owner-number,.owner-search{border:1px solid #dce7d7;background:#fcfdfa;border-radius:9px;padding:9px;color:#2a452b;max-width:180px}.owner-search{width:220px}.owner-check{display:flex;align-items:center;gap:6px;font-size:12px}.owner-footer{font-size:11px;color:#a0ad9b;text-align:center;padding:32px 0}
 @media(max-width:1100px){.owner-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.owner-two-columns{grid-template-columns:1fr}.owner-content{padding:30px 24px}.owner-topbar{padding:16px 24px}}
 @media(max-width:700px){.owner-shell{display:block}.owner-sidebar{min-height:0;width:100%;padding:14px;display:block}.owner-logo{margin:0 0 14px}.owner-sidebar nav{display:flex;overflow-x:auto;gap:6px}.owner-nav{white-space:nowrap;width:auto;padding:10px}.owner-nav-caption,.owner-nav.disabled,.owner-sidebar-footer{display:none}.owner-topbar{height:70px}.owner-content{padding:24px 15px}.owner-heading h1{font-size:27px}.owner-live{display:none}.owner-kpi-grid{gap:10px}.owner-kpi{padding:17px}.owner-kpi strong{font-size:21px}.owner-panel{padding:18px}.owner-section-title{flex-wrap:wrap}.owner-search{width:100%}}
+
+/* Prepared stock is internal owner-only metadata; legacy checkout remains live. */
+.prepared-summary{border:1px solid #e4d8b2;background:#fff9e9;color:#6a592d;padding:14px 17px;border-radius:12px;font-size:13px;line-height:1.6;margin:0 0 22px}
+.prepared-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.prepared-field{display:flex;flex-direction:column;gap:7px;font-size:13px;font-weight:700;color:#3e5540}
+.prepared-field input,.prepared-field select{width:100%;min-width:0;border:1px solid #dce7d7;border-radius:9px;padding:11px 12px;background:#fcfdfa;color:#28442d;font-size:14px}
+.prepared-field small{font-size:11px;font-weight:400;color:#788975}
+.prepared-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px}
+.prepared-actions .owner-small-btn{padding:12px 17px}
+.prepared-table tr.selected{background:#f1f7ea}
+.prepared-table tbody button{white-space:nowrap}
+.prepared-stat{display:flex;flex-direction:column;gap:5px;border:1px solid #e4ebdd;background:#f7faf3;border-radius:11px;padding:14px}
+.prepared-stat strong{font-size:21px;color:#325734}
+.prepared-stat span{font-size:12px;color:#637d60}
+.prepared-muted{color:#7a8877;font-size:12px;margin-top:8px}
+@media(max-width:700px){.prepared-grid{grid-template-columns:1fr}}
+
+/* Owner Mode dark palette and responsive confirmation dialog */
+.owner-shell{background:#0d1413;color:#edf4ec;color-scheme:dark}
+.owner-sidebar,.owner-topbar,.owner-panel,.owner-kpi,.owner-alerts{background:#151e1c;border-color:#2b3a33;box-shadow:0 8px 22px #0002}
+.owner-logo strong,.owner-topbar-title strong,.owner-heading h1,.owner-kpi strong,.owner-section-title h2,.owner-popular-row strong,.owner-table td strong{color:#f1f6ef}
+.owner-logo small,.owner-nav-caption,.owner-topbar-kicker,.owner-heading p,.owner-kpi span,.owner-kpi small,.owner-section-title p,.owner-table td,.owner-table th,.owner-table td small,.owner-footer{color:#a8b7a8}
+.owner-nav{color:#b8cbb7}.owner-nav.active,.owner-nav:not(.disabled):hover{background:#263c2d;color:#c9f58c}
+.owner-sidebar-footer{border-color:#2b3a33}.owner-sidebar-footer small{color:#a8b7a8}
+.owner-icon-btn,.owner-number,.owner-search{background:#1b2923;color:#e5f1de;border-color:#34493a}
+.owner-chart{border-color:#34493a}.owner-popular-row,.owner-table td,.owner-table th{border-color:#2b3a33}
+.owner-rank,.owner-live,.owner-small-btn.ghost{background:#263c2d;color:#c9f58c}
+.owner-quick p,.owner-alerts p,.owner-message{background:#202f26;color:#c5e4bb}
+.owner-message.error{background:#3d2525;color:#ffc4bd}.owner-message.success{background:#203e2b;color:#c5f0b4}
+.owner-pill.neutral{background:#29352d;color:#c7d3c5}.owner-pill.green{background:#25452b;color:#bceca8}
+.prepared-summary,.prepared-stat{background:#1b2923!important;border-color:#34493a!important;color:#dcebd7!important}
+.prepared-stat strong{color:#d6f6a3!important}.prepared-stat span,.prepared-muted{color:#b0c2ad!important}
+.owner-modal-backdrop{position:fixed;inset:0;z-index:1000;background:#000a;display:grid;place-items:center;padding:18px}
+.owner-modal{width:min(100%,440px);background:#17211e;border:1px solid #48604c;border-radius:22px;padding:28px;color:#edf4ec;text-align:center;box-shadow:0 22px 80px #0009}
+.owner-modal-icon{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;margin:0 auto 15px;background:#29452a;color:#c8ef84}
+.owner-modal h2{font-size:22px;margin:0 0 10px;color:#fff}.owner-modal p{color:#bac9bb;line-height:1.6;margin:0 0 24px}
+.owner-modal-actions{display:flex;gap:12px}.owner-modal-actions button{flex:1;min-height:44px}
+.owner-modal-actions .owner-small-btn:not(.ghost){background:#b8e86c;color:#142010}
+@media(max-width:700px){.owner-modal{padding:22px}.owner-modal-actions{flex-direction:column-reverse}.owner-shell{overflow-x:hidden}.owner-content{padding:20px 14px}.owner-panel{padding:16px}.owner-topbar{padding:12px 14px}}
+
+/* Finish dark theme across prepared-stock forms and operation tables. */
+.owner-shell .prepared-field{color:#d9ead3}
+.owner-shell .prepared-field input,.owner-shell .prepared-field select,
+.owner-shell .owner-number,.owner-shell .owner-search{
+  border-color:#37503e;background:#182721;color:#edf6e6;
+  color-scheme:dark;outline-offset:2px
+}
+.owner-shell .prepared-field input:focus-visible,.owner-shell .prepared-field select:focus-visible,
+.owner-shell button:focus-visible,.owner-shell .owner-search:focus-visible{
+  outline:2px solid #b8e86c;outline-offset:3px
+}
+.owner-shell .prepared-field small{color:#a7b9a2}
+.owner-shell .prepared-table tr.selected{background:#203628}
+.owner-shell .owner-table-scroll{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:#53714c #18241c}
+.owner-shell .owner-table{border-color:#34463a}
+.owner-shell .owner-modal-actions button{min-width:0}
+.owner-shell .owner-modal-backdrop{overflow-y:auto}
+.owner-shell .owner-notification-list{max-height:min(65vh,560px);overflow-y:auto}
+.owner-shell .owner-alerts{padding:20px;min-width:0}
+.owner-shell .owner-alert-controls{display:flex;flex-wrap:wrap;gap:8px}
+.owner-shell .owner-alert-controls button,.owner-shell .owner-notification-actions button{
+  border:1px solid #415a43;border-radius:9px;background:#21352b;color:#c8f09c;
+  padding:8px 10px;font-size:12px;font-weight:700;min-height:35px
+}
+.owner-shell .owner-notification{display:flex;align-items:flex-start;gap:12px;padding:14px 8px;border-bottom:1px solid #334238;min-width:0}
+.owner-shell .owner-notification.unread{background:#1f3426;border-radius:10px}
+.owner-shell .owner-notification-icon{display:grid;place-items:center;flex:none;width:36px;height:36px;border-radius:12px;background:#314a32;color:#c8f09c}
+.owner-shell .owner-notification-body{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}
+.owner-shell .owner-notification-body strong{font-size:13px;color:#edf7e9;overflow-wrap:anywhere}
+.owner-shell .owner-notification-body span{font-size:12px;color:#bdc9b8;overflow-wrap:anywhere}
+.owner-shell .owner-notification-body time{font-size:11px;color:#92a89a}
+.owner-shell .owner-notification-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;max-width:145px}
+.owner-shell .owner-unread-dot{width:8px;height:8px;border-radius:50%;background:#b8e86c;flex:none}
+@media(min-width:701px) and (max-width:1024px){
+  .owner-shell .owner-sidebar{width:218px;padding:21px 12px}
+  .owner-shell .owner-content{padding:22px 19px}
+  .owner-shell .owner-kpi{padding:15px}
+  .owner-shell .owner-topbar{padding:12px 19px}
+}
+@media(max-width:700px){
+  .owner-shell .owner-sidebar{padding:12px 12px 8px}
+  .owner-shell .owner-sidebar nav{scrollbar-width:thin;padding-bottom:8px;overscroll-behavior-x:contain;scroll-snap-type:x proximity}
+  .owner-shell .owner-sidebar .owner-nav{scroll-snap-align:start;flex-shrink:0}
+  .owner-shell .owner-content{padding:18px 12px}
+  .owner-shell .owner-kpi-grid{gap:9px}
+  .owner-shell .owner-kpi{padding:14px}
+  .owner-shell .owner-kpi strong{font-size:20px}
+  .owner-shell .owner-heading{align-items:flex-start}
+  .owner-shell .owner-heading h1{font-size:25px}
+  .owner-shell .owner-live{display:none}
+  .owner-shell .owner-topbar{position:sticky;top:0;z-index:10}
+  .owner-shell .owner-notification{flex-wrap:wrap}
+  .owner-shell .owner-notification-actions{max-width:none;margin-left:48px;justify-content:flex-start}
+  .owner-shell .owner-alerts{padding:14px}
+  .owner-shell .owner-alert-controls{width:100%}
+  .owner-shell .owner-section-title{align-items:flex-start}
+}
+@media(prefers-reduced-motion:reduce){.owner-shell *, .owner-shell *::before,.owner-shell *::after{scroll-behavior:auto!important;transition:none!important}}
+
+/* Bell opens a floating notification centre, rather than another dashboard card. */
+.owner-main{position:relative}
+.owner-shell .owner-alerts{
+  position:absolute;top:77px;right:28px;width:min(460px,calc(100% - 32px));
+  z-index:30;margin:0;border:1px solid #3b5441;
+  border-radius:20px;box-shadow:0 25px 60px #0008
+}
+.owner-shell .owner-alerts .owner-section-title{margin-bottom:12px}
+.owner-shell .owner-notification-list{max-height:min(60vh,550px)}
+@media(max-width:700px){
+  .owner-shell .owner-alerts{position:fixed;top:80px;right:10px;left:10px;width:auto;
+    max-height:calc(100dvh - 95px);overflow:auto}
+}
