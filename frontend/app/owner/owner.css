@@ -112,3 +112,17 @@
   .owner-shell .owner-section-title{align-items:flex-start}
 }
 @media(prefers-reduced-motion:reduce){.owner-shell *, .owner-shell *::before,.owner-shell *::after{scroll-behavior:auto!important;transition:none!important}}
+
+/* Bell opens a floating notification centre, rather than another dashboard card. */
+.owner-main{position:relative}
+.owner-shell .owner-alerts{
+  position:absolute;top:77px;right:28px;width:min(460px,calc(100% - 32px));
+  z-index:30;margin:0;border:1px solid #3b5441;
+  border-radius:20px;box-shadow:0 25px 60px #0008
+}
+.owner-shell .owner-alerts .owner-section-title{margin-bottom:12px}
+.owner-shell .owner-notification-list{max-height:min(60vh,550px)}
+@media(max-width:700px){
+  .owner-shell .owner-alerts{position:fixed;top:80px;right:10px;left:10px;width:auto;
+    max-height:calc(100dvh - 95px);overflow:auto}
+}
