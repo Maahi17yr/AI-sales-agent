@@ -78,8 +78,8 @@ def main():
                 expect(navigation).to_be_hidden(timeout=5000)
                 page.get_by_role("button", name="Open owner menu").click()
                 expect(navigation).to_be_visible(timeout=5000)
-                expect(navigation.get_by_text("Owner AI", exact=True)).to_be_visible(timeout=5000)
                 page.screenshot(path=f"/tmp/naija-ui-owner-drawer-{width}.png", full_page=True)
+                expect(navigation.locator(".owner-nav.disabled").filter(has_text="Owner AI")).to_be_visible(timeout=5000)
                 assert navigation.get_by_text("Soon", exact=True).count() >= 1
                 assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 3"), width
                 page.keyboard.press("Escape")
