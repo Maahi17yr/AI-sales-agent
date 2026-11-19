@@ -35,7 +35,7 @@ class CheckoutService:
             ).fetchone()
             if not session:
                 raise ValueError('Customer session not found.')
-            summary, _, _, _ = OrderService._build_summary_in_transaction(conn, session, fields)
+            summary, *_ = OrderService._build_summary_in_transaction(conn, session, fields)
             cart = json.loads(session['cart_data'])
             summary_fingerprint = fingerprint(summary)
             previous = cart.get('pending_checkout')

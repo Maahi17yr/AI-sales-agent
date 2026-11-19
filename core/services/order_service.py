@@ -12,6 +12,7 @@ from collections import Counter
 
 from core import config
 from data.database.models import get_connection
+from core.services import stock_policy
 
 
 def fingerprint(summary):
@@ -41,7 +42,7 @@ class OrderService:
         return (subtotal * max(0, min(rate, config.MAX_DISCOUNT_PERCENT)) + 50) // 100
 
     @classmethod
-    def _build_summary_in_transaction(cls, conn, session, details):
+    def _build_summary_in_transaction(cls, conn, session, details, *, lock_stock=False):
         if not session['customer_id']:
             raise ValueError('Session is not bound to a verified customer.')
         customer = conn.execute('SELECT id FROM customers WHERE id = ?',
@@ -59,9 +60,23 @@ class OrderService:
         raw_items = cart.get('items', [])
         if not isinstance(raw_items, list) or not raw_items:
             raise ValueError('The shopping cart is empty.')
+        # On final confirmation, serialize product source/config changes
+        # with checkout before reading customer prices or prepared add-ons.
+        if lock_stock:
+            # Validate BEFORE constructing lock keys: an invalid variant
+            # (e.g. an array or object) must not produce an uncaught 500.
+            for raw_item in raw_items:
+                if not isinstance(raw_item, dict):
+                    raise ValueError('Invalid cart entry.')
+                if (type(raw_item.get('product_id')) is not int or
+                    type(raw_item.get('quantity')) is not int or
+                    raw_item['quantity'] <= 0 or
+                    not isinstance(raw_item.get('variant', 'standard'), str) or
+                    not raw_item.get('variant', 'standard').strip()):
+                    raise ValueError('Invalid cart item.')
+            stock_policy.lock_base_products(conn, raw_items)
+            stock_policy.lock_prepared_sources(conn, raw_items)
         items, subtotal = [], 0
-        meal_stock = Counter()
-        ingredient_stock = Counter()
         for item in raw_items:
             if not isinstance(item, dict):
                 raise ValueError('Invalid cart entry.')
@@ -103,9 +118,10 @@ class OrderService:
                         (product_id, ingredient_id)).fetchone()
                     if not rule or not rule['available'] or count > rule['max_quantity']:
                         raise ValueError('This extra is not permitted or available.')
-                    delta = rule['extra_price']
+                    selection = stock_policy.addon_selection(conn, product_id, variant, ingredient_id)
+                    delta = (selection['price'] if selection and selection['source'] == 'self_extra'
+                             else rule['extra_price'])
                     extra_cost += count * delta
-                    ingredient_stock[ingredient_id] += count * quantity
                 mods.append({'action': action, 'ingredient_id': ingredient_id,
                              'name': rule['name'], 'quantity': count,
                              'unit_price_delta': delta})
@@ -113,27 +129,19 @@ class OrderService:
             unit_price = product['price'] + extra_cost
             line_total = unit_price * quantity
             subtotal += line_total
-            meal_stock[(product_id, variant)] += quantity
             items.append({'product_id': product_id, 'name': product['name'],
                           'variant': variant, 'quantity': quantity, 'modifications': mods,
                           'unit_price': unit_price, 'line_total': line_total})
-        for (product_id, variant), needed in meal_stock.items():
-            row = conn.execute('''SELECT quantity FROM inventory
-                WHERE product_id = ? AND variant = ?''', (product_id, variant)).fetchone()
-            if not row or row['quantity'] < needed:
-                raise ValueError('Insufficient meal stock for the full order.')
-        for ingredient_id, needed in ingredient_stock.items():
-            row = conn.execute('''SELECT stock_quantity, available FROM ingredients
-                WHERE id = ?''', (ingredient_id,)).fetchone()
-            if not row or not row['available'] or row['stock_quantity'] < needed:
-                raise ValueError('Insufficient ingredient stock for the full order.')
+        legacy_meals, legacy_extras, prepared_usage = stock_policy.demand(conn, items)
+        stock_policy.validate(conn, legacy_meals, legacy_extras, prepared_usage,
+                              lock=lock_stock)
         discount = cls._calculate_discount(subtotal)
         summary = {'customer_name': details['customer_name'], 'phone': details['phone'],
                    'delivery_address': details['delivery_address'], 'delivery_area': zone['area'],
                    'items': items, 'subtotal': subtotal, 'discount': discount,
                    'delivery_fee': zone['fee'], 'total': subtotal + zone['fee'] - discount,
                    'currency': config.CURRENCY}
-        return summary, zone, meal_stock, ingredient_stock
+        return summary, zone, legacy_meals, legacy_extras, prepared_usage
 
     def _commit_approved_checkout(self, approval_fingerprint, checkout_id=None):
         """Only trusted application code may call this after explicit customer approval."""
@@ -183,7 +191,8 @@ class OrderService:
                 raise ValueError('Approval does not match the reviewed order.')
             details = {key: pending['summary'][key] for key in
                        ('customer_name', 'phone', 'delivery_address', 'delivery_area')}
-            summary, zone, meals, ingredients = self._build_summary_in_transaction(conn, session, details)
+            summary, zone, meals, ingredients, prepared_usage = self._build_summary_in_transaction(
+                conn, session, details, lock_stock=True)
             if fingerprint(summary) != expected:
                 raise ValueError('Order details changed. Review and approve a new summary.')
             cursor = conn.execute('''INSERT INTO orders
@@ -204,18 +213,10 @@ class OrderService:
                         VALUES (?, ?, ?, ?, ?)''',
                         (line.lastrowid, mod['ingredient_id'], mod['action'],
                          mod['quantity'], mod['unit_price_delta']))
-            for (product_id, variant), needed in meals.items():
-                updated = conn.execute('''UPDATE inventory SET quantity = quantity - ?
-                    WHERE product_id = ? AND variant = ? AND quantity >= ?''',
-                    (needed, product_id, variant, needed))
-                if updated.rowcount != 1:
-                    raise ValueError('Meal stock changed during checkout.')
-            for ingredient_id, needed in ingredients.items():
-                updated = conn.execute('''UPDATE ingredients SET stock_quantity = stock_quantity - ?
-                    WHERE id = ? AND available = 1 AND stock_quantity >= ?''',
-                    (needed, ingredient_id, needed))
-                if updated.rowcount != 1:
-                    raise ValueError('Ingredient stock changed during checkout.')
+            # The order and every allocation commit as one database transaction.
+            # For PostgreSQL the stock rows were already locked at validation.
+            stock_policy.deduct(conn, meals, ingredients, prepared_usage,
+                                order_id=order_id, customer_id=session['customer_id'])
             result = {'success': True, 'order_id': order_id, 'status': 'pending_payment',
                       'subtotal': summary['subtotal'], 'delivery_fee': summary['delivery_fee'],
                       'discount': summary['discount'], 'total': summary['total'],
