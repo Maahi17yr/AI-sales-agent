@@ -53,3 +53,62 @@
 .owner-modal-actions{display:flex;gap:12px}.owner-modal-actions button{flex:1;min-height:44px}
 .owner-modal-actions .owner-small-btn:not(.ghost){background:#b8e86c;color:#142010}
 @media(max-width:700px){.owner-modal{padding:22px}.owner-modal-actions{flex-direction:column-reverse}.owner-shell{overflow-x:hidden}.owner-content{padding:20px 14px}.owner-panel{padding:16px}.owner-topbar{padding:12px 14px}}
+
+/* Finish dark theme across prepared-stock forms and operation tables. */
+.owner-shell .prepared-field{color:#d9ead3}
+.owner-shell .prepared-field input,.owner-shell .prepared-field select,
+.owner-shell .owner-number,.owner-shell .owner-search{
+  border-color:#37503e;background:#182721;color:#edf6e6;
+  color-scheme:dark;outline-offset:2px
+}
+.owner-shell .prepared-field input:focus-visible,.owner-shell .prepared-field select:focus-visible,
+.owner-shell button:focus-visible,.owner-shell .owner-search:focus-visible{
+  outline:2px solid #b8e86c;outline-offset:3px
+}
+.owner-shell .prepared-field small{color:#a7b9a2}
+.owner-shell .prepared-table tr.selected{background:#203628}
+.owner-shell .owner-table-scroll{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:#53714c #18241c}
+.owner-shell .owner-table{border-color:#34463a}
+.owner-shell .owner-modal-actions button{min-width:0}
+.owner-shell .owner-modal-backdrop{overflow-y:auto}
+.owner-shell .owner-notification-list{max-height:min(65vh,560px);overflow-y:auto}
+.owner-shell .owner-alerts{padding:20px;min-width:0}
+.owner-shell .owner-alert-controls{display:flex;flex-wrap:wrap;gap:8px}
+.owner-shell .owner-alert-controls button,.owner-shell .owner-notification-actions button{
+  border:1px solid #415a43;border-radius:9px;background:#21352b;color:#c8f09c;
+  padding:8px 10px;font-size:12px;font-weight:700;min-height:35px
+}
+.owner-shell .owner-notification{display:flex;align-items:flex-start;gap:12px;padding:14px 8px;border-bottom:1px solid #334238;min-width:0}
+.owner-shell .owner-notification.unread{background:#1f3426;border-radius:10px}
+.owner-shell .owner-notification-icon{display:grid;place-items:center;flex:none;width:36px;height:36px;border-radius:12px;background:#314a32;color:#c8f09c}
+.owner-shell .owner-notification-body{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}
+.owner-shell .owner-notification-body strong{font-size:13px;color:#edf7e9;overflow-wrap:anywhere}
+.owner-shell .owner-notification-body span{font-size:12px;color:#bdc9b8;overflow-wrap:anywhere}
+.owner-shell .owner-notification-body time{font-size:11px;color:#92a89a}
+.owner-shell .owner-notification-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;max-width:145px}
+.owner-shell .owner-unread-dot{width:8px;height:8px;border-radius:50%;background:#b8e86c;flex:none}
+@media(min-width:701px) and (max-width:1024px){
+  .owner-shell .owner-sidebar{width:218px;padding:21px 12px}
+  .owner-shell .owner-content{padding:22px 19px}
+  .owner-shell .owner-kpi{padding:15px}
+  .owner-shell .owner-topbar{padding:12px 19px}
+}
+@media(max-width:700px){
+  .owner-shell .owner-sidebar{padding:12px 12px 8px}
+  .owner-shell .owner-sidebar nav{scrollbar-width:thin;padding-bottom:8px;overscroll-behavior-x:contain;scroll-snap-type:x proximity}
+  .owner-shell .owner-sidebar .owner-nav{scroll-snap-align:start;flex-shrink:0}
+  .owner-shell .owner-content{padding:18px 12px}
+  .owner-shell .owner-kpi-grid{gap:9px}
+  .owner-shell .owner-kpi{padding:14px}
+  .owner-shell .owner-kpi strong{font-size:20px}
+  .owner-shell .owner-heading{align-items:flex-start}
+  .owner-shell .owner-heading h1{font-size:25px}
+  .owner-shell .owner-live{display:none}
+  .owner-shell .owner-topbar{position:sticky;top:0;z-index:10}
+  .owner-shell .owner-notification{flex-wrap:wrap}
+  .owner-shell .owner-notification-actions{max-width:none;margin-left:48px;justify-content:flex-start}
+  .owner-shell .owner-alerts{padding:14px}
+  .owner-shell .owner-alert-controls{width:100%}
+  .owner-shell .owner-section-title{align-items:flex-start}
+}
+@media(prefers-reduced-motion:reduce){.owner-shell *, .owner-shell *::before,.owner-shell *::after{scroll-behavior:auto!important;transition:none!important}}
