@@ -107,11 +107,9 @@ def main():
             assert panel.get_by_text("New order #" + str(order)).count() == 1
             assert panel.locator("time").count() >= 2
             panel.get_by_role("button", name="Mark all read").click()
-            page.wait_for_timeout(250)
-            assert panel.get_by_text("0 unread", exact=False).count() >= 1
+            expect(panel.get_by_text("0 unread", exact=False)).to_be_visible(timeout=10000)
             panel.get_by_role("button", name="Mark unread").first.click()
-            page.wait_for_timeout(250)
-            assert panel.get_by_text("1 unread", exact=False).count() >= 1
+            expect(panel.get_by_text("1 unread", exact=False)).to_be_visible(timeout=10000)
             panel.get_by_role("button", name="Close notifications").click()
 
             open_tab("Orders")
