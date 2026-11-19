@@ -40,8 +40,10 @@ def main():
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        for width in (390, 768, 1366):
-            ctx = browser.new_context(viewport={"width": width, "height": 850})
+        viewports = ((320, 700), (390, 850), (430, 932), (768, 1024),
+                     (1024, 768), (1366, 850), (1920, 1080))
+        for width, height in viewports:
+            ctx = browser.new_context(viewport={"width": width, "height": height})
             page = ctx.new_page()
             # Every confirmation must be a branded DOM modal, never a browser alert.
             dialogs = []
@@ -52,7 +54,47 @@ def main():
             page.get_by_role("button", name="Sign in", exact=True).click()
             page.wait_for_url("**/owner", timeout=30000)
             page.get_by_text("Total verified revenue").wait_for(timeout=30000)
+            shell = page.locator(".owner-shell")
+            assert shell.evaluate("el => getComputedStyle(el).backgroundColor") == "rgb(13, 20, 19)"
+            # Both selectable themes must style entire cards/forms and survive reload.
+            page.get_by_role("button", name="Switch to light mode").click()
+            assert shell.get_attribute("data-theme") == "light"
+            assert shell.evaluate("el => getComputedStyle(el).backgroundColor") == "rgb(246, 248, 243)"
+            assert page.locator(".owner-kpi").first.evaluate("el => getComputedStyle(el).backgroundColor") == "rgb(255, 255, 255)"
+            page.reload(wait_until="domcontentloaded")
+            page.get_by_role("button", name="Switch to dark mode").wait_for(timeout=20000)
+            assert page.locator(".owner-shell").get_attribute("data-theme") == "light"
+            page.screenshot(path=f"/tmp/naija-ui-owner-light-{width}.png", full_page=True)
+            page.get_by_role("button", name="Switch to dark mode").click()
+            assert page.locator(".owner-shell").get_attribute("data-theme") == "dark"
             assert page.locator(".owner-shell").evaluate("el => getComputedStyle(el).backgroundColor") == "rgb(13, 20, 19)"
+            page.reload(wait_until="domcontentloaded")
+            page.get_by_role("button", name="Switch to light mode").wait_for(timeout=20000)
+            assert page.locator(".owner-shell").get_attribute("data-theme") == "dark"
+            # On phones and tablets the sidebar is an accessible, dismissible menu,
+            # and displays the planned Owner AI feature without inventing a backend.
+            navigation = page.get_by_role("navigation", name="Owner navigation")
+            if width <= 1024:
+                assert not navigation.is_visible()
+                page.get_by_role("button", name="Open owner menu").click()
+                assert navigation.is_visible()
+                assert navigation.get_by_text("Owner AI", exact=True).is_visible()
+                assert navigation.get_by_text("Soon", exact=True).count() >= 1
+                assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 3"), width
+                page.keyboard.press("Escape")
+                assert not navigation.is_visible()
+                page.get_by_role("button", name="Open owner menu").click()
+                page.get_by_role("button", name="Close navigation").click()
+                assert not navigation.is_visible()
+            else:
+                assert navigation.is_visible()
+
+            def open_tab(name):
+                if width <= 1024:
+                    page.get_by_role("button", name="Open owner menu").click()
+                navigation.get_by_role("button", name=name, exact=True).click()
+                if width <= 1024:
+                    assert not navigation.is_visible()
             assert page.get_by_text("Needs attention", exact=True).count() == 0
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 3"), width
             page.screenshot(path=f"/tmp/naija-ui-owner-dark-{width}.png", full_page=True)
@@ -71,7 +113,7 @@ def main():
             assert panel.get_by_text("1 unread", exact=False).count() >= 1
             panel.get_by_role("button", name="Close notifications").click()
 
-            page.get_by_role("button", name="Orders", exact=True).click()
+            open_tab("Orders")
             page.get_by_role("button", name="Preparing", exact=True).first.click()
             modal = page.get_by_role("alertdialog")
             modal.get_by_text("Update order status").wait_for(timeout=5000)
@@ -83,12 +125,17 @@ def main():
                 page.get_by_role("button", name="Preparing", exact=True).first.click()
                 page.get_by_role("alertdialog").screenshot(path="/tmp/naija-ui-owner-modal-390.png")
                 page.get_by_role("alertdialog").get_by_role("button", name="Cancel").click()
-            page.get_by_role("button", name="Prepared stock", exact=True).click()
+            open_tab("Prepared stock")
             page.get_by_text("Food on hand").wait_for(timeout=15000)
+            page.get_by_role("button", name="Switch to light mode").click()
+            assert page.locator(".owner-shell").get_attribute("data-theme") == "light"
+            assert page.locator(".prepared-field").first.evaluate("el => getComputedStyle(el).color") != "rgb(217, 234, 211)"
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 3"), width
+            page.get_by_role("button", name="Switch to dark mode").click()
             page.screenshot(path=f"/tmp/naija-ui-prepared-dark-{width}.png", full_page=True)
             ctx.close()
         browser.close()
-    print("Owner mode dark UI, live notifications, persistence, modal, prepared stock and 3 viewports passed")
+    print("Owner mode: light/dark persistence, accessible drawer, notifications, modal, prepared stock and 7 viewports passed")
 
 
 if __name__ == "__main__":
