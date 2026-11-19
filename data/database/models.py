@@ -120,6 +120,17 @@ def create_tables():
             )
         """)
 
+        # Read state for actual persisted order/payment/stock events; additive migration.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS owner_notification_reads (
+                owner_customer_id INTEGER NOT NULL,
+                event_key TEXT NOT NULL,
+                read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (owner_customer_id, event_key),
+                FOREIGN KEY (owner_customer_id) REFERENCES customers(id) ON DELETE CASCADE
+            )
+        """)
+
         # Prepared-food stock is opt-in; inactive variants use legacy counts.
         # After activation, prepared stock is the sole checkout inventory source.
         # Amounts are whole g, mL, or pieces; no floating point stock math.
