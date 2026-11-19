@@ -325,7 +325,10 @@ export default function OwnerHome() {
           </>}
 
           {!loading && tab === 'prepared' && <PreparedStockPanel products={products} />}
-          {!loading && tab === 'assistant' && <OwnerAIPanel apiFetch={apiFetch} />}
+          {/* Keep the assistant mounted so its chat survives switching dashboard tabs. */}
+          <section hidden={tab !== 'assistant'} aria-hidden={tab !== 'assistant'}>
+            <OwnerAIPanel apiFetch={apiFetch} />
+          </section>
 
           {!loading && tab === 'customers' && <>
             <div className="owner-heading"><div><span className="owner-eyebrow">YOUR COMMUNITY</span><h1>Customers</h1><p>Latest 100 customer accounts and their verified purchase totals.</p></div></div>
