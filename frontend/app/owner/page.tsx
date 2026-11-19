@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Bell, ChartNoAxesCombined, ChefHat, ChevronRight,
+  Bell, ChartNoAxesCombined, ChefHat, ChevronRight, Menu, Moon, Sun, X,
   ClipboardList, CreditCard, LayoutDashboard, LogOut, Megaphone, PackageOpen,
   MessageSquareText, RefreshCw, Settings2, ShieldCheck, Users, UtensilsCrossed,
 } from 'lucide-react';
@@ -66,6 +66,8 @@ const human = (text: string) => text.replaceAll('_', ' ').replace(/\b\w/g, c => 
 export default function OwnerHome() {
   const { customer, apiFetch, logout } = useAuth();
   const [tab, setTab] = useState<Tab>('overview');
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [menuOpen, setMenuOpen] = useState(false);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -121,6 +123,29 @@ export default function OwnerHome() {
       setNotificationError(cause instanceof Error ? cause.message : 'Could not retrieve notifications.');
     } finally { setNotificationLoading(false); }
   }, [apiFetch]);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem('naija-bites-owner-theme');
+      if (stored === 'light' || stored === 'dark') setTheme(stored);
+    } catch { /* Private browsing may block storage; keep the dark default. */ }
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('keydown', dismiss);
+    return () => document.removeEventListener('keydown', dismiss);
+  }, [menuOpen]);
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    try { window.localStorage.setItem('naija-bites-owner-theme', next); }
+    catch { /* Theme still applies for this session without local storage. */ }
+  }
 
   useEffect(() => { void load(); void loadNotifications(); }, [load, loadNotifications]);
   useEffect(() => {
@@ -208,14 +233,16 @@ export default function OwnerHome() {
   const filter = search.trim().toLowerCase();
 
   return (
-    <main className="owner-shell">
-      <aside className="owner-sidebar">
-        <div className="owner-logo"><span className="owner-logo-mark"><ChefHat size={24}/></span><div><strong>Naija Bites<span className="brand-dot">.</span></strong><small>OWNER'S WORKSPACE</small></div></div>
+    <main className="owner-shell" data-theme={theme}>
+      {menuOpen && <button type="button" className="owner-nav-scrim" aria-label="Close owner menu" onClick={() => setMenuOpen(false)}/>}
+
+      <aside className={"owner-sidebar" + (menuOpen ? " owner-sidebar-open" : "")} id="owner-navigation" aria-label="Owner workspace menu">
+        <div className="owner-logo"><span className="owner-logo-mark"><ChefHat size={24}/></span><div><strong>Naija Bites<span className="brand-dot">.</span></strong><small>OWNER'S WORKSPACE</small></div><button type="button" className="owner-menu-close" onClick={() => setMenuOpen(false)} aria-label="Close navigation"><X size={19}/></button></div>
         <div className="owner-nav-caption">MANAGE</div>
         <nav aria-label="Owner navigation">
           {menuItems.map(item => {
             const Icon = item.icon;
-            return <button key={item.id} className={tab === item.id ? 'owner-nav active' : 'owner-nav'} onClick={() => { setTab(item.id); setSearch(''); }}><Icon size={19}/>{item.title}{tab === item.id && <ChevronRight size={15} className="owner-nav-end"/>}</button>;
+            return <button key={item.id} type="button" className={tab === item.id ? 'owner-nav active' : 'owner-nav'} onClick={() => { setTab(item.id); setSearch(''); setMenuOpen(false); }}><Icon size={19}/>{item.title}{tab === item.id && <ChevronRight size={15} className="owner-nav-end"/>}</button>;
           })}
           <div className="owner-nav-caption owner-nav-caption-spaced">COMING NEXT</div>
           {upcoming.map(item => {
@@ -228,8 +255,10 @@ export default function OwnerHome() {
 
       <section className="owner-main">
         <header className="owner-topbar">
+          <button type="button" className="owner-icon-btn owner-menu-button" onClick={() => setMenuOpen(open => !open)} aria-label={menuOpen ? "Close owner menu" : "Open owner menu"} aria-expanded={menuOpen} aria-controls="owner-navigation">{menuOpen ? <X size={20}/> : <Menu size={20}/>}</button>
           <div className="owner-topbar-title"><span className="owner-topbar-kicker">NAIJA BITES / OWNER'S MODE</span><strong>{menuItems.find(item => item.id === tab)?.title}</strong></div>
           <div className="owner-topbar-actions">
+            <button type="button" className="owner-icon-btn owner-theme-toggle" aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} aria-pressed={theme === 'light'} onClick={toggleTheme}>{theme === 'dark' ? <Sun size={19}/> : <Moon size={19}/>}</button>
             <button className="owner-icon-btn" onClick={() => { void load(); void loadNotifications(); }} disabled={loading} title="Refresh dashboard" aria-label="Refresh dashboard"><RefreshCw size={19}/></button>
             <button className="owner-icon-btn owner-alert-trigger" onClick={() => { setShowAlerts(!showAlerts); if (!showAlerts) void loadNotifications(); }} aria-label="Toggle notifications" aria-expanded={showAlerts} aria-controls="owner-notifications"><Bell size={19}/>{unreadCount > 0 && <span>{unreadCount > 99 ? "99+" : unreadCount}</span>}</button>
           </div>
