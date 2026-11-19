@@ -144,7 +144,7 @@ export default function OwnerHome() {
 
   async function readAllNotifications() {
     try {
-      const response = await apiFetch('/owner/notifications/read-all', { method: 'POST' });
+      const response = await apiFetch('/owner/notifications/read-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       if (!response.ok) throw new Error('Could not mark notifications as read.');
       await loadNotifications();
     } catch (cause) {
