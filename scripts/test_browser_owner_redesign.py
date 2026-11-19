@@ -5,7 +5,7 @@ Uses fictional records in the disposable browser CI database only.
 import os
 from uuid import uuid4
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from core.services import auth_service
 from core.services.owner_access_service import promote_registered_customer
 from data.database import models
@@ -75,26 +75,27 @@ def main():
             # and displays the planned Owner AI feature without inventing a backend.
             navigation = page.get_by_role("navigation", name="Owner navigation")
             if width <= 1024:
-                assert not navigation.is_visible()
+                expect(navigation).to_be_hidden(timeout=5000)
                 page.get_by_role("button", name="Open owner menu").click()
-                assert navigation.is_visible()
-                assert navigation.get_by_text("Owner AI", exact=True).is_visible()
+                expect(navigation).to_be_visible(timeout=5000)
+                expect(navigation.get_by_text("Owner AI", exact=True)).to_be_visible(timeout=5000)
+                page.screenshot(path=f"/tmp/naija-ui-owner-drawer-{width}.png", full_page=True)
                 assert navigation.get_by_text("Soon", exact=True).count() >= 1
                 assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 3"), width
                 page.keyboard.press("Escape")
-                assert not navigation.is_visible()
+                expect(navigation).to_be_hidden(timeout=5000)
                 page.get_by_role("button", name="Open owner menu").click()
                 page.get_by_role("button", name="Close navigation").click()
-                assert not navigation.is_visible()
+                expect(navigation).to_be_hidden(timeout=5000)
             else:
-                assert navigation.is_visible()
+                expect(navigation).to_be_visible(timeout=5000)
 
             def open_tab(name):
                 if width <= 1024:
                     page.get_by_role("button", name="Open owner menu").click()
                 navigation.get_by_role("button", name=name, exact=True).click()
                 if width <= 1024:
-                    assert not navigation.is_visible()
+                    expect(navigation).to_be_hidden(timeout=5000)
             assert page.get_by_text("Needs attention", exact=True).count() == 0
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 3"), width
             page.screenshot(path=f"/tmp/naija-ui-owner-dark-{width}.png", full_page=True)
