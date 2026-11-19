@@ -143,6 +143,9 @@ def main():
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 3"), width
             page.screenshot(path=f"/tmp/naija-ui-owner-ai-{width}.png", full_page=True)
             page.unroute("**/api/backend/owner/assistant")
+            open_tab("Orders")
+            open_tab("Owner AI")
+            page.get_by_text("Fictional verified revenue is ₦3,500.").wait_for(timeout=5000)
             open_tab("Prepared stock")
             page.get_by_text("Food on hand").wait_for(timeout=15000)
             page.get_by_role("button", name="Switch to light mode").click()
