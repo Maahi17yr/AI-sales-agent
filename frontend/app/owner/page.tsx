@@ -9,6 +9,7 @@ import {
 import { useAuth } from '../auth-provider';
 import './owner.css';
 import PreparedStockPanel from './prepared-stock-panel';
+import OwnerAIPanel from './owner-ai-panel';
 
 type OwnerEvent = {
   key: string; category: 'order' | 'payment' | 'stock';
@@ -20,7 +21,7 @@ const eventTime = (value: string) => {
   const date = new Date(value.endsWith('Z') ? value : value.replace(' ', 'T') + 'Z');
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en-NG', {dateStyle:'medium',timeStyle:'short'});
 };
-type Tab = 'overview' | 'orders' | 'menu' | 'prepared' | 'customers';
+type Tab = 'overview' | 'orders' | 'menu' | 'prepared' | 'customers' | 'assistant';
 type Overview = {
   order_count: number; pending_orders: number; confirmed_orders: number;
   paid_revenue: number; paid_revenue_today: number; currency: string;
@@ -48,10 +49,10 @@ const menuItems: { id: Tab; title: string; icon: typeof LayoutDashboard }[] = [
   { id: 'menu', title: 'Menu & pricing', icon: UtensilsCrossed },
   { id: 'prepared', title: 'Prepared stock', icon: PackageOpen },
   { id: 'customers', title: 'Customers', icon: Users },
+  { id: 'assistant', title: 'Owner AI', icon: MessageSquareText },
 ];
 const upcoming = [
   { title: 'Payments', icon: CreditCard },
-  { title: 'Owner AI', icon: MessageSquareText },
   { title: 'Conversations', icon: MessageSquareText },
   { title: 'Promotions', icon: Megaphone },
   { title: 'Settings', icon: Settings2 },
@@ -324,6 +325,7 @@ export default function OwnerHome() {
           </>}
 
           {!loading && tab === 'prepared' && <PreparedStockPanel products={products} />}
+          {!loading && tab === 'assistant' && <OwnerAIPanel apiFetch={apiFetch} />}
 
           {!loading && tab === 'customers' && <>
             <div className="owner-heading"><div><span className="owner-eyebrow">YOUR COMMUNITY</span><h1>Customers</h1><p>Latest 100 customer accounts and their verified purchase totals.</p></div></div>
