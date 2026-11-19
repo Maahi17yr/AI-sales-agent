@@ -59,7 +59,7 @@ def main():
             # Both selectable themes must style entire cards/forms and survive reload.
             page.get_by_role("button", name="Switch to light mode").click()
             assert shell.get_attribute("data-theme") == "light"
-            assert shell.evaluate("el => getComputedStyle(el).backgroundColor") == "rgb(246, 248, 243)"
+            page.wait_for_function("getComputedStyle(document.querySelector(\'.owner-shell\')).backgroundColor === \'rgb(246, 248, 243)\'")
             assert page.locator(".owner-kpi").first.evaluate("el => getComputedStyle(el).backgroundColor") == "rgb(255, 255, 255)"
             page.reload(wait_until="domcontentloaded")
             page.get_by_role("button", name="Switch to dark mode").wait_for(timeout=20000)
@@ -67,7 +67,7 @@ def main():
             page.screenshot(path=f"/tmp/naija-ui-owner-light-{width}.png", full_page=True)
             page.get_by_role("button", name="Switch to dark mode").click()
             assert page.locator(".owner-shell").get_attribute("data-theme") == "dark"
-            assert page.locator(".owner-shell").evaluate("el => getComputedStyle(el).backgroundColor") == "rgb(13, 20, 19)"
+            page.wait_for_function("getComputedStyle(document.querySelector(\'.owner-shell\')).backgroundColor === \'rgb(13, 20, 19)\'")
             page.reload(wait_until="domcontentloaded")
             page.get_by_role("button", name="Switch to light mode").wait_for(timeout=20000)
             assert page.locator(".owner-shell").get_attribute("data-theme") == "dark"
