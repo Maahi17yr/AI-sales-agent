@@ -65,6 +65,7 @@ export default function OwnerHome() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [showAlerts, setShowAlerts] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{ title: string; message: string; run: () => Promise<void> } | null>(null);
   const [editProduct, setEditProduct] = useState<number | null>(null);
   const [draftPrice, setDraftPrice] = useState('');
   const [draftAvailable, setDraftAvailable] = useState(true);
@@ -95,10 +96,10 @@ export default function OwnerHome() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function changeOrder(order: Order) {
+  async function changeOrder(order: Order, confirmed = false) {
     const next = nextStatus[order.status];
     if (!next || busy) return;
-    if (!window.confirm(`Change order #${order.id} from ${human(order.status)} to ${human(next)}?`)) return;
+    if (!confirmed) { setPendingAction({ title: 'Update order status', message: `Change order #${order.id} from ${human(order.status)} to ${human(next)}?`, run: () => changeOrder(order, true) }); return; }
     setBusy(true); setNotice(''); setError('');
     try {
       const response = await apiFetch(`/owner/orders/${order.id}/status`, {
@@ -115,12 +116,12 @@ export default function OwnerHome() {
     finally { setBusy(false); }
   }
 
-  async function saveProduct(product: Product) {
+  async function saveProduct(product: Product, confirmed = false) {
     const price = Number(draftPrice);
     if (!Number.isSafeInteger(price) || price < 0 || draftPrice.trim() === '') {
       setError('Enter a valid non-negative price in naira.'); return;
     }
-    if (!window.confirm(`Save changes to ${product.name}?`)) return;
+    if (!confirmed) { setPendingAction({ title: 'Save menu changes', message: `Save changes to ${product.name}?`, run: () => saveProduct(product, true) }); return; }
     setBusy(true); setError(''); setNotice('');
     try {
       const response = await apiFetch(`/owner/menu/${product.id}`, {
@@ -195,9 +196,7 @@ export default function OwnerHome() {
                 {overview.popular_meals.length ? overview.popular_meals.map((meal, i) => <div className="owner-popular-row" key={meal.name}><span className="owner-rank">{i + 1}</span><strong>{meal.name}</strong><span>{meal.quantity} sold</span></div>) : <p className="owner-empty">No verified sales yet.</p>}
               </article>
             </div>
-            <article className="owner-panel owner-quick"><div className="owner-section-title"><div><h2>Needs attention</h2><p>Operational alerts based on current records</p></div><Bell size={20}/></div>
-              {alerts.length ? alerts.slice(0, 5).map((alert, i) => <p key={i}><CircleAlert size={17}/>{alert}</p>) : <p>No outstanding alerts.</p>}
-            </article>
+
           </>}
 
           {!loading && tab === 'orders' && <>
@@ -231,6 +230,17 @@ export default function OwnerHome() {
           <footer className="owner-footer">Naija Bites Owner's Mode · Phase 2 · Business data is access-controlled by FastAPI.</footer>
         </div>
       </section>
+      {pendingAction && <div className="owner-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setPendingAction(null); }}>
+        <section className="owner-modal" role="alertdialog" aria-modal="true" aria-labelledby="owner-confirm-title" aria-describedby="owner-confirm-description">
+          <div className="owner-modal-icon"><ShieldCheck size={25}/></div>
+          <h2 id="owner-confirm-title">{pendingAction.title}</h2>
+          <p id="owner-confirm-description">{pendingAction.message}</p>
+          <div className="owner-modal-actions">
+            <button type="button" className="owner-small-btn ghost" disabled={busy} onClick={() => setPendingAction(null)}>Cancel</button>
+            <button type="button" className="owner-small-btn" disabled={busy} onClick={() => { const action = pendingAction.run; setPendingAction(null); void action(); }}>Confirm change</button>
+          </div>
+        </section>
+      </div>}
     </main>
   );
 }
