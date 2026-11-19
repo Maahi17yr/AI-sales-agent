@@ -96,6 +96,15 @@ export default function OwnerHome() {
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    if (!pendingAction) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) setPendingAction(null);
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [pendingAction, busy]);
+
   async function changeOrder(order: Order, confirmed = false) {
     const next = nextStatus[order.status];
     if (!next || busy) return;
@@ -209,7 +218,7 @@ export default function OwnerHome() {
           </>}
 
           {!loading && tab === 'menu' && <>
-            <div className="owner-heading"><div><span className="owner-eyebrow">YOUR CATALOGUE</span><h1>Menu & pricing</h1><p>Edit prices and availability. The legacy checkout stock counts are still active during the prepared-stock pilot.</p></div></div>
+            <div className="owner-heading"><div><span className="owner-eyebrow">YOUR CATALOGUE</span><h1>Menu & pricing</h1><p>Edit prices and availability. Stock availability reflects each variant's active inventory source.</p></div></div>
             <div className="owner-panel"><div className="owner-section-title"><h2>Products</h2><input className="owner-search" placeholder="Search meals…" aria-label="Search meals" value={search} onChange={e => setSearch(e.target.value)}/></div>
               <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>Meal</th><th>Price</th><th>Available portions / source</th><th>Available</th><th>Action</th></tr></thead><tbody>
                 {products.filter(p => !filter || (p.name + ' ' + p.category).toLowerCase().includes(filter)).map(product => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.category}</small></td><td>{editProduct === product.id ? <input className="owner-number" type="number" min="0" max="100000000" value={draftPrice} onChange={e => setDraftPrice(e.target.value)} aria-label={`Price for ${product.name}`}/> : money(product.price)}</td><td>{product.variants.length ? product.variants.map(v => `${v.variant}: ${v.quantity} (${v.source})`).join(', ') : 'No stock entries'}</td><td>{editProduct === product.id ? <label className="owner-check"><input type="checkbox" checked={draftAvailable} onChange={e => setDraftAvailable(e.target.checked)}/> Available</label> : <span className={'owner-pill ' + (product.available ? 'green' : 'neutral')}>{product.available ? 'Available' : 'Hidden'}</span>}</td><td>{editProduct === product.id ? <div className="owner-row-actions"><button className="owner-small-btn" disabled={busy} onClick={() => void saveProduct(product)}>Save</button><button className="owner-small-btn ghost" disabled={busy} onClick={() => setEditProduct(null)}>Cancel</button></div> : <button className="owner-small-btn" disabled={busy} onClick={() => { setEditProduct(product.id); setDraftPrice(String(product.price)); setDraftAvailable(product.available); }}>Edit</button>}</td></tr>)}
@@ -236,7 +245,7 @@ export default function OwnerHome() {
           <h2 id="owner-confirm-title">{pendingAction.title}</h2>
           <p id="owner-confirm-description">{pendingAction.message}</p>
           <div className="owner-modal-actions">
-            <button type="button" className="owner-small-btn ghost" disabled={busy} onClick={() => setPendingAction(null)}>Cancel</button>
+            <button type="button" autoFocus className="owner-small-btn ghost" disabled={busy} onClick={() => setPendingAction(null)}>Cancel</button>
             <button type="button" className="owner-small-btn" disabled={busy} onClick={() => { const action = pendingAction.run; setPendingAction(null); void action(); }}>Confirm change</button>
           </div>
         </section>
