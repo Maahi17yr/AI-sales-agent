@@ -1,6 +1,7 @@
 """Validate and quote meal modifications; does not reserve stock or mutate carts."""
 from collections import Counter
 from data.database.models import get_connection
+from core.services import stock_policy
 
 
 class CustomizationService:
@@ -23,12 +24,36 @@ class CustomizationService:
                 WHERE mi.product_id = ? AND mi.removable = 1
                 ORDER BY i.name
             """, (product_id,))]
-            extras = [dict(r) for r in conn.execute("""
+            extra_rows = [dict(r) for r in conn.execute("""
                 SELECT i.id AS ingredient_id, i.name, ma.extra_price,
                        ma.max_quantity, i.stock_quantity, i.available
                 FROM meal_addons ma JOIN ingredients i ON i.id = ma.ingredient_id
                 WHERE ma.product_id = ? ORDER BY i.name
             """, (product_id,))]
+            extras = []
+            base = stock_policy.active_prepared(conn, product_id, "standard")
+            for entry in extra_rows:
+                selection = stock_policy.addon_selection(
+                    conn, product_id, "standard", entry["ingredient_id"])
+                price = entry["extra_price"]
+                available = bool(entry["available"] and entry["stock_quantity"] > 0)
+                if selection and selection["source"] == "self_extra":
+                    price = selection["price"]
+                    available = bool(entry["available"] and base and
+                        base["quantity_units"] >=
+                        base["serving_units"] + base["tolerance_units"] +
+                        base["extra_units"] + base["extra_tolerance_units"])
+                elif selection and selection["source"] == "prepared_other":
+                    target = stock_policy.active_prepared(
+                        conn, selection["target_product_id"], selection["target_variant"])
+                    available = bool(entry["available"] and target and target["active"] and
+                        target["quantity_units"] >=
+                        target["serving_units"] + target["tolerance_units"])
+                # Never send physical ingredient balances or serving units to an AI.
+                extras.append({"ingredient_id": entry["ingredient_id"],
+                               "name": entry["name"], "extra_price": price,
+                               "max_quantity": entry["max_quantity"],
+                               "available": available})
             return {"success": True, "product_id": product_id,
                     "meal": product["name"], "base_price": product["price"],
                     "removable": removals, "extras": extras}
@@ -97,12 +122,27 @@ class CustomizationService:
                     raise ValueError(f"'{name}' is not an approved extra for this meal.")
                 if count > ingredient["max_quantity"]:
                     raise ValueError(f"Maximum {ingredient['max_quantity']} extra '{ingredient['name']}' per meal.")
-                if not ingredient["available"] or ingredient["stock_quantity"] < count * quantity:
+                selection = stock_policy.addon_selection(
+                    conn, product_id, "standard", ingredient["id"])
+                if not ingredient["available"] or (
+                    selection is None and ingredient["stock_quantity"] < count * quantity
+                ):
                     raise ValueError(f"Not enough '{ingredient['name']}' available.")
-                extra_cost += ingredient["extra_price"] * count
+                price = (selection["price"] if selection and
+                         selection["source"] == "self_extra"
+                         else ingredient["extra_price"])
+                extra_cost += price * count
                 modifications.append({"action": "add", "ingredient_id": ingredient["id"],
                                       "name": ingredient["name"], "quantity": count,
-                                      "unit_price_delta": ingredient["extra_price"]})
+                                      "unit_price_delta": price})
+            # A prepared meal + same-pot extra must fit together. Checking
+            # the extra alone would allow overselling the last serving.
+            if stock_policy.active_in_cart(conn, [{"product_id": product_id}]):
+                legacy, addons, prepared = stock_policy.demand(conn, [{
+                    "product_id": product_id, "variant": "standard",
+                    "quantity": quantity, "modifications": modifications,
+                }])
+                stock_policy.validate(conn, legacy, addons, prepared)
             unit_price = product["price"] + extra_cost
             return {"success": True, "product_id": product_id, "meal": product["name"],
                     "quantity": quantity, "base_price": product["price"],

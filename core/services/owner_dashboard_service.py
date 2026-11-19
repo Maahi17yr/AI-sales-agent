@@ -52,10 +52,18 @@ def overview():
             GROUP BY pr.id, pr.name ORDER BY quantity DESC, pr.name LIMIT 5
         """)
         low_stock = _rows(conn, """
-            SELECT p.id AS product_id, p.name, i.variant, i.quantity
+            SELECT p.id AS product_id, p.name, i.variant,
+                   CASE WHEN ps.active = 1
+                        THEN ps.quantity_units / (ps.serving_units + ps.tolerance_units)
+                        ELSE i.quantity END AS quantity
             FROM inventory i JOIN products p ON p.id = i.product_id
-            WHERE p.available = 1 AND i.quantity <= 5
-            ORDER BY i.quantity, p.name LIMIT 10
+            LEFT JOIN prepared_stock ps ON ps.product_id = i.product_id
+                                       AND ps.variant = i.variant
+            WHERE p.available = 1
+              AND CASE WHEN ps.active = 1
+                       THEN ps.quantity_units / (ps.serving_units + ps.tolerance_units)
+                       ELSE i.quantity END <= 5
+            ORDER BY quantity, p.name LIMIT 10
         """)
         trend = []
         for offset in range(6, -1, -1):
@@ -98,12 +106,20 @@ def list_menu():
             FROM products ORDER BY category, name
         """)
         stock = _rows(conn, """
-            SELECT product_id, variant, quantity FROM inventory ORDER BY variant
+            SELECT i.product_id, i.variant,
+                   CASE WHEN ps.active = 1
+                        THEN ps.quantity_units / (ps.serving_units + ps.tolerance_units)
+                        ELSE i.quantity END AS quantity,
+                   CASE WHEN ps.active = 1 THEN 'prepared' ELSE 'legacy' END AS source
+            FROM inventory i LEFT JOIN prepared_stock ps
+              ON ps.product_id = i.product_id AND ps.variant = i.variant
+            ORDER BY i.variant
         """)
     by_product = {}
     for row in stock:
         by_product.setdefault(row["product_id"], []).append({
-            "variant": row["variant"], "quantity": row["quantity"]
+            "variant": row["variant"], "quantity": row["quantity"],
+            "source": row["source"]
         })
     for product in products:
         product["variants"] = by_product.get(product["id"], [])

@@ -9,6 +9,7 @@ from collections import Counter
 from data.database import repository
 from data.database.models import get_connection
 from core.services.customization_service import CustomizationService
+from core.services import stock_policy
 
 
 class CartService:
@@ -41,7 +42,17 @@ class CartService:
         return json.dumps(modifications, sort_keys=True, separators=(",", ":"))
 
     def _check_all_stock(self, items):
-        """Validate totals across standard/customized cart lines (no reservations)."""
+        """Validate shared stock without reserving it at cart time."""
+        if items:
+            with get_connection() as conn:
+                if stock_policy.active_in_cart(conn, items):
+                    try:
+                        legacy, extras, prepared = stock_policy.demand(conn, items)
+                        stock_policy.validate(conn, legacy, extras, prepared)
+                        return None
+                    except ValueError as error:
+                        return str(error)
+        # Preserve fast batched legacy behavior and its existing messages.
         product_totals = Counter()
         extra_totals = Counter()
         for item in items:
@@ -131,20 +142,31 @@ class CartService:
         detailed, subtotal = [], 0
         items = self.get_cart()
         products = repository.get_products_by_ids(item["product_id"] for item in items)
-        for item in items:
-            product = products.get(item["product_id"])
-            if not product:
-                continue
-            mods = item.get("modifications", [])
-            extra_cost = sum(m["quantity"] * m["unit_price_delta"]
-                             for m in mods if m["action"] == "add")
-            unit_price = product["price"] + extra_cost
-            line_total = unit_price * item["quantity"]
-            subtotal += line_total
-            detailed.append({"product_id": item["product_id"], "name": product["name"],
-                             "variant": item.get("variant", "standard"),
-                             "quantity": item["quantity"], "modifications": mods,
-                             "unit_price": unit_price, "line_total": line_total})
+        with get_connection() as conn:
+            uses_prepared = stock_policy.active_in_cart(conn, items)
+            for item in items:
+                product = products.get(item["product_id"])
+                if not product:
+                    continue
+                mods = []
+                for mod in item.get("modifications", []):
+                    clone = dict(mod)
+                    if uses_prepared and clone["action"] == "add":
+                        selection = stock_policy.addon_selection(
+                            conn, item["product_id"], item.get("variant", "standard"),
+                            clone["ingredient_id"])
+                        if selection and selection["source"] == "self_extra":
+                            clone["unit_price_delta"] = selection["price"]
+                    mods.append(clone)
+                extra_cost = sum(m["quantity"] * m["unit_price_delta"]
+                                 for m in mods if m["action"] == "add")
+                unit_price = product["price"] + extra_cost
+                line_total = unit_price * item["quantity"]
+                subtotal += line_total
+                detailed.append({"product_id": item["product_id"], "name": product["name"],
+                                 "variant": item.get("variant", "standard"),
+                                 "quantity": item["quantity"], "modifications": mods,
+                                 "unit_price": unit_price, "line_total": line_total})
         return {"items": detailed, "subtotal": subtotal, "currency": "NGN"}
 
     def clear_cart(self):
