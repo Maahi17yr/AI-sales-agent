@@ -30,3 +30,26 @@
 .prepared-stat span{font-size:12px;color:#637d60}
 .prepared-muted{color:#7a8877;font-size:12px;margin-top:8px}
 @media(max-width:700px){.prepared-grid{grid-template-columns:1fr}}
+
+/* Owner Mode dark palette and responsive confirmation dialog */
+.owner-shell{background:#0d1413;color:#edf4ec;color-scheme:dark}
+.owner-sidebar,.owner-topbar,.owner-panel,.owner-kpi,.owner-alerts{background:#151e1c;border-color:#2b3a33;box-shadow:0 8px 22px #0002}
+.owner-logo strong,.owner-topbar-title strong,.owner-heading h1,.owner-kpi strong,.owner-section-title h2,.owner-popular-row strong,.owner-table td strong{color:#f1f6ef}
+.owner-logo small,.owner-nav-caption,.owner-topbar-kicker,.owner-heading p,.owner-kpi span,.owner-kpi small,.owner-section-title p,.owner-table td,.owner-table th,.owner-table td small,.owner-footer{color:#a8b7a8}
+.owner-nav{color:#b8cbb7}.owner-nav.active,.owner-nav:not(.disabled):hover{background:#263c2d;color:#c9f58c}
+.owner-sidebar-footer{border-color:#2b3a33}.owner-sidebar-footer small{color:#a8b7a8}
+.owner-icon-btn,.owner-number,.owner-search{background:#1b2923;color:#e5f1de;border-color:#34493a}
+.owner-chart{border-color:#34493a}.owner-popular-row,.owner-table td,.owner-table th{border-color:#2b3a33}
+.owner-rank,.owner-live,.owner-small-btn.ghost{background:#263c2d;color:#c9f58c}
+.owner-quick p,.owner-alerts p,.owner-message{background:#202f26;color:#c5e4bb}
+.owner-message.error{background:#3d2525;color:#ffc4bd}.owner-message.success{background:#203e2b;color:#c5f0b4}
+.owner-pill.neutral{background:#29352d;color:#c7d3c5}.owner-pill.green{background:#25452b;color:#bceca8}
+.prepared-summary,.prepared-stat{background:#1b2923!important;border-color:#34493a!important;color:#dcebd7!important}
+.prepared-stat strong{color:#d6f6a3!important}.prepared-stat span,.prepared-muted{color:#b0c2ad!important}
+.owner-modal-backdrop{position:fixed;inset:0;z-index:1000;background:#000a;display:grid;place-items:center;padding:18px}
+.owner-modal{width:min(100%,440px);background:#17211e;border:1px solid #48604c;border-radius:22px;padding:28px;color:#edf4ec;text-align:center;box-shadow:0 22px 80px #0009}
+.owner-modal-icon{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;margin:0 auto 15px;background:#29452a;color:#c8ef84}
+.owner-modal h2{font-size:22px;margin:0 0 10px;color:#fff}.owner-modal p{color:#bac9bb;line-height:1.6;margin:0 0 24px}
+.owner-modal-actions{display:flex;gap:12px}.owner-modal-actions button{flex:1;min-height:44px}
+.owner-modal-actions .owner-small-btn:not(.ghost){background:#b8e86c;color:#142010}
+@media(max-width:700px){.owner-modal{padding:22px}.owner-modal-actions{flex-direction:column-reverse}.owner-shell{overflow-x:hidden}.owner-content{padding:20px 14px}.owner-panel{padding:16px}.owner-topbar{padding:12px 14px}}
