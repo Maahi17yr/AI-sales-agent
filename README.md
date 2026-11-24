@@ -4,6 +4,10 @@
 
 Naija Bites is a conversational food-ordering demonstration. Customers can browse a Nigerian menu, chat with the AI assistant, manage a cart, review server-calculated delivery fees and totals, and explicitly approve checkout. The AI selects tools, but **trusted Python services and the database enforce the rules**.
 
+## Demo video
+
+[Watch the Naija Bites demo (4:05)](docs/naija-bites-demo.mp4) to see signup, menu browsing, cart updates, checkout, and Paystack test payment confirmation.
+
 ## Architecture
 
 | Layer | Directory | Responsibility |
